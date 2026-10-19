@@ -19,6 +19,14 @@ export interface PageContext {
   readonly vaultUrl: string;
   /** Reads a vault file's text by its vault path, or returns null if there is none. */
   read(path: string): Promise<string | null>;
+  /** Whether a file or folder exists at a vault path. */
+  exists?(path: string): boolean;
+  /**
+   * The vault path of the file that Obsidian's link resolution finds for a
+   * link text in this page, or null. With `exists`, it lets references that
+   * do not resolve as paths name a file as Obsidian's own links do.
+   */
+  locate?(linktext: string): string | null;
 }
 
 /** The deepest chain of stylesheet imports that is followed. */
@@ -47,6 +55,33 @@ function resolve(reference: string, base: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** The resource URL of a vault path. */
+export function resourceUrl(path: string, vaultUrl: string): string {
+  return vaultUrl + path.split("/").map(encodeURIComponent).join("/");
+}
+
+/**
+ * The resource URL of the file a reference names as Obsidian's links do, by
+ * name or by a partial path, when its URL leads to a vault path where nothing
+ * exists; otherwise null, and the reference stays as it is. The reference's
+ * fragment is kept, as for an SVG symbol.
+ */
+export function locatedUrl(reference: string, absolute: string, context: PageContext): string | null {
+  if (!context.exists || !context.locate) return null;
+  const path = vaultPath(absolute, context.vaultUrl);
+  if (path === null || context.exists(path)) return null;
+  let linktext: string;
+  try {
+    linktext = decodeURIComponent(withoutQuery(reference)).replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
+  const located = linktext === "" ? null : context.locate(linktext);
+  if (located === null) return null;
+  const hash = reference.indexOf("#");
+  return resourceUrl(located, context.vaultUrl) + (hash === -1 ? "" : reference.slice(hash));
 }
 
 /** The origin and path of the vault, as a CSP source expression. */
@@ -93,15 +128,80 @@ const URL_TOKEN = /url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^
 const IMPORT_RULE =
   /@import\s+(?:url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^)"'\s\\]|\\.)*))\s*\)|"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)')\s*([^;]*);/gi;
 
-/** Makes every `url()` in a stylesheet absolute, against the stylesheet's own URL. */
-export function absoluteUrls(css: string, sheetUrl: string): string {
+/**
+ * Makes every `url()` in a stylesheet absolute, against the stylesheet's own
+ * URL, with a reference that does not resolve as a path located by name when
+ * the context can (`locatedUrl`).
+ */
+export function absoluteUrls(css: string, sheetUrl: string, context?: PageContext): string {
   return css.replace(URL_TOKEN, (token: string, double?: string, single?: string, bare?: string) => {
     const reference = unescapeCss(double ?? single ?? bare ?? "");
     // An empty reference or a fragment refers to the document, as in SVG filters.
     if (reference === "" || reference.startsWith("#")) return token;
     const absolute = resolve(reference, sheetUrl);
-    return absolute === null ? token : `url(${cssString(absolute)})`;
+    if (absolute === null) return token;
+    return `url(${cssString((context && locatedUrl(reference, absolute, context)) ?? absolute)})`;
   });
+}
+
+/** Replaces only the `url()`s in CSS that `locatedUrl` locates by name. */
+function locateCssUrls(css: string, baseUrl: string, context: PageContext): string {
+  return css.replace(URL_TOKEN, (token: string, double?: string, single?: string, bare?: string) => {
+    const reference = unescapeCss(double ?? single ?? bare ?? "");
+    const absolute = reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
+    const located = absolute === null ? null : locatedUrl(reference, absolute, context);
+    return located === null ? token : `url(${cssString(located)})`;
+  });
+}
+
+/** Attributes holding a URL of a resource the page loads, by element. */
+const RESOURCE_ATTRIBUTES: Record<string, readonly string[]> = {
+  img: ["src", "srcset"],
+  source: ["src", "srcset"],
+  video: ["src", "poster"],
+  audio: ["src"],
+  track: ["src"],
+  input: ["src"],
+  embed: ["src"],
+  object: ["data"],
+  iframe: ["src"],
+  image: ["href", "xlink:href"],
+  use: ["href", "xlink:href"],
+};
+
+/** Applies `locatedUrl` to each URL of a `srcset`, keeping its descriptors. */
+function locateSrcset(srcset: string, baseUrl: string, context: PageContext): string {
+  return srcset.replace(/(^|,)(\s*)([^\s,][^\s]*?)(,?)(?=\s|$)/g, (whole, comma: string, space: string, url: string, trailing: string) => {
+    const absolute = resolve(url, baseUrl);
+    const located = absolute === null ? null : locatedUrl(url, absolute, context);
+    return located === null ? whole : `${comma}${space}${located}${trailing}`;
+  });
+}
+
+/**
+ * Points the page's references that do not resolve as paths at the files
+ * Obsidian's link resolution finds for them, as the previous fork did. A
+ * reference that resolves, or that nothing matches, stays as written.
+ */
+function locateReferences(doc: Document, baseUrl: string, context: PageContext): void {
+  if (!context.exists || !context.locate) return;
+  for (const element of doc.querySelectorAll(Object.keys(RESOURCE_ATTRIBUTES).join(", "))) {
+    for (const name of RESOURCE_ATTRIBUTES[element.localName] ?? []) {
+      const value = element.getAttribute(name);
+      if (value === null || value.trim() === "") continue;
+      if (name === "srcset") {
+        element.setAttribute(name, locateSrcset(value, baseUrl, context));
+        continue;
+      }
+      const absolute = resolve(value.trim(), baseUrl);
+      const located = absolute === null ? null : locatedUrl(value.trim(), absolute, context);
+      if (located !== null) element.setAttribute(name, located);
+    }
+  }
+  for (const element of doc.querySelectorAll("[style]")) {
+    const style = element.getAttribute("style") ?? "";
+    if (/url\(/i.test(style)) element.setAttribute("style", locateCssUrls(style, baseUrl, context));
+  }
 }
 
 /**
@@ -120,16 +220,18 @@ export async function inlineStylesheet(
     const [rule, a, b, c, d, e, media] = match;
     const reference = unescapeCss(a ?? b ?? c ?? d ?? e ?? "");
     const absolute = resolve(reference, sheetUrl);
-    const path = absolute === null ? null : vaultPath(absolute, context.vaultUrl);
+    const located = absolute === null ? null : locatedUrl(reference, absolute, context);
+    const target = located ?? absolute;
+    const path = target === null ? null : vaultPath(target, context.vaultUrl);
     const conditions = media.trim();
-    let text = absolute === null ? rule : `@import url(${cssString(absolute)})${conditions ? ` ${conditions}` : ""};`;
+    let text = target === null ? rule : `@import url(${cssString(target)})${conditions ? ` ${conditions}` : ""};`;
     // Cascade layers and support conditions have no plain block form to wrap
     // the imported text in, so such imports stay imports.
     const wrappable = !/\b(layer|supports)\s*\(|^layer\b/i.test(conditions);
-    if (absolute !== null && path !== null && wrappable && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH) {
+    if (target !== null && path !== null && wrappable && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH) {
       const imported = await context.read(path);
       if (imported !== null) {
-        const inner = await inlineStylesheet(imported, absolute, context, new Set([...seen, path]));
+        const inner = await inlineStylesheet(imported, target, context, new Set([...seen, path]));
         text = conditions === "" ? inner : `@media ${conditions} {\n${inner}\n}`;
       }
     }
@@ -139,10 +241,10 @@ export async function inlineStylesheet(
   let result = "";
   let cursor = 0;
   for (const { start, end, text } of imports) {
-    result += absoluteUrls(css.slice(cursor, start), sheetUrl) + text;
+    result += absoluteUrls(css.slice(cursor, start), sheetUrl, context) + text;
     cursor = end;
   }
-  return result + absoluteUrls(css.slice(cursor), sheetUrl);
+  return result + absoluteUrls(css.slice(cursor), sheetUrl, context);
 }
 
 /**
@@ -187,8 +289,12 @@ export async function preparePage(html: string, context: PageContext, options: P
   const pageBase = doc.querySelector("base[href]")?.getAttribute("href") ?? "";
   const baseUrl = resolve(pageBase, context.pageUrl) ?? context.pageUrl;
 
+  locateReferences(doc, baseUrl, context);
+
   for (const link of [...doc.querySelectorAll("link")].filter(isStylesheetLink)) {
-    const sheetUrl = resolve(link.getAttribute("href") ?? "", baseUrl);
+    const href = link.getAttribute("href") ?? "";
+    const resolved = resolve(href, baseUrl);
+    const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
     const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
     if (sheetUrl === null || path === null) continue;
     const css = await context.read(path);
@@ -203,8 +309,11 @@ export async function preparePage(html: string, context: PageContext, options: P
   }
 
   for (const style of doc.querySelectorAll("style")) {
-    if (/@import/i.test(style.textContent ?? "")) {
-      style.textContent = styleElementText(await inlineStylesheet(style.textContent ?? "", baseUrl, context));
+    const css = style.textContent ?? "";
+    if (/@import/i.test(css)) {
+      style.textContent = styleElementText(await inlineStylesheet(css, baseUrl, context));
+    } else if (/url\(/i.test(css)) {
+      style.textContent = styleElementText(locateCssUrls(css, baseUrl, context));
     }
   }
 

@@ -70,6 +70,15 @@ describe("Links in a page in Obsidian", function () {
     expect((await activeFile()).type).toBe("markdown");
   });
 
+  it("opens a note that a link names by file name only", async function () {
+    await openInActiveTab("Saved/By name.html");
+    await waitForPage();
+    await clickInPage('a[href="Topic.md"]');
+    await browser.waitUntil(async () => (await activeFile()).path === "Notes/Topic.md", {
+      timeoutMsg: "the note named by the link did not open",
+    });
+  });
+
   it("opens a link in a new tab with Ctrl", async function () {
     await openInActiveTab("Mirror/index.html");
     await waitForPage();

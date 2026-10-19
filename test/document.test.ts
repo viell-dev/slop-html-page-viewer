@@ -253,4 +253,68 @@ describe("preparePage", () => {
       assert.equal(parse(prepared.html).querySelectorAll("script").length, 0);
     });
   });
+
+  describe("locating references by name", () => {
+    const FILES: Record<string, string> = {
+      "Shared/card.png": "",
+      "Saved/present.png": "",
+      "Assets/sprites/025.png": "",
+      "Theme/site.css": "body { background: url(bg.png) }",
+      "Theme/bg.png": "",
+    };
+
+    function locating(): PageContext & { reads: string[] } {
+      const ctx = context(FILES);
+      return {
+        ...ctx,
+        exists: (path: string) => path in FILES || path === "Saved",
+        locate: (linktext: string) =>
+          Object.keys(FILES).find((path) => path === linktext || path.endsWith(`/${linktext}`)) ?? null,
+      };
+    }
+
+    const url = (path: string) => `${VAULT}${path.split("/").map(encodeURIComponent).join("/")}`;
+
+    it("points references that do not resolve as paths at the file found by name", async () => {
+      const html = `<img src="card.png"><img src="present.png"><img src="2026/missing.png"><img src="https://example.com/a.png">`;
+      const sources = [...parse(await prepare(html, locating())).images].map((image) => image.getAttribute("src"));
+      assert.deepEqual(sources, [url("Shared/card.png"), "present.png", "2026/missing.png", "https://example.com/a.png"]);
+    });
+
+    it("finds a partial path and keeps a fragment", async () => {
+      const html = `<svg><use href="sprites/025.png#icon"></use></svg>`;
+      assert.equal(
+        parse(await prepare(html, locating())).querySelector("use")?.getAttribute("href"),
+        `${url("Assets/sprites/025.png")}#icon`,
+      );
+    });
+
+    it("locates each candidate of a srcset, keeping its descriptors", async () => {
+      const html = `<img srcset="card.png 1x, present.png 2x">`;
+      assert.equal(
+        parse(await prepare(html, locating())).querySelector("img")?.getAttribute("srcset"),
+        `${url("Shared/card.png")} 1x, present.png 2x`,
+      );
+    });
+
+    it("locates a stylesheet by name, and its own references from its real location", async () => {
+      const page = parse(await prepare(`<link rel="stylesheet" href="site.css">`, locating()));
+      assert.equal(page.querySelector("style")?.textContent, `body { background: url("${url("Theme/bg.png")}") }`);
+    });
+
+    it("locates url()s in style attributes and style elements, and leaves the rest", async () => {
+      const html = `<p style="background: url('card.png')">x</p><style>p { background: url(card.png) } q { background: url(present.png) }</style>`;
+      const page = parse(await prepare(html, locating()));
+      assert.equal(page.querySelector("p")?.getAttribute("style"), `background: url("${url("Shared/card.png")}")`);
+      assert.equal(
+        page.querySelector("style")?.textContent,
+        `p { background: url("${url("Shared/card.png")}") } q { background: url(present.png) }`,
+      );
+    });
+
+    it("changes nothing without link resolution", async () => {
+      const page = parse(await prepare(`<img src="card.png">`, context(FILES)));
+      assert.equal(page.querySelector("img")?.getAttribute("src"), "card.png");
+    });
+  });
 });

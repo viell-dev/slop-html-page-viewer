@@ -31,6 +31,12 @@ describe("A page's local files in Obsidian", function () {
     expect(await framePixels(BLUE)).toBeGreaterThan(1000);
   });
 
+  it("shows an image that the page names by file name only, as Obsidian's links do", async function () {
+    await openInActiveTab("Saved/By name.html");
+    await waitForPage();
+    expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(IMAGE_PIXELS * 0.9);
+  });
+
   it("shows nothing from outside the vault", async function () {
     await openInActiveTab("Saved/Outside reference.html");
     await waitForPage();

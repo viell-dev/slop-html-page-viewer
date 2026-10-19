@@ -98,6 +98,9 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 - `src/document.ts` prepares the copy of the page that the frame shows through `srcdoc`: a `<base>`
   at the file's resource URL, a Content Security Policy that keeps Obsidian's file URLs inside the
   vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute.
+  A reference whose vault path does not exist is pointed at the file that Obsidian's link resolution
+  (`getFirstLinkpathDest`) finds for it (`locatedUrl`); clicked links fall back the same way in
+  `openVaultPath`. References that resolve stay as written.
   The measurements behind this design are in #7: in Obsidian, only a `srcdoc` frame with Obsidian's
   origin (`allow-same-origin`) loads vault files, and such a frame inherits Obsidian's policy, which
   allows only inline styles. Recheck them with the end-to-end suite when Obsidian changes.
