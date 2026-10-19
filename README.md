@@ -25,10 +25,12 @@ and anyone may use it under the license.
   Obsidian opens a file, and links within the page scroll to their target. Ctrl-click (Cmd-click on
   macOS) or a middle click opens a new tab.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
-  for the current tab only.
+  for the open page.
 - Shows the source with HTML syntax highlighting and line numbers.
 - Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
-  after a note in between. A new tab starts rendered, with the theme on.
+  after a note in between. A new tab starts rendered.
+- Has settings for how pages open: **Theme in new tabs**, on by default, and **Scripts when a page
+  opens**, off by default.
 - Never writes to the files it opens.
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).
@@ -55,7 +57,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 - Its plugin id is `viell-html-page-viewer` and its name "HTML Page Viewer (viell)", so that
   Obsidian never replaces it with an upstream release. Both plugins open `.html` and `.htm` files,
   so enable only one of them.
-- Scripts are off again for each file that opens in a tab, as upstream's README promises.
+- Scripts are off again for each file that opens in a tab, as upstream's README promises, unless
+  the settings start every page with them on.
 - `npm run build` works on Windows. The fix is [offered
   upstream](https://github.com/viggomeesters/obsidian-html-page-viewer/pull/1).
 
@@ -78,8 +81,9 @@ copy the same three files from the checkout's root.
 
 ## Security model
 
-The view shows a copy of the page, never the file itself, in a sandboxed frame. Scripts are off by
-default, and scripts and same-origin access are never granted together:
+The view shows a copy of the page, never the file itself, in a sandboxed frame. Scripts are off
+unless the toolbar or the settings turn them on, and scripts and same-origin access are never
+granted together:
 
 - **Scripts off:** the sandbox grants only `allow-same-origin`, so that the page can load the
   vault's files. It cannot run scripts, submit forms, open popups, or navigate Obsidian.
@@ -88,9 +92,9 @@ default, and scripts and same-origin access are never granted together:
 
 The copy carries a policy that lets Obsidian's file URLs load only from inside the vault. The plugin
 itself makes no network requests, does not use the clipboard, and only reads vault files: the page
-and the stylesheets it links. A rendered page can still load the images, fonts, or scripts on the
-web that it refers to, as any browser would. [SECURITY.md](SECURITY.md) has the details and how to
-report a vulnerability.
+and the stylesheets it links. The one file it writes is its own settings. A rendered page can still
+load the images, fonts, or scripts on the web that it refers to, as any browser would.
+[SECURITY.md](SECURITY.md) has the details and how to report a vulnerability.
 
 ## Status
 

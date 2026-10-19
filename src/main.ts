@@ -11,6 +11,7 @@ import {
 import { preparePage, styleElementText, withoutQuery } from "./document";
 import { type PaneChoice, watchLinks } from "./links";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
+import { DEFAULT_SETTINGS, readSettings, type SettingsHost, type ViewerSettings, ViewerSettingTab } from "./settings";
 
 const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
 const HTML_EXTENSIONS = ["html", "htm"];
@@ -23,7 +24,9 @@ interface TabChoices {
   readonly theme: boolean;
 }
 
-export default class HtmlPageViewerPlugin extends Plugin {
+export default class HtmlPageViewerPlugin extends Plugin implements SettingsHost {
+  settings: ViewerSettings = DEFAULT_SETTINGS;
+
   /**
    * Each tab's choices, kept while the tab shows other views, such as a note:
    * Obsidian then replaces this plugin's view, but keeps the tab.
@@ -31,11 +34,13 @@ export default class HtmlPageViewerPlugin extends Plugin {
   readonly tabChoices = new WeakMap<WorkspaceLeaf, TabChoices>();
 
   async onload(): Promise<void> {
+    this.settings = readSettings(await this.loadData());
     this.registerView(
       VIEW_TYPE_HTML_PAGE_VIEWER,
-      (leaf) => new HtmlPageViewerView(leaf, this.tabChoices),
+      (leaf) => new HtmlPageViewerView(leaf, this),
     );
     this.registerExtensions(HTML_EXTENSIONS, VIEW_TYPE_HTML_PAGE_VIEWER);
+    this.addSettingTab(new ViewerSettingTab(this.app, this));
 
     this.addCommand({
       id: "open-current-html-in-viewer",
@@ -60,12 +65,18 @@ export default class HtmlPageViewerPlugin extends Plugin {
       active: true,
     });
   }
+
+  /** Changes and saves settings. Open tabs keep what they show; the change applies to what opens next. */
+  async updateSettings(change: Partial<ViewerSettings>): Promise<void> {
+    this.settings = { ...this.settings, ...change };
+    await this.saveData(this.settings);
+  }
 }
 
 class HtmlPageViewerView extends TextFileView {
-  private mode: ViewMode = "rendered";
-  private scriptsEnabled = false;
-  private themeEnabled = true;
+  private mode: ViewMode;
+  private scriptsEnabled: boolean;
+  private themeEnabled: boolean;
   private iframe: HTMLIFrameElement | null = null;
   /** The reading style in the frame's page, or null if it has none. */
   private shownStyle: string | null = null;
@@ -73,20 +84,20 @@ class HtmlPageViewerView extends TextFileView {
 
   constructor(
     leaf: WorkspaceLeaf,
-    private readonly tabChoices: WeakMap<WorkspaceLeaf, TabChoices>,
+    private readonly plugin: HtmlPageViewerPlugin,
   ) {
     super(leaf);
-    // Scripts are not among them: they start off for every file.
-    const choices = tabChoices.get(leaf);
-    if (choices) {
-      this.mode = choices.mode;
-      this.themeEnabled = choices.theme;
-    }
+    // A tab's own choices come first; scripts are not among them, but start
+    // as the settings say for every file.
+    const choices = plugin.tabChoices.get(leaf);
+    this.mode = choices?.mode ?? "rendered";
+    this.themeEnabled = choices?.theme ?? plugin.settings.themeOn;
+    this.scriptsEnabled = plugin.settings.scriptsOn;
   }
 
   /** Keeps the tab's choices for the next view in it. */
   private rememberChoices(): void {
-    this.tabChoices.set(this.leaf, { mode: this.mode, theme: this.themeEnabled });
+    this.plugin.tabChoices.set(this.leaf, { mode: this.mode, theme: this.themeEnabled });
   }
 
   getViewType(): string {
@@ -115,7 +126,7 @@ class HtmlPageViewerView extends TextFileView {
 
   setViewData(data: string, clear: boolean): void {
     // Obsidian sets `clear` when a different file opens in this view, which
-    // must start with scripts off like a new tab.
+    // must start with scripts as the settings say, like a new tab.
     if (clear) this.clear();
     this.data = data;
     this.render();
@@ -127,7 +138,7 @@ class HtmlPageViewerView extends TextFileView {
 
   clear(): void {
     this.data = "";
-    this.scriptsEnabled = false;
+    this.scriptsEnabled = this.plugin.settings.scriptsOn;
     this.iframe = null;
     this.contentEl.empty();
   }

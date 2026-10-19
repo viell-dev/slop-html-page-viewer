@@ -24,8 +24,10 @@ export class Harness {
     this.plugin = new HtmlPageViewerPlugin(this.app as never, {} as never) as unknown as Plugin;
   }
 
-  static async load(): Promise<Harness> {
+  /** Loads the plugin, with the data that a vault saved for it, if any. */
+  static async load(data: unknown = null): Promise<Harness> {
     const harness = new Harness();
+    harness.plugin.data = data;
     await (harness.plugin as unknown as HtmlPageViewerPlugin).onload();
     return harness;
   }
