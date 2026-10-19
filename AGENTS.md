@@ -126,9 +126,12 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   origin (`allow-same-origin`) loads vault files, and such a frame inherits Obsidian's policy, which
   allows only inline styles. Recheck them with the end-to-end suite when Obsidian changes.
 - `src/reading.ts` builds the reading style from Obsidian's theme variables, for pages without a
-  `<style>` or a stylesheet link. `preparePage` adds it to the copy; on Obsidian's `css-change`
-  event the view replaces its text in place when it can reach the page (scripts off), and prepares
-  the page again otherwise. Theme values are stripped of characters that could end a declaration.
+  `<style>` or a stylesheet link, and keeps the text to the theme's line width while Obsidian's
+  Readable line length setting (`vault.getConfig("readableLineLength")`) is on. `preparePage` adds
+  it to the copy; on Obsidian's `css-change` event, and on the vault's `config-changed` for that
+  setting (#37), the view replaces its text in place when it can reach the page (scripts off), and
+  prepares the page again otherwise. Theme values are stripped of characters that could end a
+  declaration.
 - `src/links.ts` classifies a link's resolved URL and follows clicks in the page: the view calls
   `watchLinks` on each load of a page it can reach, and its capturing `click` and `auxclick`
   listeners run although the page's scripts are disabled (measured in #9). External links go to

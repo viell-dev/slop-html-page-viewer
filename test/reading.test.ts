@@ -57,6 +57,12 @@ describe("readingStylesheet", () => {
     assert.match(css, /th, td \{ border: 1px solid /);
     assert.match(css, /max-width: calc\(700px \+ 4em\)/);
   });
+
+  it("uses the full width without Readable line length", () => {
+    const css = readingStylesheet(readTheme(themedDocument(false, { "--file-line-width": "640px" })), false);
+    assert.match(css, /max-width: none;/);
+    assert.doesNotMatch(css, /640px/);
+  });
 });
 
 describe("theme in the view", () => {
@@ -99,6 +105,7 @@ describe("theme in the view", () => {
   });
 
   it("prepares the page again on a theme change while scripts are on", async () => {
+    themedDocument(false, {});
     const harness = await Harness.load();
     const view = harness.newView();
     harness.open(view, "plain.html", PLAIN);
@@ -106,11 +113,78 @@ describe("theme in the view", () => {
     await settle();
     const before = frame(view);
 
+    themedDocument(true, { "--background-primary": "#101010" });
     harness.app.workspace.trigger("css-change");
     await settle();
     const after = frame(view);
     assert.ok(after);
     assert.notEqual(after, before);
-    assert.ok(readingStyle(after.srcdoc));
+    assert.match(readingStyle(after.srcdoc) ?? "", /background: #101010;/);
+  });
+
+  it("leaves the page alone when the theme event changes nothing it shows", async () => {
+    themedDocument(false, {});
+    const harness = await Harness.load();
+    const plain = harness.newView();
+    harness.open(plain, "plain.html", PLAIN);
+    button(plain, "Scripts OFF").click();
+    const styled = harness.newView();
+    harness.open(styled, "styled.html", STYLED);
+    button(styled, "Scripts OFF").click();
+    await settle();
+    const plainFrame = frame(plain);
+    const styledFrame = frame(styled);
+
+    // The same theme again leaves the plain page alone, and a page with styles
+    // of its own does not follow the theme at all.
+    harness.app.workspace.trigger("css-change");
+    await settle();
+    assert.equal(frame(plain), plainFrame);
+    themedDocument(true, {});
+    harness.app.workspace.trigger("css-change");
+    await settle();
+    assert.equal(frame(styled), styledFrame);
+  });
+
+  it("follows Obsidian's Readable line length setting", async () => {
+    const harness = await Harness.load();
+    harness.app.config.set("readableLineLength", false);
+    const view = harness.newView();
+    harness.open(view, "plain.html", PLAIN);
+    await settle();
+    assert.match(readingStyle(frame(view)?.srcdoc ?? "") ?? "", /max-width: none;/);
+
+    // With scripts on, the view cannot reach the page, so it prepares it again.
+    button(view, "Scripts OFF").click();
+    await settle();
+    const before = frame(view);
+    harness.app.config.set("readableLineLength", true);
+    harness.app.vault.trigger("config-changed", "readableLineLength");
+    await settle();
+    const after = frame(view);
+    assert.notEqual(after, before);
+    assert.match(readingStyle(after?.srcdoc ?? "") ?? "", /max-width: calc\(/);
+  });
+
+  it("reacts to a settings change that names no setting, as in Obsidian 1.5, and to no other", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "plain.html", PLAIN);
+    button(view, "Scripts OFF").click();
+    await settle();
+    const first = frame(view);
+
+    harness.app.vault.trigger("config-changed", "spellcheck");
+    await settle();
+    assert.equal(frame(view), first);
+    harness.app.vault.trigger("config-changed");
+    await settle();
+    assert.equal(frame(view), first);
+
+    harness.app.config.set("readableLineLength", false);
+    harness.app.vault.trigger("config-changed");
+    await settle();
+    assert.notEqual(frame(view), first);
+    assert.match(readingStyle(frame(view)?.srcdoc ?? "") ?? "", /max-width: none;/);
   });
 });
