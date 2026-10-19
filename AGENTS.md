@@ -127,7 +127,9 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute.
   A reference whose vault path does not exist is pointed at the file that Obsidian's link resolution
   (`getFirstLinkpathDest`) finds for it (`locatedUrl`); clicked links fall back the same way in
-  `openVaultPath`. References that resolve stay as written.
+  `openVaultPath`. References that resolve stay as written. Links and images without a `title` get
+  one (`addTooltips`, #42): a link's vault path or address, as a click would open it, and an
+  image's alt text; `linkTooltip` skips the links that `linkTarget` in `src/links.ts` does not open.
   The measurements behind this design are in #7: in Obsidian, only a `srcdoc` frame with Obsidian's
   origin (`allow-same-origin`) loads vault files, and such a frame inherits Obsidian's policy, which
   allows only inline styles. Recheck them with the end-to-end suite when Obsidian changes.

@@ -1,7 +1,15 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { browser, expect } from "@wdio/globals";
-import { ACTIVE, activeFile, clickInPage, openInActiveTab, VIEW_TYPE, waitForPage } from "../support/viewer.ts";
+import {
+  ACTIVE,
+  activeFile,
+  clickInPage,
+  clickToolbarButton,
+  openInActiveTab,
+  VIEW_TYPE,
+  waitForPage,
+} from "../support/viewer.ts";
 
 const CONTROL = "";
 
@@ -171,6 +179,37 @@ describe("Links in a page in Obsidian", function () {
     } finally {
       server.closeAllConnections();
       server.close();
+    }
+  });
+
+  it("shows where each link leads, and an image's alt text, on hover (#42)", async function () {
+    await openInActiveTab("Saved/Example article.html");
+    await waitForPage();
+    const shown = await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)?.contentDocument;
+      return {
+        links: [...(doc?.querySelectorAll("a") ?? [])].map((link) => [link.textContent, link.getAttribute("title")]),
+        images: [...(doc?.images ?? [])].map((image) => image.getAttribute("title")),
+      };
+    }, ACTIVE);
+    expect(shown.links).toEqual([
+      ["example.com", "https://example.com/article"],
+      ["another saved page", "Saved/Other page.html"],
+      ["Topic", "Notes/Topic.md"],
+      ["the details", null],
+    ]);
+    expect(shown.images).toEqual(["A green square"]);
+
+    // With scripts on, the view cannot reach the page, but the copy it shows has the titles.
+    await clickToolbarButton("Scripts OFF");
+    try {
+      const titled = await browser.execute((active) => {
+        const srcdoc = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)?.srcdoc ?? "";
+        return new DOMParser().parseFromString(srcdoc, "text/html").querySelector("a")?.getAttribute("title") ?? null;
+      }, ACTIVE);
+      expect(titled).toBe("https://example.com/article");
+    } finally {
+      await clickToolbarButton("Scripts ON");
     }
   });
 });
