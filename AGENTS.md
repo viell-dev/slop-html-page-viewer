@@ -28,7 +28,8 @@ for a maintainer's response; keep it current.
 - Upstream-bound branches have no `AGENTS.md`. Read this file on `main` when working on one.
 - Sync upstream's `main` through a pull request: push `upstream/main` to a branch named
   `upstream-sync-<date>` and open a pull request into `main`. If it conflicts, create that branch
-  from `main` instead, merge `upstream/main` into it, and resolve the conflicts there.
+  from `main` instead, merge `upstream/main` into it, and resolve the conflicts there. Upstream's
+  releases change `main.js`, which this fork deleted; resolve that conflict by keeping it deleted.
 
 ## Branches and merging
 
