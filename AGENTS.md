@@ -44,6 +44,11 @@ a merge commit after checking the exact head: `gh pr merge --merge --match-head-
   is off, because merging `main` into an upstream-bound branch adds fork-only files to it. When
   `main` has moved since a pull request's CI ran, close and reopen the pull request to test it
   against the current `main`; rerunning the workflow tests the old merge commit.
+- An upstream-bound branch that conflicts with `main`, as one that changes `package.json` or the
+  lockfile does, is merged through a second branch, `merge-<branch>`, created from `main`: merge the
+  upstream-bound branch into it with `--no-ff`, resolve the conflicts and the fork's documents there,
+  and open the pull request from it. The upstream-bound commits reach `main` unchanged. For the
+  lockfile, take `main`'s and rerun the branch's `npm install` commands.
 - GitHub does not delete merged branches. Keep an upstream-bound branch until upstream merges or
   declines it, or until #2 records that upstream is no longer followed; delete other branches after
   merging.
@@ -91,7 +96,13 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   frame's sandbox; and the per-line source highlighter.
 - `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when its first argument is
   `production`. `styles.css` is the plugin's stylesheet; `test-fixtures/` holds HTML files for
-  manual tests.
+  manual and automated tests.
+- `scripts/test.mjs` bundles each `test/*.test.ts` into `dist/test/` and runs it with Node.js's test
+  runner. `test/support/dom.ts` installs a jsdom window and Obsidian's element helpers as globals,
+  `test/support/obsidian.ts` stands in for the `obsidian` module and records what the plugin asks
+  of it, and `test/support/harness.ts` loads the plugin and opens views as Obsidian does. Extend the
+  stand-in when the plugin uses more of Obsidian's API, keeping it as Obsidian behaves.
+  `test/policy.test.ts` checks the built bundle for the APIs the security model rules out.
 - The view type, CSS classes, and command ids stay upstream's; only the manifest's id, name, author,
   and description identify the fork.
 - Deploy only for an approved test request (#12): build, then copy `main.js`, `manifest.json`, and
