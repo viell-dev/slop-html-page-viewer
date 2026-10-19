@@ -97,6 +97,15 @@
   color: var(--text-normal);
 }
 
+.html-page-viewer__theme-toggle {
+  border: 1px solid var(--html-page-viewer-border);
+}
+
+.html-page-viewer__theme-toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .html-page-viewer__security {
   align-items: center;
   color: var(--html-page-viewer-muted);

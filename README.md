@@ -15,18 +15,17 @@ It is built for its owner's vaults, and anyone may build and use it under the li
 - Opens `.html` and `.htm` files in their own Obsidian view, as a rendered preview by default.
 - Shows a page with its local files: images and stylesheets in the vault load as they would next to
   the file on disk.
+- Shows pages without styles of their own in Obsidian's theme, light or dark: its colors, fonts,
+  and line width. The **Theme** button shows a page as a browser would instead.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the current tab only.
 - Shows the source with HTML syntax highlighting and line numbers.
 - Never writes to the files it opens.
 
-Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues):
-
-- [a reading style that follows Obsidian's
-  theme](https://github.com/viell-dev/slop-html-page-viewer/issues/8) for pages without styles of
-  their own;
-- [links that open where they should](https://github.com/viell-dev/slop-html-page-viewer/issues/9):
-  external links in the browser, and links between vault files in Obsidian.
+Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues),
+such as [links that open where they
+should](https://github.com/viell-dev/slop-html-page-viewer/issues/9): external links in the browser,
+and links between vault files in Obsidian.
 
 ### Limits
 
@@ -40,8 +39,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 
 ## How it differs from upstream
 
-- It shows a page's local files. Upstream loads the file itself into the frame, where the page's
-  local images and stylesheets do not load.
+- It shows a page's local files and gives unstyled pages Obsidian's theme. Upstream loads the file
+  itself into the frame, where the page's local images and stylesheets do not load.
 - Its plugin id is `viell-html-page-viewer` and its name "HTML Page Viewer (viell)", so that
   Obsidian never replaces it with an upstream release. Both plugins open `.html` and `.htm` files,
   so enable only one of them.

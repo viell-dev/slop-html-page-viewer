@@ -9,6 +9,8 @@
 // every other reference resolve as it would from the file, and a policy of the
 // copy's own keeps Obsidian's resource URLs inside the vault.
 
+import { READING_STYLE_ID } from "./reading";
+
 /** What the view knows about the page and its vault. */
 export interface PageContext {
   /** The page's resource URL, without a query. */
@@ -157,9 +159,27 @@ function isStylesheetLink(element: Element): element is HTMLLinkElement {
   return rel.includes("stylesheet") && !rel.includes("alternate") && element.hasAttribute("href");
 }
 
-/** The serialized copy of a page that the rendered view shows. */
-export async function preparePage(html: string, context: PageContext): Promise<string> {
+export interface PageOptions {
+  /** A stylesheet for pages without styles of their own (see reading.ts). */
+  readonly readingStyle?: string;
+}
+
+export interface PreparedPage {
+  /** The serialized copy. */
+  readonly html: string;
+  /** Whether the page has styles of its own, which the reading style leaves alone. */
+  readonly ownStyles: boolean;
+}
+
+/** Whether a page has a stylesheet of its own: a <style> or a stylesheet link. */
+function hasOwnStyles(doc: Document): boolean {
+  return doc.querySelector("style") !== null || [...doc.querySelectorAll("link")].some(isStylesheetLink);
+}
+
+/** Prepares the copy of a page that the rendered view shows. */
+export async function preparePage(html: string, context: PageContext, options: PageOptions = {}): Promise<PreparedPage> {
   const doc = new DOMParser().parseFromString(html, "text/html");
+  const ownStyles = hasOwnStyles(doc);
 
   // The first <base> with an href sets the base URL. The page's own one, if
   // any, is resolved against the file's location, as a browser opening the
@@ -201,6 +221,13 @@ export async function preparePage(html: string, context: PageContext): Promise<s
   base.setAttribute("href", baseUrl);
   doc.head.prepend(policy, base);
 
+  if (!ownStyles && options.readingStyle !== undefined) {
+    const reading = doc.createElement("style");
+    reading.id = READING_STYLE_ID;
+    reading.textContent = styleElementText(options.readingStyle);
+    base.after(reading);
+  }
+
   const doctype = doc.doctype ? `${new XMLSerializer().serializeToString(doc.doctype)}\n` : "";
-  return doctype + doc.documentElement.outerHTML;
+  return { html: doctype + doc.documentElement.outerHTML, ownStyles };
 }

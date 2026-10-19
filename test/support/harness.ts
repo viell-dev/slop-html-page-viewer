@@ -33,7 +33,9 @@ export class Harness {
   newView(): HtmlView {
     const creator = this.plugin.views.get(VIEW_TYPE);
     assert.ok(creator, "the plugin registers its view");
-    return creator(new WorkspaceLeaf(this.app)) as HtmlView;
+    const view = creator(new WorkspaceLeaf(this.app)) as HtmlView & { onload(): void };
+    view.onload();
+    return view;
   }
 
   /** Loads a file into a view as Obsidian does when a file opens in its tab. */

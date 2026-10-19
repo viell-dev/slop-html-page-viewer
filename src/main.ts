@@ -6,7 +6,8 @@ import {
   WorkspaceLeaf,
   setIcon,
 } from "obsidian";
-import { preparePage, withoutQuery } from "./document";
+import { preparePage, styleElementText, withoutQuery } from "./document";
+import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
 
 const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
 const HTML_EXTENSIONS = ["html", "htm"];
@@ -49,7 +50,9 @@ export default class HtmlPageViewerPlugin extends Plugin {
 class HtmlPageViewerView extends TextFileView {
   private mode: ViewMode = "rendered";
   private scriptsEnabled = false;
+  private themeEnabled = true;
   private iframe: HTMLIFrameElement | null = null;
+  private themeButton: HTMLButtonElement | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -57,6 +60,11 @@ class HtmlPageViewerView extends TextFileView {
 
   getViewType(): string {
     return VIEW_TYPE_HTML_PAGE_VIEWER;
+  }
+
+  onload(): void {
+    super.onload();
+    this.registerEvent(this.app.workspace.on("css-change", () => this.updateTheme()));
   }
 
   getDisplayText(): string {
@@ -175,6 +183,30 @@ class HtmlPageViewerView extends TextFileView {
       this.scriptsEnabled = !this.scriptsEnabled;
       this.render();
     });
+
+    const themeButton = createTextButton(toolbar, this.themeEnabled ? "Theme ON" : "Theme OFF");
+    themeButton.addClass("html-page-viewer__theme-toggle");
+    themeButton.toggleClass("is-enabled", this.themeEnabled);
+    themeButton.setAttribute("aria-pressed", String(this.themeEnabled));
+    themeButton.setAttribute("title", "Show pages without styles of their own in Obsidian's theme");
+    themeButton.addEventListener("click", () => {
+      this.themeEnabled = !this.themeEnabled;
+      this.render();
+    });
+    this.themeButton = themeButton;
+  }
+
+  /** Follows a change of Obsidian's theme in the page, in place where possible. */
+  private updateTheme(): void {
+    const iframe = this.iframe;
+    if (!iframe || !this.themeEnabled) return;
+    const style = iframe.contentDocument?.getElementById(READING_STYLE_ID);
+    if (style) {
+      style.textContent = styleElementText(readingStylesheet(readTheme(this.contentEl.ownerDocument)));
+    } else if (this.scriptsEnabled) {
+      // With scripts on, the page has an opaque origin, so prepare it again.
+      this.render();
+    }
   }
 
   private renderIframe(parent: HTMLElement): void {
@@ -206,18 +238,29 @@ class HtmlPageViewerView extends TextFileView {
     const pageUrl = withoutQuery(this.app.vault.getResourcePath(file));
     const depth = file.path.split("/").length - 1;
     const vaultUrl = new URL("../".repeat(depth) || "./", pageUrl).href;
+    const readingStyle = this.themeEnabled
+      ? readingStylesheet(readTheme(this.contentEl.ownerDocument))
+      : undefined;
     let page: string;
+    let ownStyles = false;
     try {
-      page = await preparePage(data, {
-        pageUrl,
-        vaultUrl,
-        read: (path) => this.readVaultText(path),
-      });
+      const prepared = await preparePage(
+        data,
+        { pageUrl, vaultUrl, read: (path) => this.readVaultText(path) },
+        { readingStyle },
+      );
+      page = prepared.html;
+      ownStyles = prepared.ownStyles;
     } catch (error) {
       console.error("HTML Page Viewer: could not prepare the page", error);
       page = data;
     }
-    if (this.iframe === iframe) iframe.srcdoc = page;
+    if (this.iframe !== iframe) return;
+    iframe.srcdoc = page;
+    if (ownStyles && this.themeButton) {
+      this.themeButton.disabled = true;
+      this.themeButton.setAttribute("title", "This page has styles of its own");
+    }
   }
 
   private async readVaultText(path: string): Promise<string | null> {

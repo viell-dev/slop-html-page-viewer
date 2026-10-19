@@ -70,7 +70,17 @@ export class App {
     },
   };
 
+  readonly listeners = new Map<string, (() => void)[]>();
+
   readonly workspace = {
+    on: (name: string, callback: () => void): { name: string } => {
+      this.listeners.set(name, [...(this.listeners.get(name) ?? []), callback]);
+      return { name };
+    },
+    /** Fires a workspace event, as Obsidian does. */
+    trigger: (name: string): void => {
+      for (const callback of this.listeners.get(name) ?? []) callback();
+    },
     getActiveFile: (): TFile | null => this.activeFile,
     getLeaf: (): WorkspaceLeaf => {
       const leaf = new WorkspaceLeaf(this);
@@ -119,10 +129,19 @@ export class TextFileView {
   file: TFile | null = null;
   data = "";
 
+  readonly events: unknown[] = [];
+
   constructor(leaf: WorkspaceLeaf) {
     this.leaf = leaf;
     this.app = leaf.app;
     this.contentEl = document.createElement("div");
+  }
+
+  /** Called by Obsidian when the view is added to the workspace. */
+  onload(): void {}
+
+  registerEvent(ref: unknown): void {
+    this.events.push(ref);
   }
 }
 
