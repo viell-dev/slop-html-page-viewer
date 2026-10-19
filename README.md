@@ -14,7 +14,8 @@ It is built for its owner's vaults, and anyone may build and use it under the li
 
 - Opens `.html` and `.htm` files in their own Obsidian view, as a rendered preview by default.
 - Shows a page with its local files: images and stylesheets in the vault load as they would next to
-  the file on disk.
+  the file on disk. A reference that does not resolve as a path finds its file as Obsidian's own
+  links do, by name or by a partial path.
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors, fonts, and
   line width. The **Theme** button shows a page as a browser would instead.
 - Follows links as Obsidian does: web links open outside Obsidian, in the default browser, links to

@@ -248,7 +248,13 @@ class HtmlPageViewerView extends TextFileView {
     try {
       const prepared = await preparePage(
         data,
-        { pageUrl, vaultUrl, read: (path) => this.readVaultText(path) },
+        {
+          pageUrl,
+          vaultUrl,
+          read: (path) => this.readVaultText(path),
+          exists: (path) => this.app.vault.getAbstractFileByPath(path) !== null,
+          locate: (linktext) => this.app.metadataCache.getFirstLinkpathDest(linktext, file.path)?.path ?? null,
+        },
         { readingStyle },
       );
       page = prepared.html;
@@ -263,7 +269,7 @@ class HtmlPageViewerView extends TextFileView {
       const doc = iframe.contentDocument;
       if (!doc) return;
       watchLinks(doc, pageUrl, vaultUrl, Platform.isMacOS, {
-        openVault: (path, pane) => void this.openVaultPath(path, pane),
+        openVault: (path, pane, reference) => void this.openVaultPath(path, pane, reference, file.path),
         openExternal: (url) => window.open(url),
         refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
       });
@@ -275,14 +281,26 @@ class HtmlPageViewerView extends TextFileView {
     }
   }
 
-  /** Opens a vault file a link leads to; a folder opens its index page. */
-  private async openVaultPath(path: string, pane: PaneChoice): Promise<void> {
+  /**
+   * Opens a vault file a link leads to; a folder opens its index page. A link
+   * whose path leads nowhere opens the file Obsidian's link resolution finds
+   * for it from this page, by name or by a partial path.
+   */
+  private async openVaultPath(path: string, pane: PaneChoice, reference: string, pagePath: string): Promise<void> {
     const vault = this.app.vault;
     const clean = path.replace(/\/+$/, "");
     let target = clean === "" ? vault.getRoot() : vault.getAbstractFileByPath(clean);
     if (target !== null && !(target instanceof TFile)) {
       const folder = clean === "" ? "" : `${clean}/`;
       target = vault.getAbstractFileByPath(`${folder}index.html`) ?? vault.getAbstractFileByPath(`${folder}index.htm`);
+    } else if (target === null) {
+      let linktext = "";
+      try {
+        linktext = decodeURIComponent(withoutQuery(reference)).replace(/^\/+/, "");
+      } catch {
+        // A malformed reference names nothing.
+      }
+      target = linktext === "" ? null : this.app.metadataCache.getFirstLinkpathDest(linktext, pagePath);
     }
     if (target instanceof TFile) {
       await this.app.workspace.getLeaf(pane).openFile(target);

@@ -76,7 +76,8 @@ describe("watchLinks", () => {
       },
     });
     const actions: LinkActions = {
-      openVault: (path: string, pane: PaneChoice) => calls.push(`vault ${path} ${String(pane)}`),
+      openVault: (path: string, pane: PaneChoice, reference: string) =>
+        calls.push(`vault ${path} ${String(pane)} ${reference}`),
       openExternal: (url: string) => calls.push(`external ${url}`),
       refuse: (url: string) => calls.push(`refuse ${url}`),
     };
@@ -106,9 +107,9 @@ describe("watchLinks", () => {
     click("note", { ctrlKey: true });
     click("area", { button: 1 });
     assert.deepEqual(calls, [
-      "vault Saved/Other page.html false",
-      "vault Notes/Topic.md tab",
-      "vault Saved/Other page.html tab",
+      "vault Saved/Other page.html false Other%20page.html",
+      "vault Notes/Topic.md tab ../Notes/Topic.md",
+      "vault Saved/Other page.html tab Other%20page.html",
     ]);
   });
 

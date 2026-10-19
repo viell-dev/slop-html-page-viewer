@@ -81,6 +81,15 @@ export class App {
 
   readonly listeners = new Map<string, (() => void)[]>();
 
+  readonly metadataCache = {
+    /** Obsidian's link resolution, simplified: an exact path, else the shortest path ending in the link text. */
+    getFirstLinkpathDest: (linktext: string): TFile | null => {
+      if (this.files.has(linktext)) return new TFile(linktext);
+      const matches = [...this.files.keys()].filter((path) => path.endsWith(`/${linktext}`)).sort((a, b) => a.length - b.length);
+      return matches.length > 0 ? new TFile(matches[0]) : null;
+    },
+  };
+
   readonly workspace = {
     on: (name: string, callback: () => void): { name: string } => {
       this.listeners.set(name, [...(this.listeners.get(name) ?? []), callback]);
