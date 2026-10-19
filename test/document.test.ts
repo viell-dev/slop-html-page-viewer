@@ -166,6 +166,20 @@ describe("preparePage", () => {
     assert.deepEqual(ctx.reads, ["Saved/missing.css"]);
   });
 
+  it("keeps copied stylesheets from closing their style element (#26)", async () => {
+    const ctx = context({
+      "Saved/evil.css": `/* </STYLE><script>globalThis.injected = true</script> */ body { color: red }`,
+      "Saved/imported.css": `a::after { content: "</style><img src=x>" }`,
+    });
+    const html = `<link rel="stylesheet" href="evil.css"><style>@import "imported.css";</style>`;
+    const page = parse(await preparePage(html, ctx));
+    assert.equal(page.querySelectorAll("script, img").length, 0, "no markup comes out of a stylesheet");
+    const styles = page.querySelectorAll("style");
+    assert.equal(styles.length, 2);
+    assert.match(styles[0].textContent ?? "", /<\\\/STYLE><script>.*body \{ color: red \}$/);
+    assert.match(styles[1].textContent ?? "", /content: "<\\\/style><img src=x>"/);
+  });
+
   it("inlines imports in the page's own style elements", async () => {
     const ctx = context({ "Saved/extra.css": "p { margin: 0 }" });
     const page = parse(await preparePage(`<style>@import "extra.css"; h1 { color: red }</style>`, ctx));
