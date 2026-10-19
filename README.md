@@ -13,34 +13,45 @@ It is built for its owner's vaults, and anyone may build and use it under the li
 ## What it does
 
 - Opens `.html` and `.htm` files in their own Obsidian view, as a rendered preview by default.
+- Shows a page with its local files: images and stylesheets in the vault load as they would next to
+  the file on disk.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the current tab only.
 - Shows the source with HTML syntax highlighting and line numbers.
 - Never writes to the files it opens.
 
-These are upstream's features, unchanged so far. The fork is being set up, and the changes planned
-for it are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues):
+Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues):
 
-- [local images, stylesheets, and
-  media](https://github.com/viell-dev/slop-html-page-viewer/issues/7) in the rendered page;
 - [a reading style that follows Obsidian's
   theme](https://github.com/viell-dev/slop-html-page-viewer/issues/8) for pages without styles of
   their own;
 - [links that open where they should](https://github.com/viell-dev/slop-html-page-viewer/issues/9):
   external links in the browser, and links between vault files in Obsidian.
 
+### Limits
+
+- **Stylesheets from the web do not apply**, apart from Google Fonts. Obsidian's own security policy
+  allows a page only inline styles, so the viewer copies each linked stylesheet from the vault into
+  the page it shows; it does not download stylesheets from the web.
+- **With scripts on, local files do not load.** Scripts run without access to Obsidian, and Obsidian
+  does not serve vault files to such a page. Copied stylesheets still apply. [Issue
+  #11](https://github.com/viell-dev/slop-html-page-viewer/issues/11) plans another option.
+- **Files outside the vault never load**, even when a page refers to them.
+
 ## How it differs from upstream
 
+- It shows a page's local files. Upstream loads the file itself into the frame, where the page's
+  local images and stylesheets do not load.
 - Its plugin id is `viell-html-page-viewer` and its name "HTML Page Viewer (viell)", so that
   Obsidian never replaces it with an upstream release. Both plugins open `.html` and `.htm` files,
   so enable only one of them.
+- Scripts are off again for each file that opens in a tab, as upstream's README promises.
 - `npm run build` works on Windows. The fix is [offered
   upstream](https://github.com/viggomeesters/obsidian-html-page-viewer/pull/1).
 
 Changes that could serve upstream's users are kept separate from fork-only ones and offered
 upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
 [CHANGELOG.md](CHANGELOG.md) is upstream's record of its releases.
-
 ## Install
 
 Build the plugin from a checkout. It needs Node.js 24 and npm.
@@ -59,12 +70,19 @@ npm run build
 
 ## Security model
 
-Scripts are off by default. With scripts on, the frame's sandbox gets `allow-scripts` and nothing
-else: no same-origin access, forms, popups, or top-level navigation. The plugin itself makes no
-network requests, does not use the clipboard, and does not edit vault files. A rendered page can
-still load external images, stylesheets, fonts, or scripts that it refers to, as any browser would.
-[SECURITY.md](SECURITY.md) has the details and how to report a vulnerability.
+The view shows a copy of the page, never the file itself, in a sandboxed frame. Scripts are off by
+default, and scripts and same-origin access are never granted together:
 
+- **Scripts off:** the sandbox grants only `allow-same-origin`, so that the page can load the
+  vault's files. It cannot run scripts, submit forms, open popups, or navigate Obsidian.
+- **Scripts on:** the sandbox grants only `allow-scripts`. The page cannot reach Obsidian or the
+  vault's files.
+
+The copy carries a policy that lets Obsidian's file URLs load only from inside the vault. The plugin
+itself makes no network requests, does not use the clipboard, and only reads vault files: the page
+and the stylesheets it links. A rendered page can still load the images, fonts, or scripts on the
+web that it refers to, as any browser would. [SECURITY.md](SECURITY.md) has the details and how to
+report a vulnerability.
 ## Status
 
 The fork is written and maintained by AI agents, and no person reviews the code. Changes are

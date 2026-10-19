@@ -1,6 +1,6 @@
 // Reads the screenshots WebdriverIO takes, which are 8-bit, non-interlaced
 // RGB or RGBA PNG images, so that tests can check what a frame shows even when
-// they cannot reach into its document.
+// they cannot reach into its document, and writes solid-colour fixtures.
 
 import zlib from "node:zlib";
 
@@ -19,6 +19,40 @@ function paeth(a: number, b: number, c: number): number {
   const pb = Math.abs(p - b);
   const pc = Math.abs(p - c);
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+}
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  return crc >>> 0;
+});
+
+function chunk(type: string, body: Buffer): Buffer {
+  const typed = Buffer.concat([Buffer.from(type, "latin1"), body]);
+  let crc = 0xffffffff;
+  for (const byte of typed) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(body.length);
+  const check = Buffer.alloc(4);
+  check.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+  return Buffer.concat([length, typed, check]);
+}
+
+/** A square PNG of one colour, for fixtures that tests write at run time. */
+export function solidPng(size: number, color: Color): Buffer {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: size }, () => color).flat())]);
+  const data = zlib.deflateSync(Buffer.concat(Array.from({ length: size }, () => row)));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", data),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 export function decodePng(png: Buffer): Pixels {

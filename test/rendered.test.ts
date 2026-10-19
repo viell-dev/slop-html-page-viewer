@@ -1,27 +1,42 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { sandboxValue } from "../src/main";
-import { resourcePath } from "./support/obsidian";
 import { button, frame, Harness, message, sandboxTokens, securityPill, settle } from "./support/harness";
 
 const PAGE = "<!doctype html><title>Report</title><p>Quarterly figures</p>";
 
 describe("rendered view", () => {
-  it("renders the page in a sandboxed frame from its resource URL", async () => {
+  it("renders a copy of the page whose references resolve from the file's folder", async () => {
     const harness = await Harness.load();
     const view = harness.newView();
-    const file = harness.open(view, "Reports/q3 report.html", PAGE);
+    harness.open(view, "Reports/q3 report.html", PAGE);
 
     const iframe = frame(view);
     assert.ok(iframe, "the view shows a frame");
-    const src = iframe.getAttribute("src") ?? "";
-    assert.ok(src.startsWith(`${resourcePath(file)}&`), `the frame loads the file's resource URL: ${src}`);
-    assert.match(src, /[?&]html-page-viewer-refresh=\d+$/, "the URL carries a refresh marker");
+    assert.equal(iframe.getAttribute("src"), null, "the frame does not load the file itself");
+    await settle();
+    const page = new DOMParser().parseFromString(iframe.srcdoc, "text/html");
+    assert.equal(page.querySelector("base")?.getAttribute("href"), "app://test-vault/Reports/q3%20report.html");
+    assert.equal(page.querySelector("p")?.textContent, "Quarterly figures");
+    assert.match(iframe.srcdoc, /^<!DOCTYPE html>/);
     assert.equal(iframe.getAttribute("title"), "q3 report.html");
     assert.equal(iframe.getAttribute("referrerpolicy"), "no-referrer");
     assert.equal(view.getDisplayText(), "q3 report");
   });
 
+  it("limits the copy's vault resources to the vault", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "Reports/page.html", PAGE);
+    await settle();
+
+    const iframe = frame(view);
+    assert.ok(iframe);
+    const page = new DOMParser().parseFromString(iframe.srcdoc, "text/html");
+    const policy = page.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content") ?? "";
+    assert.match(policy, /img-src app:\/\/test-vault\/ https: http: data: blob:/);
+    assert.equal(page.head.firstElementChild?.tagName, "META", "the policy comes before anything it governs");
+  });
   it("starts with scripts off", async () => {
     const harness = await Harness.load();
     const view = harness.newView();
@@ -29,7 +44,7 @@ describe("rendered view", () => {
 
     const iframe = frame(view);
     assert.ok(iframe);
-    assert.deepEqual(sandboxTokens(iframe), []);
+    assert.deepEqual(sandboxTokens(iframe), ["allow-same-origin"]);
     assert.equal(securityPill(view), "Scripts OFF");
     assert.equal(button(view, "Scripts OFF").getAttribute("aria-pressed"), "false");
   });
@@ -49,22 +64,18 @@ describe("rendered view", () => {
     button(view, "Scripts ON").click();
     iframe = frame(view);
     assert.ok(iframe);
-    assert.deepEqual(sandboxTokens(iframe), []);
+    assert.deepEqual(sandboxTokens(iframe), ["allow-same-origin"]);
     assert.equal(securityPill(view), "Scripts OFF");
   });
 
-  it("never grants same-origin access, forms, popups, or navigation", () => {
-    const allowed = new Set(["allow-scripts"]);
+  it("never grants scripts together with same-origin access, nor forms, popups, or navigation", () => {
     for (const scriptsEnabled of [false, true]) {
       const tokens = sandboxValue(scriptsEnabled).split(/\s+/).filter(Boolean);
-      assert.deepEqual(
-        tokens.filter((token) => !allowed.has(token)),
-        [],
-        `sandbox with scripts ${scriptsEnabled ? "on" : "off"}`,
-      );
+      const label = `sandbox with scripts ${scriptsEnabled ? "on" : "off"}`;
+      assert.deepEqual(tokens, scriptsEnabled ? ["allow-scripts"] : ["allow-same-origin"], label);
+      assert.ok(!(tokens.includes("allow-scripts") && tokens.includes("allow-same-origin")), label);
     }
   });
-
   it("keeps scripts per view: a new tab starts with them off", async () => {
     const harness = await Harness.load();
     const first = harness.newView();
@@ -75,7 +86,7 @@ describe("rendered view", () => {
     harness.open(second, "second.html", PAGE);
     const iframe = frame(second);
     assert.ok(iframe);
-    assert.deepEqual(sandboxTokens(iframe), []);
+    assert.deepEqual(sandboxTokens(iframe), ["allow-same-origin"]);
   });
 
   it("turns scripts off when another file opens in the same view", async () => {
@@ -87,7 +98,7 @@ describe("rendered view", () => {
     harness.open(view, "other.html", PAGE);
     const iframe = frame(view);
     assert.ok(iframe);
-    assert.deepEqual(sandboxTokens(iframe), []);
+    assert.deepEqual(sandboxTokens(iframe), ["allow-same-origin"]);
     assert.equal(securityPill(view), "Scripts OFF");
   });
 
@@ -101,7 +112,7 @@ describe("rendered view", () => {
     view.setViewData(PAGE, false);
     const iframe = frame(view);
     assert.ok(iframe);
-    assert.deepEqual(sandboxTokens(iframe), []);
+    assert.deepEqual(sandboxTokens(iframe), ["allow-same-origin"]);
   });
 
   it("keeps scripts on while the same file is reloaded", async () => {
