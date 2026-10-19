@@ -7,8 +7,9 @@ and other local HTML in Obsidian.
 [![CI](https://github.com/viell-dev/slop-html-page-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/viell-dev/slop-html-page-viewer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-The fork is not published: it is not in Obsidian's community plugin directory and has no releases.
-It is built for its owner's vaults, and anyone may build and use it under the license.
+The fork is not in Obsidian's community plugin directory. It is built for its owner's vaults; its
+[releases](https://github.com/viell-dev/slop-html-page-viewer/releases) are for installing by hand,
+and anyone may use it under the license.
 
 ## What it does
 
@@ -58,22 +59,19 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 Changes that could serve upstream's users are kept separate from fork-only ones and offered
 upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
 [CHANGELOG.md](CHANGELOG.md) is upstream's record of its releases.
+
 ## Install
 
-Build the plugin from a checkout. It needs Node.js 24 and npm.
+1. Download `viell-html-page-viewer-<version>.zip` from the newest
+   [release](https://github.com/viell-dev/slop-html-page-viewer/releases).
+2. Unzip it into your vault's `.obsidian/plugins/` folder, so that
+   `.obsidian/plugins/viell-html-page-viewer/` holds `main.js`, `manifest.json`, and `styles.css`.
+3. In **Settings → Community plugins**, turn off upstream's HTML Page Viewer if it is installed,
+   and turn on **HTML Page Viewer (viell)**; if it is not listed yet, reload the list of installed
+   plugins.
 
-```sh
-git clone https://github.com/viell-dev/slop-html-page-viewer.git
-cd slop-html-page-viewer
-npm ci
-npm run build
-```
-
-1. Create the folder `.obsidian/plugins/viell-html-page-viewer/` in your vault.
-2. Copy `main.js`, `manifest.json`, and `styles.css` into it.
-3. Reload Obsidian, and enable **HTML Page Viewer (viell)** in **Settings → Community plugins**.
-   Disable upstream's HTML Page Viewer first if it is installed.
-
+To build it from a checkout instead, with Node.js 24 and npm, run `npm ci` and `npm run build`, and
+copy the same three files from the checkout's root.
 ## Security model
 
 The view shows a copy of the page, never the file itself, in a sandboxed frame. Scripts are off by

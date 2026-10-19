@@ -58,8 +58,25 @@ a merge commit after checking the exact head: `gh pr merge --merge --match-head-
   merging.
 - `prototype` is the previous fork's build, which the owner's vault uses until #12 replaces it. It
   is frozen by a ruleset: read it as a reference for redoing its work, and never try to update it.
-- Never commit `main.js`. The fork has no tags or releases. Change the manifest's version only in a
-  fork-only commit that prepares a deployment.
+- Never commit `main.js`.
+
+## Releases
+
+The owner installs the fork by hand from GitHub releases; it is not in Obsidian's community plugin
+directory. On 2026-10-19 the owner allowed beta and release-candidate releases, without asking each
+time, for installing in their vault, and asked not to rely on them for testing: test a release as
+thoroughly as anything else before publishing it.
+
+1. In a fork-only pull request, set the version in `manifest.json`, `package.json` and its lockfile,
+   and `versions.json`, and add `.github/release-notes/<version>.md`, written for someone installing
+   the plugin.
+2. After it merges, run `gh workflow run release.yml -f version=<version>` on `main`. The workflow
+   checks the version, tests and builds, and publishes the zip, the three plugin files, and
+   `SHA256SUMS`; a version with a prerelease part, such as `-rc.1`, becomes a prerelease.
+3. Check the release's assets against the checksums.
+
+Version tags are immutable (`.github/rulesets/version-tags.json`). Never change the owner's vault;
+the owner installs releases there.
 
 ## Issues and labels
 
@@ -75,12 +92,12 @@ Labels follow [`.github/labels.json`](./.github/labels.json); keep GitHub in syn
 
 ## Settings
 
-`.github/rulesets/` records the rulesets for `main` and `prototype`; keep it and GitHub's settings
-in sync. The required checks bind to the `verify (ubuntu-latest)` and `verify (windows-latest)` job
-names and the `e2e` job in `ci.yml`, and to GitHub Actions, app 15368, so renaming a job needs a
-ruleset update. The tests in Obsidian are required because they are the only test of what users see.
-Zero required approvals is deliberate for a single-account, agent-maintained repository; pull
-requests, passing checks, and resolved review threads remain mandatory.
+`.github/rulesets/` records the rulesets for `main`, `prototype`, and version tags; keep it and
+GitHub's settings in sync. The required checks bind to the `verify (ubuntu-latest)` and `verify
+(windows-latest)` job names and the `e2e` job in `ci.yml`, and to GitHub Actions, app 15368, so
+renaming a job needs a ruleset update. The tests in Obsidian are required because they are the only
+test of what users see. Zero required approvals is deliberate for a single-account, agent-maintained
+repository; pull requests, passing checks, and resolved review threads remain mandatory.
 
 Other repository settings, each recorded here with its reason when it changes:
 
@@ -134,6 +151,3 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   corpus pages on the owner's cache format, never on its content.
 - The view type, CSS classes, and command ids stay upstream's; only the manifest's id, name, author,
   and description identify the fork.
-- Deploy only for an approved test request (#12): build, then copy `main.js`, `manifest.json`, and
-  `styles.css` into the vault's `.obsidian/plugins/viell-html-page-viewer/`. The owner's vault has
-  its own rules; follow them.
