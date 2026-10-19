@@ -78,22 +78,61 @@ describe("rendered view", () => {
     assert.deepEqual(sandboxTokens(iframe), []);
   });
 
-  it(
-    "turns scripts off when another file opens in the same view",
-    { todo: "scripts stay on for the next file in the tab (#18)" },
-    async () => {
-      const harness = await Harness.load();
-      const view = harness.newView();
-      harness.open(view, "trusted.html", PAGE);
-      button(view, "Scripts OFF").click();
+  it("turns scripts off when another file opens in the same view", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "trusted.html", PAGE);
+    button(view, "Scripts OFF").click();
 
-      harness.open(view, "other.html", PAGE);
-      const iframe = frame(view);
-      assert.ok(iframe);
-      assert.deepEqual(sandboxTokens(iframe), []);
-      assert.equal(securityPill(view), "Scripts OFF");
-    },
-  );
+    harness.open(view, "other.html", PAGE);
+    const iframe = frame(view);
+    assert.ok(iframe);
+    assert.deepEqual(sandboxTokens(iframe), []);
+    assert.equal(securityPill(view), "Scripts OFF");
+  });
+
+  it("turns scripts off when the view is cleared", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "trusted.html", PAGE);
+    button(view, "Scripts OFF").click();
+
+    view.clear();
+    view.setViewData(PAGE, false);
+    const iframe = frame(view);
+    assert.ok(iframe);
+    assert.deepEqual(sandboxTokens(iframe), []);
+  });
+
+  it("keeps scripts on while the same file is reloaded", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "page.html", PAGE);
+    button(view, "Scripts OFF").click();
+
+    // Obsidian passes clear = false when the open file changes on disk.
+    view.setViewData("<p>Changed on disk</p>", false);
+    let iframe = frame(view);
+    assert.ok(iframe);
+    assert.deepEqual(sandboxTokens(iframe), ["allow-scripts"]);
+
+    button(view, "Refresh preview").click();
+    await settle();
+    iframe = frame(view);
+    assert.ok(iframe);
+    assert.deepEqual(sandboxTokens(iframe), ["allow-scripts"]);
+  });
+
+  it("keeps the view mode when another file opens in the same view", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "first.html", PAGE);
+    button(view, "Source").click();
+
+    harness.open(view, "second.html", PAGE);
+    assert.equal(frame(view), null);
+    assert.ok(view.contentEl.querySelector(".html-page-viewer__source"));
+  });
 
   it("reloads the file and the frame when refreshed", async () => {
     const harness = await Harness.load();
