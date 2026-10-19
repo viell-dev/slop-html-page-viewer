@@ -5,3 +5,6 @@ dist/
 .env
 # Built by npm run build or npm run dev; not tracked in this fork.
 main.js
+# End-to-end tests: downloaded Obsidian versions and each run's logs and screenshots.
+.obsidian-cache/
+test-results/

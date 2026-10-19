@@ -12,7 +12,7 @@ import process from "node:process";
 const outdir = path.join("dist", "test");
 const tests = fs
   .readdirSync("test", { recursive: true })
-  .filter((file) => file.endsWith(".test.ts"))
+  .filter((file) => file.endsWith(".test.ts") && !file.split(path.sep).includes("node_modules"))
   .map((file) => path.join("test", file))
   .sort();
 

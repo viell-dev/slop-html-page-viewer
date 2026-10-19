@@ -16,7 +16,9 @@
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
-    "test": "node scripts/test.mjs"
+    "test": "node scripts/test.mjs",
+    "test:e2e": "sh test/e2e/session.sh",
+    "test:e2e:docker": "node scripts/e2e-docker.mjs"
   },
   "dependencies": {},
   "devDependencies": {

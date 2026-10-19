@@ -1,0 +1,6 @@
+.git
+.obsidian-cache
+**/node_modules
+dist
+main.js
+test-results

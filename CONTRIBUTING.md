@@ -53,12 +53,40 @@ npm test
 `npm test` bundles each `test/*.test.ts` file with esbuild and runs the bundles with Node.js's test
 runner. The tests run the plugin in a jsdom window, with a stand-in for the parts of Obsidian's API
 that it uses (`test/support/obsidian.ts`), and check what the view shows. A test marked `todo`
-reproduces a known defect and names its issue; remove the marker with the fix. Whether pages load
-and behave correctly in Obsidian itself needs a test in Obsidian; see
-[#6](https://github.com/viell-dev/slop-html-page-viewer/issues/6).
+reproduces a known defect and names its issue; remove the marker with the fix.
+
+### Tests in Obsidian
+
+Whether pages load and behave correctly depends on Obsidian itself, so `test/e2e/` runs the built
+plugin in real Obsidian with WebdriverIO and `wdio-obsidian-service`, against the synthetic vault in
+`test/e2e/vaults/pages/`. The tools have their own package, `test/e2e/package.json`, because their
+dependencies carry advisories that should not hide the root package's
+([#21](https://github.com/viell-dev/slop-html-page-viewer/issues/21)).
+
+With Docker, on any system, Windows included:
+
+```sh
+npm run build
+npm run test:e2e:docker
+```
+
+On Linux with Obsidian's system libraries, Xvfb, and herbstluftwm installed, `npm ci --prefix
+test/e2e` and then `npm run test:e2e` run the suite directly. Arguments after `--` go to `wdio run`,
+such as `--spec specs/viewer.e2e.ts`. Screenshots and logs go to `test-results/e2e/`, and downloaded
+Obsidian versions to `.obsidian-cache/` or, with Docker, the `html-page-viewer-obsidian-cache`
+volume.
+
+The suite runs Obsidian 1.5.3, the oldest public release that the manifest's `minAppVersion` allows,
+and the latest public release. Set `OBSIDIAN_VERSIONS` to `appVersion/installerVersion` pairs to
+test others. Obsidian is downloaded, never stored in the repository or the image, because its terms
+do not allow redistributing it.
+
+### CI
 
 GitHub Actions runs the type check, build, and tests on Linux and Windows with Node.js 24, and an
-`npm audit` on Linux; `main` requires both platforms.
+`npm audit` on Linux; `main` requires both platforms. The `e2e` job runs the tests in Obsidian on
+Linux for every pull request, and weekly, so that a new Obsidian release is tested within a week.
+The Docker image is built and run weekly and on request.
 
 ## Branches
 
