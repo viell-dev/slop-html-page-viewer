@@ -3,6 +3,7 @@
 // them for one tab or one page.
 
 import { type App, type Plugin, PluginSettingTab, Setting } from "obsidian";
+import { DEFAULT_EXTENSIONS, normalizeExtensions } from "./extensions";
 
 export interface ViewerSettings {
   /** Whether a new tab shows pages without styles of their own in Obsidian's theme. */
@@ -11,6 +12,8 @@ export interface ViewerSettings {
   readonly scriptsOn: boolean;
   /** Whether the source view wraps lines longer than the view. */
   readonly wrapSource: boolean;
+  /** The file extensions that open in the viewer, normalized. */
+  readonly extensions: readonly string[];
 }
 
 /** The defaults, for vaults that have saved no settings. */
@@ -18,6 +21,7 @@ export const DEFAULT_SETTINGS: ViewerSettings = {
   themeOn: true,
   scriptsOn: false,
   wrapSource: true,
+  extensions: DEFAULT_EXTENSIONS,
 };
 
 /**
@@ -27,16 +31,25 @@ export const DEFAULT_SETTINGS: ViewerSettings = {
  */
 export function readSettings(data: unknown): ViewerSettings {
   const saved = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
-  const flag = (key: keyof ViewerSettings): boolean => {
+  const flag = (key: "themeOn" | "scriptsOn" | "wrapSource"): boolean => {
     const value = saved[key];
     return typeof value === "boolean" ? value : DEFAULT_SETTINGS[key];
   };
-  return { themeOn: flag("themeOn"), scriptsOn: flag("scriptsOn"), wrapSource: flag("wrapSource") };
+  return {
+    themeOn: flag("themeOn"),
+    scriptsOn: flag("scriptsOn"),
+    wrapSource: flag("wrapSource"),
+    extensions: Array.isArray(saved.extensions) ? normalizeExtensions(saved.extensions) : DEFAULT_EXTENSIONS,
+  };
 }
 
 /** The plugin, as the settings tab uses it. */
 export interface SettingsHost extends Plugin {
   readonly settings: ViewerSettings;
+  /** The listed extensions that another view opens, so the viewer does not. */
+  readonly refusedExtensions: readonly string[];
+  /** Whether a change of extensions applies at once, or only when the plugin loads again. */
+  readonly extensionsApplyAtOnce: boolean;
   updateSettings(change: Partial<ViewerSettings>): Promise<void>;
 }
 
@@ -82,5 +95,27 @@ export class ViewerSettingTab extends PluginSettingTab {
           .setValue(this.host.settings.wrapSource)
           .onChange((value) => this.host.updateSettings({ wrapSource: value })),
       );
+
+    const refused = this.host.refusedExtensions;
+    new Setting(containerEl)
+      .setName("File extensions")
+      .setDesc(
+        [
+          "The extensions of the files that open in the viewer, separated by commas. The viewer shows them all as HTML. Leave it empty for html and htm.",
+          refused.length > 0 ? `Another view opens ${refused.map((extension) => `.${extension}`).join(", ")}, so the viewer does not.` : "",
+          this.host.extensionsApplyAtOnce ? "" : "A change applies when Obsidian loads the plugin again.",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      )
+      .addText((text) => {
+        text.setPlaceholder(DEFAULT_EXTENSIONS.join(", ")).setValue(this.host.settings.extensions.join(", "));
+        // A change applies when the field is left, not at every key.
+        text.inputEl.addEventListener("change", () => {
+          void this.host
+            .updateSettings({ extensions: normalizeExtensions(text.getValue()) })
+            .then(() => this.display());
+        });
+      });
   }
 }

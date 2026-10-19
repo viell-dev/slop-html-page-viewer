@@ -24,10 +24,14 @@ export class Harness {
     this.plugin = new HtmlPageViewerPlugin(this.app as never, {} as never) as unknown as Plugin;
   }
 
-  /** Loads the plugin, with the data that a vault saved for it, if any. */
-  static async load(data: unknown = null): Promise<Harness> {
+  /**
+   * Loads the plugin, with the data that a vault saved for it, if any, in an
+   * Obsidian with or without the view registry that Obsidian 1.5 and later have.
+   */
+  static async load(data: unknown = null, { viewRegistry = true } = {}): Promise<Harness> {
     const harness = new Harness();
     harness.plugin.data = data;
+    if (!viewRegistry) harness.app.viewRegistry = null;
     await (harness.plugin as unknown as HtmlPageViewerPlugin).onload();
     return harness;
   }

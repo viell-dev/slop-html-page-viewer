@@ -9,15 +9,28 @@ function readJson(path: string): Record<string, unknown> {
 }
 
 describe("plugin", () => {
-  it("opens .html and .htm files in its view", async () => {
+  it("opens .html and .htm files in its view, and gives them up when it unloads", async () => {
     const harness = await Harness.load();
+    const registry = harness.app.viewRegistry;
+    assert.ok(registry);
     assert.deepEqual(
-      [...harness.plugin.extensions],
+      [...registry.typeByExtension],
       [
+        ["md", "markdown"],
         ["html", VIEW_TYPE],
         ["htm", VIEW_TYPE],
       ],
     );
+    harness.plugin.unload();
+    assert.deepEqual([...registry.typeByExtension], [["md", "markdown"]]);
+  });
+
+  it("registers the extensions once, through Obsidian's API, where Obsidian has no view registry", async () => {
+    const harness = await Harness.load({ extensions: ["html", "xht"] }, { viewRegistry: false });
+    assert.deepEqual([...harness.plugin.extensions], [
+      ["html", VIEW_TYPE],
+      ["xht", VIEW_TYPE],
+    ]);
   });
 
   it("offers its command only while an HTML file is active", async () => {
