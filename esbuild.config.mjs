@@ -1,7 +1,7 @@
 import esbuild from "esbuild";
 import process from "node:process";
 
-const production = process.env.NODE_ENV === "production";
+const production = process.argv[2] === "production";
 
 await esbuild.build({
   banner: {
