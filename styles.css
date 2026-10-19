@@ -184,6 +184,17 @@
   white-space: pre;
 }
 
+/* Wrapped lines stay beside their line number, and long unbroken text such as
+   a URL breaks where it must. */
+.html-page-viewer__source.is-wrapped pre {
+  min-width: 0;
+}
+
+.html-page-viewer__source.is-wrapped .html-page-viewer__source-code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .html-page-viewer__tok-tag {
   color: var(--html-page-viewer-tag);
   font-weight: 650;
