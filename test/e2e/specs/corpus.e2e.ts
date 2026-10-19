@@ -26,7 +26,8 @@ function filesUnder(directory: string, prefix = ""): string[] {
 const pages = fs.existsSync(corpus) ? filesUnder(corpus).filter((file) => /\.html?$/i.test(file)).sort() : [];
 
 interface Frame {
-  images: { src: string; loaded: boolean }[];
+  images: { src: string; url: string; loaded: boolean }[];
+  globals: string[];
   vaultStylesheetLinks: number;
   markers: Record<string, string>;
   readingStyle: boolean;
@@ -54,8 +55,11 @@ async function inspectFrame(): Promise<Frame> {
     return {
       images: [...doc.images].map((image) => ({
         src: image.getAttribute("src") ?? "",
+        url: image.currentSrc || image.src,
         loaded: image.complete && image.naturalWidth > 0,
       })),
+      // What the CDN scripts would define, had they run.
+      globals: ["jQuery", "$", "_"].filter((name) => name in frame.contentWindow!),
       vaultStylesheetLinks: [...doc.querySelectorAll<HTMLLinkElement>("link")].filter(
         (link) => /\bstylesheet\b/i.test(link.rel) && !/^https?:/.test(link.href),
       ).length,
@@ -90,12 +94,26 @@ async function build(): Promise<"viewer" | "prototype"> {
   });
 }
 
+/** The vault path a resource URL leads to, or null for a URL elsewhere. */
+function vaultPathOf(url: string, vaultUrl: string): string | null {
+  const plain = url.replace(/[?#].*$/, "");
+  if (!plain.startsWith(vaultUrl)) return null;
+  try {
+    return decodeURIComponent(plain.slice(vaultUrl.length));
+  } catch {
+    return null;
+  }
+}
+
 describe("The archive corpus", function () {
   const results: Record<string, unknown> = {};
   let which: "viewer" | "prototype" = "viewer";
+  let vaultUrl = "";
 
   before(async function () {
     which = await build();
+    // The adapter's resource URL for the vault root, without its query.
+    vaultUrl = `${(await browser.executeObsidian(({ app }) => app.vault.adapter.getResourcePath(""))).replace(/[?#].*$/, "")}/`;
   });
 
   after(async function () {
@@ -129,17 +147,21 @@ describe("The archive corpus", function () {
         page,
         expected.images.map((image) => image.src),
       );
-      results[page] = { milliseconds, ...frame, expected: expected.images.map((image, index) => image.path ?? byName[index]) };
+      const images = frame.images.map((image) => ({ ...image, path: vaultPathOf(image.url, vaultUrl) }));
+      const wanted = expected.images.map((image, index) => image.path ?? byName[index]);
+      results[page] = { milliseconds, ...frame, images, expected: wanted };
       if (which === "prototype") return;
 
-      expect(frame.images.length).toBe(expected.images.length);
+      // Each image shows the file it should, or nothing when there is none.
+      expect(images.length).toBe(expected.images.length);
       expected.images.forEach((image, index) => {
         if (/^[a-z][a-z0-9+.-]*:/i.test(image.src)) return;
-        const shouldLoad = image.path !== null || byName[index] !== null;
-        expect({ src: image.src, loaded: frame.images[index].loaded }).toEqual({ src: image.src, loaded: shouldLoad });
+        const shown = images[index].loaded ? images[index].path : null;
+        expect({ src: image.src, shown }).toEqual({ src: image.src, shown: wanted[index] });
       });
       expect(frame.vaultStylesheetLinks).toBe(0);
       expect(frame.script).toBe(null);
+      expect(frame.globals).toEqual([]);
       expect(frame.readingStyle).toBe(!expected.ownStyles);
       if (expected.sheets.some((sheet) => /common\.css|legacy\.css/.test(sheet))) {
         expect(frame.markers.common).toBe("loaded");

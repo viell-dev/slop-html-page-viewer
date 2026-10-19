@@ -1,6 +1,7 @@
 // Compares the corpus results of the plugin with those of the frozen
 // prototype build, on the same Obsidian version: it fails if the prototype
-// showed an image that the plugin does not, and prints how the two differ.
+// showed an image that the plugin does not show, or shows from another file,
+// and prints how the two differ.
 //
 // Usage: node test/e2e/corpus/compare.mjs [results directory]
 
@@ -39,8 +40,12 @@ for (const name of prototypes) {
       totals.images += 1;
       if (image.loaded) totals.prototype += 1;
       if (after.images[index]?.loaded) totals.viewer += 1;
-      if (image.loaded && !after.images[index]?.loaded) {
-        console.error(`Regression on ${page}: the prototype shows ${image.src}, the plugin does not.`);
+      const shown = after.images[index]?.loaded ? after.images[index].path : null;
+      if (image.loaded && shown !== image.path) {
+        console.error(
+          `Regression on ${page}: the prototype shows ${image.path ?? image.url} for ${image.src}, ` +
+            `the plugin ${shown === null ? "nothing" : shown}.`,
+        );
         regressions += 1;
       }
     });

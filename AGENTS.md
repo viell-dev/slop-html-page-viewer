@@ -49,6 +49,10 @@ a merge commit after checking the exact head: `gh pr merge --merge --match-head-
   upstream-bound branch into it with `--no-ff`, resolve the conflicts and the fork's documents
   there, and open the pull request from it. The upstream-bound commits reach `main` unchanged. For
   the lockfile, take `main`'s and rerun the branch's `npm install` commands.
+- Review bots on the owner's account, Sourcery and CodeRabbit, may comment on pull requests. Treat
+  their threads as review: check each claim, fix what holds or answer why not, and resolve the
+  thread; the ruleset requires resolved threads. Check that a merge succeeded before deleting its
+  branch.
 - GitHub does not delete merged branches. Keep an upstream-bound branch until upstream merges or
   declines it, or until #2 records that upstream is no longer followed; delete other branches after
   merging.
