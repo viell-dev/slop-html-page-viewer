@@ -100,7 +100,11 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute.
   The measurements behind this design are in #7: in Obsidian, only a `srcdoc` frame with Obsidian's
   origin (`allow-same-origin`) loads vault files, and such a frame inherits Obsidian's policy, which
-  allows only inline styles. Recheck them with the end-to-end suite when Obsidian changes.-
+  allows only inline styles. Recheck them with the end-to-end suite when Obsidian changes.
+- `src/reading.ts` builds the reading style from Obsidian's theme variables, for pages without a
+  `<style>` or a stylesheet link. `preparePage` adds it to the copy; on Obsidian's `css-change`
+  event the view replaces its text in place when it can reach the page (scripts off), and prepares
+  the page again otherwise. Theme values are stripped of characters that could end a declaration.-
   `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when its first argument is
   `production`. `styles.css` is the plugin's stylesheet; `test-fixtures/` holds HTML files for
   manual and automated tests.

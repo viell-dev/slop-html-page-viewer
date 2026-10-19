@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import "./support/dom";
-import { absoluteUrls, inlineStylesheet, type PageContext, pagePolicy, preparePage, vaultPath } from "../src/document";
+import {
+  absoluteUrls,
+  inlineStylesheet,
+  type PageContext,
+  type PageOptions,
+  pagePolicy,
+  preparePage,
+  vaultPath,
+} from "../src/document";
+import { READING_STYLE_ID } from "../src/reading";
 
 const VAULT = "app://vault-id/home/user/My%20Vault/";
 
@@ -16,6 +25,10 @@ function context(files: Record<string, string>, page = "Saved/Example article.ht
       return files[path] ?? null;
     },
   };
+}
+
+async function prepare(html: string, ctx: PageContext, options?: PageOptions): Promise<string> {
+  return (await preparePage(html, ctx, options)).html;
 }
 
 function parse(html: string): Document {
@@ -122,7 +135,7 @@ describe("inlineStylesheet", () => {
 
 describe("preparePage", () => {
   it("sets the base to the page's location and adds the vault policy first", async () => {
-    const page = parse(await preparePage("<!doctype html><title>T</title><img src='a.png'>", context({})));
+    const page = parse(await prepare("<!doctype html><title>T</title><img src='a.png'>", context({})));
     const [policy, base] = [...page.head.children];
     assert.equal(policy.getAttribute("http-equiv"), "Content-Security-Policy");
     assert.equal(policy.getAttribute("content"), pagePolicy(VAULT));
@@ -131,7 +144,7 @@ describe("preparePage", () => {
   });
 
   it("respects the page's own base, resolved from the file's location", async () => {
-    const page = parse(await preparePage(`<base href="../Assets/" target="_self"><img src="a.png">`, context({})));
+    const page = parse(await prepare(`<base href="../Assets/" target="_self"><img src="a.png">`, context({})));
     const bases = page.querySelectorAll("base");
     assert.equal(bases[0].getAttribute("href"), `${VAULT}Assets/`);
     assert.equal(bases[1].getAttribute("target"), "_self", "the page's own base stays for its target");
@@ -140,7 +153,7 @@ describe("preparePage", () => {
   it("copies linked vault stylesheets into the page", async () => {
     const ctx = context({ "Saved/style.css": "body { background: url(bg.png) }" });
     const page = parse(
-      await preparePage(
+      await prepare(
         `<link rel="stylesheet" href="style.css" media="screen"><link rel="StyleSheet preload" href="style.css">`,
         ctx,
       ),
@@ -161,7 +174,7 @@ describe("preparePage", () => {
       `<link rel="icon" href="favicon.ico">`,
       `<link rel="stylesheet" href="../../../../outside.css">`,
     ].join("");
-    const page = parse(await preparePage(html, ctx));
+    const page = parse(await prepare(html, ctx));
     assert.equal(page.querySelectorAll("link").length, 5);
     assert.deepEqual(ctx.reads, ["Saved/missing.css"]);
   });
@@ -172,7 +185,7 @@ describe("preparePage", () => {
       "Saved/imported.css": `a::after { content: "</style><img src=x>" }`,
     });
     const html = `<link rel="stylesheet" href="evil.css"><style>@import "imported.css";</style>`;
-    const page = parse(await preparePage(html, ctx));
+    const page = parse(await prepare(html, ctx));
     assert.equal(page.querySelectorAll("script, img").length, 0, "no markup comes out of a stylesheet");
     const styles = page.querySelectorAll("style");
     assert.equal(styles.length, 2);
@@ -182,26 +195,62 @@ describe("preparePage", () => {
 
   it("inlines imports in the page's own style elements", async () => {
     const ctx = context({ "Saved/extra.css": "p { margin: 0 }" });
-    const page = parse(await preparePage(`<style>@import "extra.css"; h1 { color: red }</style>`, ctx));
+    const page = parse(await prepare(`<style>@import "extra.css"; h1 { color: red }</style>`, ctx));
     assert.equal(page.querySelector("style")?.textContent, "p { margin: 0 } h1 { color: red }");
   });
 
   it("removes refreshes, which would navigate the frame away from the copy", async () => {
     const html = `<meta http-equiv=" Refresh " content="0; url=../../outside.html"><meta http-equiv="content-type" content="text/html">`;
-    const page = parse(await preparePage(html, context({})));
+    const page = parse(await prepare(html, context({})));
     assert.equal(page.querySelectorAll('meta[http-equiv=" Refresh "]').length, 0);
     assert.equal(page.querySelectorAll('meta[http-equiv="content-type"]').length, 1);
   });
 
   it("keeps the doctype, or its absence", async () => {
-    assert.match(await preparePage("<!DOCTYPE html><p>x</p>", context({})), /^<!DOCTYPE html>\n<html>/);
-    assert.match(await preparePage("<p>quirks</p>", context({})), /^<html>/);
+    assert.match(await prepare("<!DOCTYPE html><p>x</p>", context({})), /^<!DOCTYPE html>\n<html>/);
+    assert.match(await prepare("<p>quirks</p>", context({})), /^<html>/);
   });
 
   it("never runs or loads anything while preparing", async () => {
     const html = `<script>globalThis.ran = true</script><img src="x" onerror="globalThis.ran = true">`;
-    const page = parse(await preparePage(html, context({})));
+    const page = parse(await prepare(html, context({})));
     assert.equal((globalThis as { ran?: boolean }).ran, undefined);
     assert.equal(page.querySelectorAll("script").length, 1, "scripts stay for the sandbox to decide");
+  });
+
+  describe("reading style", () => {
+    const READING = "body { color: lime }";
+
+    it("is added to a page without styles of its own, after the base", async () => {
+      const prepared = await preparePage("<h1>Plain</h1><p style='width: 100%'>x</p>", context({}), { readingStyle: READING });
+      const page = parse(prepared.html);
+      const style = page.getElementById(READING_STYLE_ID);
+      assert.equal(prepared.ownStyles, false);
+      assert.equal(style?.textContent, READING);
+      assert.equal(style?.previousElementSibling?.tagName, "BASE");
+    });
+
+    for (const [name, html] of [
+      ["a <style> element", "<style>p { margin: 0 }</style><p>x</p>"],
+      ["a linked vault stylesheet", `<link rel="stylesheet" href="style.css"><p>x</p>`],
+      ["a stylesheet from the web", `<link rel="stylesheet" href="https://cdn.example.com/a.css"><p>x</p>`],
+    ]) {
+      it(`is not added to a page with ${name}`, async () => {
+        const prepared = await preparePage(html, context({ "Saved/style.css": "p {}" }), { readingStyle: READING });
+        assert.equal(prepared.ownStyles, true);
+        assert.equal(parse(prepared.html).getElementById(READING_STYLE_ID), null);
+      });
+    }
+
+    it("is not added when the view does not ask for it", async () => {
+      const prepared = await preparePage("<p>x</p>", context({}));
+      assert.equal(prepared.ownStyles, false);
+      assert.equal(parse(prepared.html).getElementById(READING_STYLE_ID), null);
+    });
+
+    it("cannot close its style element", async () => {
+      const prepared = await preparePage("<p>x</p>", context({}), { readingStyle: "</style><script>x()</script>" });
+      assert.equal(parse(prepared.html).querySelectorAll("script").length, 0);
+    });
   });
 });

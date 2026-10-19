@@ -1,6 +1,6 @@
 // Reads the screenshots WebdriverIO takes, which are 8-bit, non-interlaced
 // RGB or RGBA PNG images, so that tests can check what a frame shows even when
-// they cannot reach into its document, and writes solid-colour fixtures.
+// they cannot reach into its document, and writes solid-color fixtures.
 
 import zlib from "node:zlib";
 
@@ -38,7 +38,7 @@ function chunk(type: string, body: Buffer): Buffer {
   return Buffer.concat([length, typed, check]);
 }
 
-/** A square PNG of one colour, for fixtures that tests write at run time. */
+/** A square PNG of one color, for fixtures that tests write at run time. */
 export function solidPng(size: number, color: Color): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(size, 0);
@@ -70,7 +70,7 @@ export function decodePng(png: Buffer): Pixels {
       height = body.readUInt32BE(4);
       const [bitDepth, colorType, , , interlace] = body.subarray(8, 13);
       if (bitDepth !== 8 || interlace !== 0 || (colorType !== 2 && colorType !== 6)) {
-        throw new Error(`Unsupported PNG: depth ${bitDepth}, colour type ${colorType}`);
+        throw new Error(`Unsupported PNG: depth ${bitDepth}, color type ${colorType}`);
       }
       channels = colorType === 6 ? 4 : 3;
     } else if (type === "IDAT") {
