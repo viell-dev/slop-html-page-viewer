@@ -1,7 +1,10 @@
 // End-to-end tests in real Obsidian, through WebdriverIO and
 // wdio-obsidian-service. Build the plugin at the repository root first; this
-// configuration copies the built plugin into dist/e2e-plugin and installs it
-// into a copy of vaults/pages.
+// configuration copies the built plugin into dist/e2e-plugin. Each Obsidian
+// version runs the suites against a copy of vaults/pages, and the corpus spec
+// against the archive corpus that corpus/generate.mjs builds. The corpus spec
+// also runs once with the frozen prototype build (prototype/), for
+// corpus/compare.mjs.
 //
 // OBSIDIAN_VERSIONS lists "appVersion/installerVersion" pairs. The default
 // tests the oldest public release the manifest allows on the oldest installer
@@ -9,6 +12,7 @@
 // 1.5.0, was an Insider build, which needs an account to download; 1.5.3 was the
 // first public 1.5 release.
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { parseObsidianVersions } from "wdio-obsidian-service";
@@ -22,6 +26,9 @@ function setting(value: string | undefined): string | undefined {
 const cacheDir = path.resolve(setting(process.env.OBSIDIAN_CACHE_DIR) ?? path.join(root, ".obsidian-cache"));
 const outputDir = path.resolve(setting(process.env.E2E_OUTPUT_DIR) ?? path.join(root, "test-results", "e2e"));
 const pluginDir = path.join(root, "dist", "e2e-plugin");
+const corpusDir = path.join(root, "dist", "e2e-vaults", "archive");
+const prototypeDir = path.join(import.meta.dirname, "prototype");
+const specs = (name: string) => path.join(import.meta.dirname, "specs", name);
 
 const versions = await parseObsidianVersions(
   setting(process.env.OBSIDIAN_VERSIONS) ?? "1.5.3/earliest latest/latest",
@@ -43,24 +50,45 @@ if (setting(process.env.PRINT_OBSIDIAN_CACHE_KEY) !== undefined) {
   for (const entry of ["logs", "screenshots"]) {
     fs.rmSync(path.join(outputDir, entry), { recursive: true, force: true });
   }
+  for (const entry of fs.existsSync(outputDir) ? fs.readdirSync(outputDir) : []) {
+    if (/^corpus-.*\.json$/.test(entry)) fs.rmSync(path.join(outputDir, entry));
+  }
   fs.mkdirSync(path.join(outputDir, "screenshots"), { recursive: true });
+  const generated = spawnSync(process.execPath, [path.join(import.meta.dirname, "corpus", "generate.mjs"), corpusDir], {
+    stdio: "inherit",
+  });
+  if (generated.status !== 0) throw new Error("Generating the archive corpus failed.");
 }
+
+function capability(appVersion: string, installerVersion: string, plugin: string, vault: string, files: string[]) {
+  return {
+    browserName: "obsidian",
+    browserVersion: appVersion,
+    "wdio:specs": files,
+    "wdio:obsidianOptions": { installerVersion, plugins: [plugin], vault },
+    "goog:chromeOptions": { args: ["--disable-dev-shm-usage"] },
+  };
+}
+
+const latest = versions.at(-1)!;
 
 export const config: WebdriverIO.Config = {
   runner: "local",
   framework: "mocha",
   specs: [path.join(import.meta.dirname, "specs/**/*.e2e.ts")],
   maxInstances: Number(setting(process.env.WDIO_MAX_INSTANCES) ?? 2),
-  capabilities: versions.map(([appVersion, installerVersion]) => ({
-    browserName: "obsidian",
-    browserVersion: appVersion,
-    "wdio:obsidianOptions": {
-      installerVersion,
-      plugins: [pluginDir],
-      vault: path.join(import.meta.dirname, "vaults", "pages"),
-    },
-    "goog:chromeOptions": { args: ["--disable-dev-shm-usage"] },
-  })),
+  capabilities: [
+    ...versions.flatMap(([appVersion, installerVersion]) => [
+      capability(appVersion, installerVersion, pluginDir, path.join(import.meta.dirname, "vaults", "pages"), [
+        specs("viewer.e2e.ts"),
+        specs("resources.e2e.ts"),
+        specs("theme.e2e.ts"),
+        specs("links.e2e.ts"),
+      ]),
+      capability(appVersion, installerVersion, pluginDir, corpusDir, [specs("corpus.e2e.ts")]),
+    ]),
+    capability(latest[0], latest[1], prototypeDir, corpusDir, [specs("corpus.e2e.ts")]),
+  ],
   services: ["obsidian"],
   reporters: ["obsidian"],
   cacheDir,

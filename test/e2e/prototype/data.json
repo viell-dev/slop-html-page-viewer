@@ -1,0 +1,6 @@
+{
+  "assetMode": "direct",
+  "enableScripts": false,
+  "rewriteTags": "a, audio, embed, iframe, image, img, input, link, object, script, source, style, track, use, video",
+  "maxInlineMib": 8
+}
