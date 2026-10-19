@@ -20,6 +20,13 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      # WebdriverIO's packages move to a new major version together, once
+      # wdio-obsidian-service supports it; see #21.
+      - dependency-name: "@wdio/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "webdriverio"
+        update-types: ["version-update:semver-major"]
     groups:
       e2e:
         patterns: ["*"]
