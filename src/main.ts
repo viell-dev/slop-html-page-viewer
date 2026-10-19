@@ -66,7 +66,10 @@ class HtmlPageViewerView extends TextFileView {
     return "file-code-2";
   }
 
-  setViewData(data: string): void {
+  setViewData(data: string, clear: boolean): void {
+    // Obsidian sets `clear` when a different file opens in this view, which
+    // must start with scripts off like a new tab.
+    if (clear) this.clear();
     this.data = data;
     this.render();
   }
@@ -77,6 +80,7 @@ class HtmlPageViewerView extends TextFileView {
 
   clear(): void {
     this.data = "";
+    this.scriptsEnabled = false;
     this.iframe = null;
     this.contentEl.empty();
   }
