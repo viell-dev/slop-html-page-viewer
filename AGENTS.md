@@ -91,11 +91,17 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 
 ## Technical map
 
-- `src/main.ts` holds the whole plugin, as upstream wrote it: the plugin class, which registers the
-  view for `.html` and `.htm`; `HtmlPageViewerView`, a `TextFileView` that renders the toolbar and
-  either the sandboxed frame or the source view; `sandboxValue`, the one place that computes the
-  frame's sandbox; and the per-line source highlighter.
-- `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when its first argument is
+- `src/main.ts` holds the plugin class, which registers the view for `.html` and `.htm`;
+  `HtmlPageViewerView`, a `TextFileView` that renders the toolbar and either the sandboxed frame or
+  the source view; `sandboxValue`, the one place that computes the frame's sandbox; and the per-line
+  source highlighter.
+- `src/document.ts` prepares the copy of the page that the frame shows through `srcdoc`: a `<base>`
+  at the file's resource URL, a Content Security Policy that keeps Obsidian's file URLs inside the
+  vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute.
+  The measurements behind this design are in #7: in Obsidian, only a `srcdoc` frame with Obsidian's
+  origin (`allow-same-origin`) loads vault files, and such a frame inherits Obsidian's policy, which
+  allows only inline styles. Recheck them with the end-to-end suite when Obsidian changes.-
+  `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when its first argument is
   `production`. `styles.css` is the plugin's stylesheet; `test-fixtures/` holds HTML files for
   manual and automated tests.
 - `scripts/test.mjs` bundles each `test/*.test.ts` into `dist/test/` and runs it with Node.js's test

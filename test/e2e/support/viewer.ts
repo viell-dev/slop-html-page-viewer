@@ -2,6 +2,7 @@
 
 import path from "node:path";
 import { browser } from "@wdio/globals";
+import { type Color, decodePng } from "./pixels.ts";
 
 export const PLUGIN_ID = "viell-html-page-viewer";
 export const VIEW_TYPE = "html-page-viewer";
@@ -66,4 +67,28 @@ export async function saveScreenshot(name: string): Promise<void> {
   const output = process.env.E2E_OUTPUT_DIR?.trim() || path.join(root, "test-results", "e2e");
   const version = browser.getObsidianVersion();
   await browser.saveScreenshot(path.join(output, "screenshots", `${version}-${name}.png`));
+}
+
+/** The vault's folder on disk. */
+export async function vaultFolder(): Promise<string> {
+  return browser.executeObsidian(({ app }) => (app.vault.adapter as unknown as { basePath: string }).basePath);
+}
+
+/** Waits until the active tab's frame has rendered its page. */
+export async function waitForPage(): Promise<void> {
+  const frame = await browser.$(`${ACTIVE} iframe.html-page-viewer__frame`);
+  await frame.waitForExist();
+  await browser.waitUntil(async () => ((await frame.getAttribute("srcdoc")) ?? "") !== "", {
+    timeoutMsg: "the frame got no page",
+  });
+  // The frame's load event is not observable from here when the page has an
+  // opaque origin, so give its resources a moment.
+  await browser.pause(1000);
+}
+
+/** How many pixels of the active tab's frame show `color`. */
+export async function framePixels(color: Color): Promise<number> {
+  const frame = await browser.$(`${ACTIVE} iframe.html-page-viewer__frame`);
+  const shot = await browser.takeElementScreenshot(await frame.elementId);
+  return decodePng(Buffer.from(shot, "base64")).count(color);
 }

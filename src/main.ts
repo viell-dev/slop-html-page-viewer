@@ -6,6 +6,7 @@ import {
   WorkspaceLeaf,
   setIcon,
 } from "obsidian";
+import { preparePage, withoutQuery } from "./document";
 
 const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
 const HTML_EXTENSIONS = ["html", "htm"];
@@ -116,8 +117,8 @@ class HtmlPageViewerView extends TextFileView {
     });
     security.createSpan({
       text: this.scriptsEnabled
-        ? "Sandbox allows scripts only; forms, popups, top navigation, and same-origin access remain blocked."
-        : "Sandbox blocks scripts, forms, popups, top navigation, and same-origin access.",
+        ? "Sandbox allows scripts, isolated from Obsidian and from this vault's files; forms, popups, and top navigation remain blocked."
+        : "Sandbox blocks scripts, forms, popups, and top navigation; the page can show files from this vault.",
     });
 
     if (this.mode === "source") {
@@ -192,8 +193,36 @@ class HtmlPageViewerView extends TextFileView {
       },
     });
     iframe.setAttribute("sandbox", sandboxValue(this.scriptsEnabled));
-    iframe.src = withCacheBust(this.app.vault.getResourcePath(file));
     this.iframe = iframe;
+    void this.loadPage(file, this.data, iframe);
+  }
+
+  /**
+   * Shows a copy of the page in the frame, prepared so that its references to
+   * vault files load (see document.ts). The frame shows the file as it is if
+   * preparing the copy fails, and nothing if the view moved on meanwhile.
+   */
+  private async loadPage(file: TFile, data: string, iframe: HTMLIFrameElement): Promise<void> {
+    const pageUrl = withoutQuery(this.app.vault.getResourcePath(file));
+    const depth = file.path.split("/").length - 1;
+    const vaultUrl = new URL("../".repeat(depth) || "./", pageUrl).href;
+    let page: string;
+    try {
+      page = await preparePage(data, {
+        pageUrl,
+        vaultUrl,
+        read: (path) => this.readVaultText(path),
+      });
+    } catch (error) {
+      console.error("HTML Page Viewer: could not prepare the page", error);
+      page = data;
+    }
+    if (this.iframe === iframe) iframe.srcdoc = page;
+  }
+
+  private async readVaultText(path: string): Promise<string | null> {
+    const target = this.app.vault.getAbstractFileByPath(path);
+    return target instanceof TFile ? this.app.vault.cachedRead(target) : null;
   }
 
   private async reloadFile(): Promise<void> {
@@ -213,8 +242,14 @@ class HtmlPageViewerView extends TextFileView {
   }
 }
 
+/**
+ * The frame's sandbox. With scripts off, the page keeps Obsidian's origin so
+ * that it can load the vault's files; with scripts on, it gets an opaque origin
+ * instead. Scripts and same-origin access are never granted together, because
+ * a page with both could reach Obsidian and the vault through scripts.
+ */
 export function sandboxValue(scriptsEnabled: boolean): string {
-  return scriptsEnabled ? "allow-scripts" : "";
+  return scriptsEnabled ? "allow-scripts" : "allow-same-origin";
 }
 
 function renderSource(parent: HTMLElement, data: string): void {
@@ -367,11 +402,6 @@ function createTextButton(parent: HTMLElement, label: string): HTMLButtonElement
 
 function renderMessage(parent: HTMLElement, message: string): void {
   parent.createDiv({ cls: "html-page-viewer__message", text: message });
-}
-
-function withCacheBust(url: string): string {
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}html-page-viewer-refresh=${Date.now()}`;
 }
 
 function isHtmlFile(file: TFile | null): file is TFile {

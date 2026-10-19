@@ -19,6 +19,8 @@ const globals = [
   "HTMLIFrameElement",
   "DocumentFragment",
   "Text",
+  "DOMParser",
+  "XMLSerializer",
 ] as const;
 for (const name of globals) {
   Object.defineProperty(globalThis, name, {

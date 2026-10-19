@@ -61,6 +61,8 @@ export class App {
 
   readonly vault = {
     getResourcePath: (file: TFile): string => resourcePath(file),
+    getAbstractFileByPath: (path: string): TFile | null => (this.files.has(path) ? new TFile(path) : null),
+    cachedRead: async (file: TFile): Promise<string> => this.files.get(file.path) ?? "",
     read: async (file: TFile): Promise<string> => {
       this.reads.push(file.path);
       if (this.readError) throw this.readError;
