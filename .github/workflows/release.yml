@@ -75,7 +75,12 @@ jobs:
         run: |
           # The checksums go last, so that they are only there once the rest is.
           assets="release/viell-html-page-viewer-$VERSION.zip release/main.js release/manifest.json release/styles.css release/SHA256SUMS"
-          tag=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$VERSION" --jq .sha 2>/dev/null || true)
+          # gh prints an error's body on standard output, so read the commit
+          # only when the request succeeds: the tag exists.
+          tag=""
+          if found=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$VERSION" --jq .sha 2>/dev/null); then
+            tag=$found
+          fi
           if [ -n "$tag" ] && [ "$tag" != "$GITHUB_SHA" ]; then
             echo "The tag $VERSION points to $tag, not to $GITHUB_SHA; refusing to publish." >&2
             exit 1
