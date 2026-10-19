@@ -46,9 +46,9 @@ a merge commit after checking the exact head: `gh pr merge --merge --match-head-
   against the current `main`; rerunning the workflow tests the old merge commit.
 - An upstream-bound branch that conflicts with `main`, as one that changes `package.json` or the
   lockfile does, is merged through a second branch, `merge-<branch>`, created from `main`: merge the
-  upstream-bound branch into it with `--no-ff`, resolve the conflicts and the fork's documents there,
-  and open the pull request from it. The upstream-bound commits reach `main` unchanged. For the
-  lockfile, take `main`'s and rerun the branch's `npm install` commands.
+  upstream-bound branch into it with `--no-ff`, resolve the conflicts and the fork's documents
+  there, and open the pull request from it. The upstream-bound commits reach `main` unchanged. For
+  the lockfile, take `main`'s and rerun the branch's `npm install` commands.
 - GitHub does not delete merged branches. Keep an upstream-bound branch until upstream merges or
   declines it, or until #2 records that upstream is no longer followed; delete other branches after
   merging.
@@ -73,9 +73,10 @@ Labels follow [`.github/labels.json`](./.github/labels.json); keep GitHub in syn
 
 `.github/rulesets/` records the rulesets for `main` and `prototype`; keep it and GitHub's settings
 in sync. The required checks bind to the `verify (ubuntu-latest)` and `verify (windows-latest)` job
-names in `ci.yml` and to GitHub Actions, app 15368, so renaming a job needs a ruleset update. Zero
-required approvals is deliberate for a single-account, agent-maintained repository; pull requests,
-passing checks, and resolved review threads remain mandatory.
+names and the `e2e` job in `ci.yml`, and to GitHub Actions, app 15368, so renaming a job needs a
+ruleset update. The tests in Obsidian are required because they are the only test of what users see.
+Zero required approvals is deliberate for a single-account, agent-maintained repository; pull
+requests, passing checks, and resolved review threads remain mandatory.
 
 Other repository settings, each recorded here with its reason when it changes:
 
@@ -99,10 +100,14 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   manual and automated tests.
 - `scripts/test.mjs` bundles each `test/*.test.ts` into `dist/test/` and runs it with Node.js's test
   runner. `test/support/dom.ts` installs a jsdom window and Obsidian's element helpers as globals,
-  `test/support/obsidian.ts` stands in for the `obsidian` module and records what the plugin asks
-  of it, and `test/support/harness.ts` loads the plugin and opens views as Obsidian does. Extend the
+  `test/support/obsidian.ts` stands in for the `obsidian` module and records what the plugin asks of
+  it, and `test/support/harness.ts` loads the plugin and opens views as Obsidian does. Extend the
   stand-in when the plugin uses more of Obsidian's API, keeping it as Obsidian behaves.
   `test/policy.test.ts` checks the built bundle for the APIs the security model rules out.
+- `test/e2e/` runs the built plugin in Obsidian: `wdio.conf.mts` copies `main.js`, `manifest.json`,
+  and `styles.css` into `dist/e2e-plugin/` and installs it into a copy of `vaults/pages/`;
+  `support/viewer.ts` drives the view; `specs/` holds the suites. Measure loading, origins, and link
+  behavior there, never only in jsdom. Keep the fixture vault synthetic.
 - The view type, CSS classes, and command ids stay upstream's; only the manifest's id, name, author,
   and description identify the fork.
 - Deploy only for an approved test request (#12): build, then copy `main.js`, `manifest.json`, and

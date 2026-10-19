@@ -12,6 +12,24 @@ updates:
     groups:
       development:
         dependency-type: development
+  # The end-to-end test tools, kept apart from the root package; see #21.
+  - package-ecosystem: npm
+    directory: /test/e2e
+    labels: ["Type: Maintenance", "Target: Fork"]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      e2e:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /test/e2e
+    labels: ["Type: Maintenance", "Target: Fork"]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
   - package-ecosystem: github-actions
     directory: /
     labels: ["Type: Maintenance", "Target: Fork"]
