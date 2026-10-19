@@ -84,6 +84,8 @@ class HtmlPageViewerView extends TextFileView {
   private scriptsEnabled: boolean;
   private themeEnabled: boolean;
   private iframe: HTMLIFrameElement | null = null;
+  /** The reading style in the frame's page, or null if it has none. */
+  private shownStyle: string | null = null;
   private themeButton: HTMLButtonElement | null = null;
 
   constructor(
@@ -111,6 +113,13 @@ class HtmlPageViewerView extends TextFileView {
   onload(): void {
     super.onload();
     this.registerEvent(this.app.workspace.on("css-change", () => this.updateTheme()));
+    // Obsidian's settings change through the vault's config. Obsidian 1.14
+    // names the setting that changed; 1.5 names none.
+    this.registerEvent(
+      (this.app.vault as Events).on("config-changed", (setting?: unknown) => {
+        if (setting === undefined || setting === "readableLineLength") this.updateTheme();
+      }),
+    );
     this.registerEvent((this.app.workspace as Events).on(SETTINGS_CHANGE, () => this.updateWrap()));
   }
 
@@ -151,6 +160,8 @@ class HtmlPageViewerView extends TextFileView {
   private render(): void {
     const container = this.contentEl;
     container.empty();
+    this.iframe = null;
+    this.shownStyle = null;
     container.addClass("html-page-viewer");
 
     const header = container.createDiv({ cls: "html-page-viewer__header" });
@@ -254,13 +265,27 @@ class HtmlPageViewerView extends TextFileView {
     this.themeButton = themeButton;
   }
 
-  /** Follows a change of Obsidian's theme in the page, in place where possible. */
+  /** The reading style for Obsidian's current theme and settings. */
+  private readingStyle(): string {
+    // `getConfig` is not in Obsidian's API types, though Obsidian 1.5 and later
+    // have it. Readable line length is on by default.
+    const vault = this.app.vault as unknown as { getConfig?: (setting: string) => unknown };
+    return readingStylesheet(readTheme(this.contentEl.ownerDocument), vault.getConfig?.("readableLineLength") !== false);
+  }
+
+  /**
+   * Follows a change of Obsidian's theme or of its Readable line length setting
+   * in the page, in place where possible.
+   */
   private updateTheme(): void {
     const iframe = this.iframe;
-    if (!iframe || !this.themeEnabled) return;
+    if (!iframe || this.shownStyle === null) return;
+    const next = this.readingStyle();
+    if (next === this.shownStyle) return;
     const style = iframe.contentDocument?.getElementById(READING_STYLE_ID);
     if (style) {
-      style.textContent = styleElementText(readingStylesheet(readTheme(this.contentEl.ownerDocument)));
+      style.textContent = styleElementText(next);
+      this.shownStyle = next;
     } else if (this.scriptsEnabled) {
       // With scripts on, the page has an opaque origin, so prepare it again.
       this.render();
@@ -296,11 +321,10 @@ class HtmlPageViewerView extends TextFileView {
     const pageUrl = withoutQuery(this.app.vault.getResourcePath(file));
     const depth = file.path.split("/").length - 1;
     const vaultUrl = new URL("../".repeat(depth) || "./", pageUrl).href;
-    const readingStyle = this.themeEnabled
-      ? readingStylesheet(readTheme(this.contentEl.ownerDocument))
-      : undefined;
+    const readingStyle = this.themeEnabled ? this.readingStyle() : undefined;
     let page: string;
     let ownStyles = false;
+    let shownStyle: string | null = null;
     try {
       const prepared = await preparePage(
         data,
@@ -315,11 +339,14 @@ class HtmlPageViewerView extends TextFileView {
       );
       page = prepared.html;
       ownStyles = prepared.ownStyles;
+      // preparePage adds the reading style only to pages without styles.
+      shownStyle = ownStyles ? null : (readingStyle ?? null);
     } catch (error) {
       console.error("HTML Page Viewer: could not prepare the page", error);
       page = data;
     }
     if (this.iframe !== iframe) return;
+    this.shownStyle = shownStyle;
     const watched = new WeakSet<Document>();
     const watch = (): boolean => {
       // Only a page with Obsidian's origin (scripts off) can be reached.

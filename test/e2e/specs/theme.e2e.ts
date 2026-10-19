@@ -48,6 +48,22 @@ async function markFrame(): Promise<void> {
   });
 }
 
+/** Sets Obsidian's "Readable line length", as its editor settings do. */
+async function setReadableLineLength(on: boolean): Promise<void> {
+  await browser.executeObsidian(({ app }, on) => {
+    (app.vault as unknown as { setConfig(setting: string, value: unknown): void }).setConfig("readableLineLength", on);
+  }, on);
+}
+
+/** The widths of the page's text and of the frame's viewport, in CSS pixels. */
+async function pageWidths(): Promise<{ text: number; viewport: number }> {
+  return browser.execute(() => {
+    const doc = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame")
+      ?.contentDocument;
+    return { text: doc?.body.getBoundingClientRect().width ?? 0, viewport: doc?.documentElement.clientWidth ?? 0 };
+  });
+}
+
 async function frameIsMarked(): Promise<boolean> {
   return browser.execute(
     () => document.querySelector(".workspace-leaf.mod-active iframe.html-page-viewer__frame[data-e2e-marker]") !== null,
@@ -78,6 +94,30 @@ describe("The reading style in Obsidian", function () {
     await setDark(true);
     await browser.pause(500);
     expect(await frameShare(await themeBackground())).toBeGreaterThan(0.5);
+  });
+
+  it("keeps to Obsidian's line width only with Readable line length on", async function () {
+    await openInActiveTab("Saved/Other page.html");
+    await waitForPage();
+    await markFrame();
+    const readable = await pageWidths();
+    expect(readable.viewport).toBeGreaterThan(readable.text + 100);
+    try {
+      await setReadableLineLength(false);
+      await browser.waitUntil(
+        async () => {
+          const { text, viewport } = await pageWidths();
+          return Math.abs(viewport - text) < 1;
+        },
+        { timeoutMsg: "The page did not take the full width without Readable line length" },
+      );
+      expect(await frameIsMarked()).toBe(true);
+    } finally {
+      await setReadableLineLength(true);
+    }
+    await browser.waitUntil(async () => (await pageWidths()).text === readable.text, {
+      timeoutMsg: "The page did not return to Obsidian's line width",
+    });
   });
 
   it("shows the page as a browser would when the theme is turned off", async function () {
