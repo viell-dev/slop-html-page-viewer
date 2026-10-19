@@ -22,10 +22,11 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   `allow-scripts`, nothing in the page can use that origin: no script runs, including event handler
   attributes and `javascript:` links, and forms, popups, and navigation of Obsidian's window stay
   blocked.
-- **Scripts on, for the current tab and file only.** The toolbar's scripts button turns scripts on.
-  The sandbox then grants only `allow-scripts`, so the page runs with an opaque origin and cannot
-  reach Obsidian or the vault's files. A tab starts with scripts off again for each file opened in
-  it.
+- **Scripts on, by choice.** The toolbar's scripts button turns scripts on for the open page, and
+  the **Scripts when a page opens** setting turns them on for every page as it opens. The sandbox
+  then grants only `allow-scripts`, so the page runs with an opaque origin and cannot reach Obsidian
+  or the vault's files. Each file opened in a tab starts as that setting says: with scripts off,
+  unless it is on.
 - **Never both.** Scripts and same-origin access are never granted together, because a page with
   both could reach Obsidian, and through it the vault and the computer. `sandboxValue` in
   `src/main.ts` is the one place that computes the sandbox, and tests cover it.
@@ -40,7 +41,8 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   page, and a link navigates the frame, which keeps its sandbox.
 - **What the plugin does.** It reads vault files, the page and the stylesheets the page links, to
   prepare the copy. It never writes to vault files, makes no network requests, and does not read or
-  write the clipboard.
+  write the clipboard. The one file it writes is its own settings, which Obsidian keeps in the
+  plugin's folder.
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with

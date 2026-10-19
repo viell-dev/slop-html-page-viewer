@@ -139,6 +139,91 @@ export class Plugin {
     this.commands.push(command);
     return command;
   }
+
+  /** The data Obsidian keeps for the plugin, in `data.json`; each save is recorded. */
+  data: unknown = null;
+  readonly saves: unknown[] = [];
+  readonly settingTabs: PluginSettingTab[] = [];
+
+  async loadData(): Promise<unknown> {
+    return this.data === null ? null : structuredClone(this.data);
+  }
+
+  async saveData(data: unknown): Promise<void> {
+    this.data = structuredClone(data);
+    this.saves.push(this.data);
+  }
+
+  addSettingTab(tab: PluginSettingTab): void {
+    this.settingTabs.push(tab);
+  }
+}
+
+export class PluginSettingTab {
+  readonly app: App;
+  readonly plugin: Plugin;
+  readonly containerEl: HTMLElement = document.createElement("div");
+
+  constructor(app: App, plugin: Plugin) {
+    this.app = app;
+    this.plugin = plugin;
+  }
+
+  display(): void {}
+}
+
+/** A toggle, as `Setting.addToggle` hands it out: a checkbox in the setting's element. */
+export class ToggleComponent {
+  readonly inputEl: HTMLInputElement;
+
+  constructor(parent: HTMLElement) {
+    this.inputEl = parent.createEl("input", { attr: { type: "checkbox" } });
+  }
+
+  setValue(value: boolean): this {
+    this.inputEl.checked = value;
+    return this;
+  }
+
+  getValue(): boolean {
+    return this.inputEl.checked;
+  }
+
+  onChange(callback: (value: boolean) => unknown): this {
+    this.inputEl.addEventListener("change", () => void callback(this.inputEl.checked));
+    return this;
+  }
+}
+
+/** One setting in a settings tab, rendered as Obsidian's class names describe it. */
+export class Setting {
+  readonly settingEl: HTMLElement;
+  private readonly nameEl: HTMLElement;
+  private readonly descEl: HTMLElement;
+  private readonly controlEl: HTMLElement;
+
+  constructor(containerEl: HTMLElement) {
+    this.settingEl = containerEl.createDiv({ cls: "setting-item" });
+    const info = this.settingEl.createDiv({ cls: "setting-item-info" });
+    this.nameEl = info.createDiv({ cls: "setting-item-name" });
+    this.descEl = info.createDiv({ cls: "setting-item-description" });
+    this.controlEl = this.settingEl.createDiv({ cls: "setting-item-control" });
+  }
+
+  setName(name: string): this {
+    this.nameEl.textContent = name;
+    return this;
+  }
+
+  setDesc(desc: string): this {
+    this.descEl.textContent = desc;
+    return this;
+  }
+
+  addToggle(build: (toggle: ToggleComponent) => unknown): this {
+    build(new ToggleComponent(this.controlEl));
+    return this;
+  }
 }
 
 export class TextFileView {
