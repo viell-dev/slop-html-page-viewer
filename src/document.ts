@@ -143,6 +143,15 @@ export async function inlineStylesheet(
   return result + absoluteUrls(css.slice(cursor), sheetUrl);
 }
 
+/**
+ * Stylesheet text that is safe inside a <style> element: the copy is
+ * serialized and parsed again, and `</style` would end the element there.
+ * `<\/style` is the same text to CSS.
+ */
+export function styleElementText(css: string): string {
+  return css.replace(/<\/(style)/gi, "<\\/$1");
+}
+
 function isStylesheetLink(element: Element): element is HTMLLinkElement {
   const rel = (element.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
   return rel.includes("stylesheet") && !rel.includes("alternate") && element.hasAttribute("href");
@@ -169,13 +178,13 @@ export async function preparePage(html: string, context: PageContext): Promise<s
       const value = link.getAttribute(name);
       if (value !== null) style.setAttribute(name, value);
     }
-    style.textContent = await inlineStylesheet(css, sheetUrl, context, new Set([path]));
+    style.textContent = styleElementText(await inlineStylesheet(css, sheetUrl, context, new Set([path])));
     link.replaceWith(style);
   }
 
   for (const style of doc.querySelectorAll("style")) {
     if (/@import/i.test(style.textContent ?? "")) {
-      style.textContent = await inlineStylesheet(style.textContent ?? "", baseUrl, context);
+      style.textContent = styleElementText(await inlineStylesheet(style.textContent ?? "", baseUrl, context));
     }
   }
 
