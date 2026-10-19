@@ -21,10 +21,11 @@ It is built for its owner's vaults, and anyone may build and use it under the li
 These are upstream's features, unchanged so far. The fork is being set up, and the changes planned
 for it are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues):
 
-- [local images, stylesheets, and media](https://github.com/viell-dev/slop-html-page-viewer/issues/7)
-  in the rendered page;
-- [a reading style that follows Obsidian's theme](https://github.com/viell-dev/slop-html-page-viewer/issues/8)
-  for pages without styles of their own;
+- [local images, stylesheets, and
+  media](https://github.com/viell-dev/slop-html-page-viewer/issues/7) in the rendered page;
+- [a reading style that follows Obsidian's
+  theme](https://github.com/viell-dev/slop-html-page-viewer/issues/8) for pages without styles of
+  their own;
 - [links that open where they should](https://github.com/viell-dev/slop-html-page-viewer/issues/9):
   external links in the browser, and links between vault files in Obsidian.
 
@@ -33,11 +34,11 @@ for it are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewe
 - Its plugin id is `viell-html-page-viewer` and its name "HTML Page Viewer (viell)", so that
   Obsidian never replaces it with an upstream release. Both plugins open `.html` and `.htm` files,
   so enable only one of them.
-- `npm run build` works on Windows. The fix is
-  [offered upstream](https://github.com/viggomeesters/obsidian-html-page-viewer/pull/1).
+- `npm run build` works on Windows. The fix is [offered
+  upstream](https://github.com/viggomeesters/obsidian-html-page-viewer/pull/1).
 
-Changes that could serve upstream's users are kept separate from fork-only ones and offered upstream;
-[issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
+Changes that could serve upstream's users are kept separate from fork-only ones and offered
+upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
 [CHANGELOG.md](CHANGELOG.md) is upstream's record of its releases.
 
 ## Install

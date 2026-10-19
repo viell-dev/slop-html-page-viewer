@@ -14,7 +14,8 @@ observations from it into synthetic fixtures.
 
 ## Upstream
 
-Upstream is [viggomeesters/obsidian-html-page-viewer](https://github.com/viggomeesters/obsidian-html-page-viewer).
+Upstream is
+[viggomeesters/obsidian-html-page-viewer](https://github.com/viggomeesters/obsidian-html-page-viewer).
 Pinned issue #2 is the overview of upstream defects, the changes offered upstream, and every check
 for a maintainer's response; keep it current.
 
@@ -34,28 +35,28 @@ for a maintainer's response; keep it current.
 ## Branches and merging
 
 Upstream-bound branches start from `upstream/main` and fork-only branches from `main`, as
-CONTRIBUTING.md describes; label each pull request `Target: Upstream` or `Target: Fork`. Merge with a
-merge commit after checking the exact head: `gh pr merge --merge --match-head-commit SHA`.
+CONTRIBUTING.md describes; label each pull request `Target: Upstream` or `Target: Fork`. Merge with
+a merge commit after checking the exact head: `gh pr merge --merge --match-head-commit SHA`.
 
 - Squash and rebase merging are disabled, because they would create commits that differ from the
   ones offered upstream, and later upstream syncs would conflict with them.
-- The ruleset does not require branches to be up to date with `main`, and the update-branch button is
-  off, because merging `main` into an upstream-bound branch adds fork-only files to it. When `main`
-  has moved since a pull request's CI ran, close and reopen the pull request to test it against the
-  current `main`; rerunning the workflow tests the old merge commit.
+- The ruleset does not require branches to be up to date with `main`, and the update-branch button
+  is off, because merging `main` into an upstream-bound branch adds fork-only files to it. When
+  `main` has moved since a pull request's CI ran, close and reopen the pull request to test it
+  against the current `main`; rerunning the workflow tests the old merge commit.
 - GitHub does not delete merged branches. Keep an upstream-bound branch until upstream merges or
   declines it, or until #2 records that upstream is no longer followed; delete other branches after
   merging.
-- `prototype` is the previous fork's build, which the owner's vault uses until #12 replaces it. It is
-  frozen by a ruleset: read it as a reference for redoing its work, and never try to update it.
+- `prototype` is the previous fork's build, which the owner's vault uses until #12 replaces it. It
+  is frozen by a ruleset: read it as a reference for redoing its work, and never try to update it.
 - Never commit `main.js`. The fork has no tags or releases. Change the manifest's version only in a
   fork-only commit that prepares a deployment.
 
 ## Issues and labels
 
-Take each assigned issue through validation (reproduce or measure on current `main`), a decision with
-its reasoning and rejected alternatives, and a fix; the issue, not the session, is the record. Labels
-follow [`.github/labels.json`](./.github/labels.json); keep GitHub in sync with it.
+Take each assigned issue through validation (reproduce or measure on current `main`), a decision
+with its reasoning and rejected alternatives, and a fix; the issue, not the session, is the record.
+Labels follow [`.github/labels.json`](./.github/labels.json); keep GitHub in sync with it.
 
 - Every item has one `Type:` label and at most one `Status:` label. `Status: Confirmed` means a
   reproduced defect or an accepted request; remove it when the item closes.
@@ -65,8 +66,8 @@ follow [`.github/labels.json`](./.github/labels.json); keep GitHub in sync with 
 
 ## Settings
 
-`.github/rulesets/` records the rulesets for `main` and `prototype`; keep it and GitHub's settings in
-sync. The required checks bind to the `verify (ubuntu-latest)` and `verify (windows-latest)` job
+`.github/rulesets/` records the rulesets for `main` and `prototype`; keep it and GitHub's settings
+in sync. The required checks bind to the `verify (ubuntu-latest)` and `verify (windows-latest)` job
 names in `ci.yml` and to GitHub Actions, app 15368, so renaming a job needs a ruleset update. Zero
 required approvals is deliberate for a single-account, agent-maintained repository; pull requests,
 passing checks, and resolved review threads remain mandatory.

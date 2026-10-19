@@ -1,12 +1,12 @@
 # Contributing
 
-Issues and pull requests from people and from agents are welcome. This is a personal fork, maintained
-by AI agents as the [README](README.md#status) says, and it serves its owner's use first. A change
-to HTML Page Viewer that its other users would want may belong
-[upstream](https://github.com/viggomeesters/obsidian-html-page-viewer) as well. The owner follows the
-fork through issue and pull request descriptions rather than code, so write them for a reader who has
-not seen the code. Agents maintaining the repository also follow [AGENTS.md](AGENTS.md). Everyone
-follows the [code of conduct](CODE_OF_CONDUCT.md).
+Issues and pull requests from people and from agents are welcome. This is a personal fork,
+maintained by AI agents as the [README](README.md#status) says, and it serves its owner's use first.
+A change to HTML Page Viewer that its other users would want may belong
+[upstream](https://github.com/viggomeesters/obsidian-html-page-viewer) as well. The owner follows
+the fork through issue and pull request descriptions rather than code, so write them for a reader
+who has not seen the code. Agents maintaining the repository also follow [AGENTS.md](AGENTS.md).
+Everyone follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 If an agent wrote your issue or pull request, open it with a short note, such as a `> [!NOTE]`
 callout, that says so, names the model and the tool that ran it, and says whether you reviewed it.
@@ -14,8 +14,8 @@ The maintaining agents mark their own posts the same way.
 
 ## Report a defect
 
-Search the open and closed [issues](https://github.com/viell-dev/slop-html-page-viewer/issues) first,
-then open one with the bug form's details:
+Search the open and closed [issues](https://github.com/viell-dev/slop-html-page-viewer/issues)
+first, then open one with the bug form's details:
 
 - the commit you built, the Obsidian version, the operating system, and whether it is desktop or
   mobile;
@@ -50,8 +50,8 @@ npm run build
 npm test
 ```
 
-`npm test` runs `scripts/smoke-test.mjs`, which checks the manifest and the security defaults. GitHub
-Actions runs the type check, build, and tests on Linux and Windows with Node.js 24, and an
+`npm test` runs `scripts/smoke-test.mjs`, which checks the manifest and the security defaults.
+GitHub Actions runs the type check, build, and tests on Linux and Windows with Node.js 24, and an
 `npm audit` on Linux; `main` requires both platforms.
 
 ## Branches
@@ -76,15 +76,16 @@ Never merge `main` into an upstream-bound branch; that would add the fork's file
 
 ## Pull requests
 
-Every change to `main` goes through a pull request with passing CI and is merged with a merge commit,
-which keeps upstream-bound commits identical to the ones offered upstream. Contributions are made
-under the MIT license. Keep discussion respectful and about reproducible behavior.
+Every change to `main` goes through a pull request with passing CI and is merged with a merge
+commit, which keeps upstream-bound commits identical to the ones offered upstream. Contributions are
+made under the MIT license. Keep discussion respectful and about reproducible behavior.
 
-- Describe the problem, the resulting behavior, and the decisions made and why, for a reader who will
-  not read the diff. Link the issue, and say whether the change is upstream-bound.
-- Keep upstream's security rules: the plugin stays read-only, scripts stay off by default, and it adds
-  no network or clipboard access. Scripts and same-origin access are never granted to a page
+- Describe the problem, the resulting behavior, and the decisions made and why, for a reader who
+  will not read the diff. Link the issue, and say whether the change is upstream-bound.
+- Keep upstream's security rules: the plugin stays read-only, scripts stay off by default, and it
+  adds no network or clipboard access. Scripts and same-origin access are never granted to a page
   together. Document any change to the sandbox in the README and [SECURITY.md](SECURITY.md).
 - State how you verified the change, on which platforms, and what you checked in Obsidian.
-- Update every document, fixture, and test that describes what you changed, in the same pull request.
+- Update every document, fixture, and test that describes what you changed, in the same pull
+  request.
 - Keep changes scoped, and state remaining limits.
