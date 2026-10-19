@@ -214,11 +214,11 @@ describe("view messages", () => {
     assert.equal(frame(view), null);
   });
 
-  it("refuses files that are not HTML", async () => {
+  it("refuses files whose extension it does not open", async () => {
     const harness = await Harness.load();
     const view = harness.newView();
     harness.open(view, "notes.md", "# Notes");
-    assert.equal(message(view), "This viewer only supports .html and .htm files.");
+    assert.equal(message(view), "The viewer does not open .md files. Its settings list the extensions it opens as HTML.");
     assert.equal(frame(view), null);
   });
 

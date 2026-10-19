@@ -10,11 +10,11 @@ import {
 } from "obsidian";
 import { preparePage, styleElementText, withoutQuery } from "./document";
 import { type PaneChoice, watchLinks } from "./links";
+import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
 import { DEFAULT_SETTINGS, readSettings, type SettingsHost, type ViewerSettings, ViewerSettingTab } from "./settings";
 
 const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
-const HTML_EXTENSIONS = ["html", "htm"];
 /** The workspace event that tells open views the settings changed. */
 const SETTINGS_CHANGE = "html-page-viewer:settings-change";
 
@@ -35,13 +35,18 @@ export default class HtmlPageViewerPlugin extends Plugin implements SettingsHost
    */
   readonly tabChoices = new WeakMap<WorkspaceLeaf, TabChoices>();
 
+  /** The extensions the viewer holds in Obsidian's view registry, which follow the settings. */
+  private registration: ExtensionRegistration | null = null;
+  /** Without the registry: the extensions registered once, and those another view had. */
+  private fixedExtensions = { held: [] as string[], refused: [] as string[] };
+
   async onload(): Promise<void> {
     this.settings = readSettings(await this.loadData());
     this.registerView(
       VIEW_TYPE_HTML_PAGE_VIEWER,
       (leaf) => new HtmlPageViewerView(leaf, this),
     );
-    this.registerExtensions(HTML_EXTENSIONS, VIEW_TYPE_HTML_PAGE_VIEWER);
+    this.registerFileExtensions();
     this.addSettingTab(new ViewerSettingTab(this.app, this));
 
     this.addCommand({
@@ -49,7 +54,7 @@ export default class HtmlPageViewerPlugin extends Plugin implements SettingsHost
       name: "Open current HTML file in viewer",
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
-        if (!isHtmlFile(file)) return false;
+        if (!file || !this.opens(file)) return false;
 
         if (!checking) {
           void this.openHtmlFile(file);
@@ -74,8 +79,47 @@ export default class HtmlPageViewerPlugin extends Plugin implements SettingsHost
    */
   async updateSettings(change: Partial<ViewerSettings>): Promise<void> {
     this.settings = { ...this.settings, ...change };
+    if (change.extensions) this.registration?.apply(this.settings.extensions);
     (this.app.workspace as Events).trigger(SETTINGS_CHANGE);
     await this.saveData(this.settings);
+  }
+
+  /**
+   * Registers the viewer for the listed extensions. Through Obsidian's view
+   * registry, it follows changes of the setting at once; without it, Obsidian's
+   * API registers them once, and a change applies when the plugin loads again.
+   */
+  private registerFileExtensions(): void {
+    const registry = extensionRegistry(this.app);
+    if (registry) {
+      this.registration = new ExtensionRegistration(registry, VIEW_TYPE_HTML_PAGE_VIEWER);
+      this.registration.apply(this.settings.extensions);
+      this.register(() => this.registration?.releaseAll());
+      return;
+    }
+    for (const extension of this.settings.extensions) {
+      try {
+        this.registerExtensions([extension], VIEW_TYPE_HTML_PAGE_VIEWER);
+        this.fixedExtensions.held.push(extension);
+      } catch {
+        // Another view opens it.
+        this.fixedExtensions.refused.push(extension);
+      }
+    }
+  }
+
+  get extensionsApplyAtOnce(): boolean {
+    return this.registration !== null;
+  }
+
+  get refusedExtensions(): readonly string[] {
+    return this.registration?.refused ?? this.fixedExtensions.refused;
+  }
+
+  /** Whether the viewer opens `file`, by its extension. */
+  opens(file: TFile): boolean {
+    const held = this.registration?.held ?? this.fixedExtensions.held;
+    return held.includes(file.extension.toLowerCase());
   }
 }
 
@@ -173,8 +217,11 @@ class HtmlPageViewerView extends TextFileView {
       return;
     }
 
-    if (!isHtmlFile(this.file)) {
-      renderMessage(container, "This viewer only supports .html and .htm files.");
+    if (!this.plugin.opens(this.file)) {
+      renderMessage(
+        container,
+        `The viewer does not open .${this.file.extension} files. Its settings list the extensions it opens as HTML.`,
+      );
       return;
     }
 
@@ -595,10 +642,6 @@ function createTextButton(parent: HTMLElement, label: string): HTMLButtonElement
 
 function renderMessage(parent: HTMLElement, message: string): void {
   parent.createDiv({ cls: "html-page-viewer__message", text: message });
-}
-
-function isHtmlFile(file: TFile | null): file is TFile {
-  return Boolean(file && HTML_EXTENSIONS.includes(file.extension.toLowerCase()));
 }
 
 function getErrorMessage(error: unknown): string {

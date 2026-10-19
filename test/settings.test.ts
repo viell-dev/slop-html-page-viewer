@@ -26,7 +26,7 @@ describe("readSettings", () => {
   it("keeps today's behavior for a vault without saved settings", () => {
     assert.deepEqual(readSettings(null), DEFAULT_SETTINGS);
     assert.deepEqual(readSettings(undefined), DEFAULT_SETTINGS);
-    assert.deepEqual(DEFAULT_SETTINGS, { themeOn: true, scriptsOn: false, wrapSource: true });
+    assert.deepEqual(DEFAULT_SETTINGS, { themeOn: true, scriptsOn: false, wrapSource: true, extensions: ["html", "htm"] });
   });
 
   it("reads saved values, and takes the default for one that is missing or of the wrong type", () => {
@@ -34,6 +34,7 @@ describe("readSettings", () => {
       themeOn: false,
       scriptsOn: true,
       wrapSource: false,
+      extensions: ["html", "htm"],
     });
     assert.deepEqual(readSettings({ scriptsOn: "yes", themeOn: 0 }), DEFAULT_SETTINGS);
     assert.deepEqual(readSettings({ themeOn: false, extra: 1 }), { ...DEFAULT_SETTINGS, themeOn: false });
@@ -86,7 +87,12 @@ describe("settings tab", () => {
     flip(scripts);
     flip(theme);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.deepEqual(harness.plugin.saves.at(-1), { themeOn: false, scriptsOn: true, wrapSource: true });
+    assert.deepEqual(harness.plugin.saves.at(-1), {
+      themeOn: false,
+      scriptsOn: true,
+      wrapSource: true,
+      extensions: ["html", "htm"],
+    });
 
     // The open tab keeps what it shows; a new tab follows the settings.
     assert.deepEqual(sandboxTokens(frame(open)!), ["allow-same-origin"]);
@@ -97,7 +103,7 @@ describe("settings tab", () => {
 
     tab.display();
     assert.equal(toggle(tab, "Scripts when a page opens").checked, true);
-    assert.equal(tab.containerEl.querySelectorAll(".setting-item").length, 3, "display() replaces what it showed");
+    assert.equal(tab.containerEl.querySelectorAll(".setting-item").length, 4, "display() replaces what it showed");
     tab.containerEl.remove();
   });
 });

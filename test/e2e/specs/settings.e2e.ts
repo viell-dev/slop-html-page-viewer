@@ -56,6 +56,42 @@ async function clickToggle(name: string): Promise<boolean> {
   }, name);
 }
 
+/**
+ * Types into the text field of the setting named `name` and leaves it, as a
+ * person does, and returns the setting's description afterwards.
+ */
+async function enterText(name: string, text: string): Promise<string> {
+  return browser.executeObsidian(
+    async ({ app }, name, text) => {
+      const setting = (app as unknown as { setting: SettingsWindow }).setting;
+      const find = () =>
+        [...(setting.activeTab?.containerEl?.querySelectorAll(".setting-item") ?? [])].find(
+          (candidate) => candidate.querySelector(".setting-item-name")?.textContent === name,
+        );
+      const input = find()?.querySelector<HTMLInputElement>("input[type=text]");
+      if (!input) throw new Error(`No text field named ${name}`);
+      input.value = text;
+      // The settings window may be a window of its own, with its own Event.
+      const view = input.ownerDocument.defaultView as (Window & typeof globalThis) | null;
+      input.dispatchEvent(new (view ?? window).Event("change"));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return find()?.querySelector(".setting-item-description")?.textContent ?? "";
+    },
+    name,
+    text,
+  );
+}
+
+/** The view type that Obsidian's view registry gives an extension. */
+async function viewTypeFor(extension: string): Promise<string | null> {
+  return browser.executeObsidian(
+    ({ app }, extension) =>
+      (app as unknown as { viewRegistry: { getTypeByExtension(e: string): string | undefined } }).viewRegistry
+        .getTypeByExtension(extension) ?? null,
+    extension,
+  );
+}
+
 /** The settings as the plugin saved them in the vault. */
 async function savedSettings(): Promise<Record<string, unknown>> {
   const text = await browser.executeObsidian(
@@ -76,7 +112,33 @@ describe("The settings in Obsidian", function () {
       "Theme in new tabs",
       "Scripts when a page opens",
       "Wrap long lines in the source view",
+      "File extensions",
     ]);
+  });
+
+  it("open the files of every listed extension as HTML, and leave others' extensions to them", async function () {
+    expect(await viewTypeFor("xht")).toBe(null);
+    await openSettingsTab();
+    const description = await enterText("File extensions", "html, htm, .XHT, md");
+    expect(description).toContain("Another view opens .md, so the viewer does not.");
+    await closeSettings();
+    try {
+      expect((await savedSettings()).extensions).toEqual(["html", "htm", "xht", "md"]);
+      expect(await viewTypeFor("xht")).toBe(VIEW_TYPE);
+      expect(await viewTypeFor("md")).toBe("markdown");
+      await openInActiveTab("Saved/Other extension.xht");
+      expect(await activeViewType()).toBe(VIEW_TYPE);
+      expect(await frameSandbox()).toBe("allow-same-origin");
+      await openInActiveTab("Notes/Topic.md");
+      expect(await activeViewType()).toBe("markdown");
+    } finally {
+      await openSettingsTab();
+      await enterText("File extensions", "");
+      await closeSettings();
+    }
+    expect(await viewTypeFor("xht")).toBe(null);
+    expect(await viewTypeFor("htm")).toBe(VIEW_TYPE);
+    expect((await savedSettings()).extensions).toEqual(["html", "htm"]);
   });
 
   it("wrap long lines in the source view, and stop at once when wrapping is turned off", async function () {

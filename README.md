@@ -13,7 +13,8 @@ and anyone may use it under the license.
 
 ## What it does
 
-- Opens `.html` and `.htm` files in their own Obsidian view, as a rendered preview by default.
+- Opens `.html` and `.htm` files in their own Obsidian view, as a rendered preview by default, and
+  the files of any other extension that its settings list, which it shows as HTML too.
 - Shows a page with its local files: images and stylesheets in the vault load as they would next to
   the file on disk. A reference that does not resolve as a path finds its file as Obsidian's own
   links do, by name or by a partial path.
@@ -31,7 +32,8 @@ and anyone may use it under the license.
 - Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
   after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
-  default; and **Wrap long lines in the source view**, on by default.
+  default; **Wrap long lines in the source view**, on by default; and **File extensions**,
+  `html, htm` by default.
 - Never writes to the files it opens.
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).

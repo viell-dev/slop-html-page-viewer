@@ -118,8 +118,8 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 
 ## Technical map
 
-- `src/main.ts` holds the plugin class, which registers the view for `.html` and `.htm` and keeps
-  each tab's toolbar choices (`tabChoices`, #39) while the tab shows other views;
+- `src/main.ts` holds the plugin class, which registers the view for the extensions the settings
+  list and keeps each tab's toolbar choices (`tabChoices`, #39) while the tab shows other views;
   `HtmlPageViewerView`, a `TextFileView` that renders the toolbar and either the sandboxed frame or
   the source view; `sandboxValue`, the one place that computes the frame's sandbox; and the per-line
   source highlighter. Scripts are never among the kept choices: they start off for every file.
@@ -151,6 +151,12 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   wrapping (#40) applies at once, through the workspace event `html-page-viewer:settings-change`.
   Obsidian 1.14 shows its settings in a window of its own, so tests reach a settings tab through
   `app.setting.activeTab`, not the main window's document.
+- `src/extensions.ts` normalizes the listed extensions and holds them in Obsidian's view registry
+  (#41), which Obsidian 1.5 and later have but do not declare: `ExtensionRegistration` registers
+  and gives up each extension on its own, never takes one another view has, and gives up only those
+  still registered to the viewer. Without the registry, `Plugin.registerExtensions` registers them
+  once. Measured in 1.5.3 and 1.14.4: registering an existing extension throws, and the registry
+  keeps case and dots as given.
 - `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when its first argument is
   `production`. `styles.css` is the plugin's stylesheet; `test-fixtures/` holds HTML files for
   manual and automated tests.

@@ -93,6 +93,39 @@ export class App {
 
   readonly listeners = new Map<string, (() => void)[]>();
 
+  /**
+   * Obsidian's view registry, as measured in 1.5.3 and 1.14.4 (#41): it maps
+   * extensions to view types as given, without changing case or removing dots,
+   * and registering an extension that is already registered throws. Obsidian
+   * itself has Markdown's.
+   */
+  viewRegistry: {
+    typeByExtension: Map<string, string>;
+    registerExtensions(extensions: string[], viewType: string): void;
+    unregisterExtensions(extensions: string[]): void;
+    getTypeByExtension(extension: string): string | undefined;
+    isExtensionRegistered(extension: string): boolean;
+  } | null = {
+    typeByExtension: new Map([["md", "markdown"]]),
+    registerExtensions(extensions, viewType) {
+      for (const extension of extensions) {
+        if (this.typeByExtension.has(extension)) {
+          throw new Error(`Attempting to register an existing file extension "${extension}"`);
+        }
+        this.typeByExtension.set(extension, viewType);
+      }
+    },
+    unregisterExtensions(extensions) {
+      for (const extension of extensions) this.typeByExtension.delete(extension);
+    },
+    getTypeByExtension(extension) {
+      return this.typeByExtension.get(extension);
+    },
+    isExtensionRegistered(extension) {
+      return this.typeByExtension.has(extension);
+    },
+  };
+
   readonly metadataCache = {
     /** Obsidian's link resolution, simplified: an exact path, else the shortest path ending in the link text. */
     getFirstLinkpathDest: (linktext: string): TFile | null => {
@@ -143,8 +176,29 @@ export class Plugin {
     this.views.set(type, creator);
   }
 
+  /** As Obsidian does: through the view registry, given back when the plugin unloads. */
   registerExtensions(extensions: string[], viewType: string): void {
-    for (const extension of extensions) this.extensions.set(extension, viewType);
+    const registry = this.app.viewRegistry;
+    if (registry) {
+      registry.registerExtensions(extensions, viewType);
+      this.register(() => registry.unregisterExtensions(extensions));
+      return;
+    }
+    for (const extension of extensions) {
+      if (this.extensions.has(extension)) throw new Error(`Attempting to register an existing file extension "${extension}"`);
+      this.extensions.set(extension, viewType);
+    }
+  }
+
+  private readonly cleanups: (() => void)[] = [];
+
+  register(cleanup: () => void): void {
+    this.cleanups.push(cleanup);
+  }
+
+  /** Runs what the plugin registered, as Obsidian does when it unloads the plugin. */
+  unload(): void {
+    for (const cleanup of this.cleanups.splice(0)) cleanup();
   }
 
   addCommand(command: Command): Command {
@@ -234,6 +288,39 @@ export class Setting {
 
   addToggle(build: (toggle: ToggleComponent) => unknown): this {
     build(new ToggleComponent(this.controlEl));
+    return this;
+  }
+
+  addText(build: (text: TextComponent) => unknown): this {
+    build(new TextComponent(this.controlEl));
+    return this;
+  }
+}
+
+/** A text field, as `Setting.addText` hands it out. */
+export class TextComponent {
+  readonly inputEl: HTMLInputElement;
+
+  constructor(parent: HTMLElement) {
+    this.inputEl = parent.createEl("input", { attr: { type: "text" } });
+  }
+
+  setValue(value: string): this {
+    this.inputEl.value = value;
+    return this;
+  }
+
+  getValue(): string {
+    return this.inputEl.value;
+  }
+
+  setPlaceholder(placeholder: string): this {
+    this.inputEl.placeholder = placeholder;
+    return this;
+  }
+
+  onChange(callback: (value: string) => unknown): this {
+    this.inputEl.addEventListener("input", () => void callback(this.inputEl.value));
     return this;
   }
 }
