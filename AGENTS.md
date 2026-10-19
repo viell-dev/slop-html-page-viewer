@@ -91,6 +91,10 @@ Labels follow [`.github/labels.json`](./.github/labels.json); keep GitHub in syn
 - `Target: Upstream` or `Target: Fork` says where the change can go. An upstream-bound defect found
   in upstream's code is also listed in #2.
 - The fixing pull request names its issue with a closing keyword and carries the same labels.
+- Edit an issue's or pull request's text from its exact bytes: write it to a file with `gh api`
+  from a tool that keeps them, and send it back with `gh api -X PATCH … -F body=@file`. PowerShell
+  turns captured `gh` output into an array of lines, and writing that array joins them with
+  spaces; that flattened four descriptions here on 2026-10-19. Read the result back.
 
 ## Settings
 
@@ -128,9 +132,12 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   origin (`allow-same-origin`) loads vault files, and such a frame inherits Obsidian's policy, which
   allows only inline styles. Recheck them with the end-to-end suite when Obsidian changes.
 - `src/reading.ts` builds the reading style from Obsidian's theme variables, for pages without a
-  `<style>` or a stylesheet link. `preparePage` adds it to the copy; on Obsidian's `css-change`
-  event the view replaces its text in place when it can reach the page (scripts off), and prepares
-  the page again otherwise. Theme values are stripped of characters that could end a declaration.
+  `<style>` or a stylesheet link, and keeps the text to the theme's line width while Obsidian's
+  Readable line length setting (`vault.getConfig("readableLineLength")`) is on. `preparePage` adds
+  it to the copy; on Obsidian's `css-change` event, and on the vault's `config-changed` for that
+  setting (#37), the view replaces its text in place when it can reach the page (scripts off), and
+  prepares the page again otherwise. Theme values are stripped of characters that could end a
+  declaration.
 - `src/links.ts` classifies a link's resolved URL and follows clicks in the page: the view calls
   `watchLinks` on each load of a page it can reach, and its capturing `click` and `auxclick`
   listeners run although the page's scripts are disabled (measured in #9). External links go to

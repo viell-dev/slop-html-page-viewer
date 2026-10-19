@@ -58,8 +58,12 @@ export function readTheme(doc: Document): Theme {
   };
 }
 
-/** The reading style for a theme. */
-export function readingStylesheet(theme: Theme): string {
+/**
+ * The reading style for a theme. With `readableLineLength`, Obsidian's setting
+ * of that name, the text keeps to the theme's line width, as notes do;
+ * otherwise it uses the full width.
+ */
+export function readingStylesheet(theme: Theme, readableLineLength = true): string {
   return `:root {
   color-scheme: ${theme.dark ? "dark" : "light"};
   background: ${theme.background};
@@ -67,7 +71,7 @@ export function readingStylesheet(theme: Theme): string {
 }
 body {
   box-sizing: border-box;
-  max-width: calc(${theme.lineWidth} + 4em);
+  max-width: ${readableLineLength ? `calc(${theme.lineWidth} + 4em)` : "none"};
   margin: 0 auto;
   padding: 1.5em 2em 3em;
   font-family: ${theme.font};
