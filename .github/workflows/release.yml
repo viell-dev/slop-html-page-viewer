@@ -1,0 +1,77 @@
+name: Release
+# Publishes a version of the plugin as a GitHub release, for installing by
+# hand; the fork is not listed in Obsidian's community plugin directory. Run it
+# on main after the pull request that sets the version has merged:
+#   gh workflow run release.yml -f version=0.2.0-rc.1
+# A version with a prerelease part, such as -rc.1, becomes a prerelease.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact version in manifest.json (without a v prefix)
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    name: release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check the version
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const version = process.env.VERSION;
+            const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
+            const problems = [];
+            if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) problems.push("not a version");
+            if (manifest.version !== version) problems.push(`manifest.json has ${manifest.version}`);
+            if (pkg.version !== version) problems.push(`package.json has ${pkg.version}`);
+            if (versions[version] !== manifest.minAppVersion) problems.push("versions.json lacks it");
+            if (!fs.existsSync(`.github/release-notes/${version}.md`)) problems.push("no release notes");
+            if (problems.length > 0) { console.error(problems.join("\n")); process.exit(1); }
+          '
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npm run build
+      - name: Package
+        run: |
+          mkdir -p "release/viell-html-page-viewer"
+          cp main.js manifest.json styles.css "release/viell-html-page-viewer/"
+          cd release
+          zip -r -X "viell-html-page-viewer-$VERSION.zip" viell-html-page-viewer
+          cp viell-html-page-viewer/main.js viell-html-page-viewer/manifest.json viell-html-page-viewer/styles.css .
+          sha256sum "viell-html-page-viewer-$VERSION.zip" main.js manifest.json styles.css > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$VERSION" $prerelease \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --notes-file ".github/release-notes/$VERSION.md" \
+            "release/viell-html-page-viewer-$VERSION.zip" \
+            release/main.js release/manifest.json release/styles.css release/SHA256SUMS

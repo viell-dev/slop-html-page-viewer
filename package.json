@@ -1,6 +1,6 @@
 {
   "name": "slop-html-page-viewer",
-  "version": "0.1.1",
+  "version": "0.2.0-rc.1",
   "description": "Personal fork of HTML Page Viewer, a read-only rendered and source HTML page viewer for Obsidian.",
   "license": "MIT",
   "author": "viell",
