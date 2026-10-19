@@ -7,6 +7,7 @@ export const VIEW_TYPE = "html-page-viewer";
 /** The parts of the plugin's view that Obsidian calls. */
 export interface HtmlView {
   file: TFile | null;
+  readonly leaf: WorkspaceLeaf;
   readonly contentEl: HTMLElement;
   setViewData(data: string, clear: boolean): void;
   getViewData(): string;
@@ -29,11 +30,14 @@ export class Harness {
     return harness;
   }
 
-  /** Creates a view as Obsidian does for a new tab. */
-  newView(): HtmlView {
+  /**
+   * Creates a view as Obsidian does for a new tab, or, given a tab, as it does
+   * when the tab returns to an HTML file from another kind of view.
+   */
+  newView(leaf = new WorkspaceLeaf(this.app)): HtmlView {
     const creator = this.plugin.views.get(VIEW_TYPE);
     assert.ok(creator, "the plugin registers its view");
-    const view = creator(new WorkspaceLeaf(this.app)) as HtmlView & { onload(): void };
+    const view = creator(leaf) as HtmlView & { onload(): void };
     view.onload();
     return view;
   }

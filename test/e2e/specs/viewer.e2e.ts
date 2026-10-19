@@ -44,6 +44,39 @@ describe("The viewer in Obsidian", function () {
     expect(await frameSandbox()).toBe("allow-same-origin");
   });
 
+  it("keeps the tab's view mode and theme while the tab shows a note, and not in a new tab", async function () {
+    const themeButton = async (): Promise<string> => browser.$(`${ACTIVE} .html-page-viewer__theme-toggle`).getText();
+    const showsSource = async (): Promise<boolean> => browser.$(`${ACTIVE} .html-page-viewer__source`).isExisting();
+    await openInActiveTab("Saved/Other page.html");
+    await clickToolbarButton("Theme ON");
+    await clickToolbarButton("Source");
+
+    await openInActiveTab("Notes/Topic.md");
+    expect(await activeViewType()).toBe("markdown");
+    await openInActiveTab("Saved/Other page.html");
+    expect(await activeViewType()).toBe(VIEW_TYPE);
+    expect(await showsSource()).toBe(true);
+    expect(await themeButton()).toBe("Theme OFF");
+
+    await browser.executeObsidian(async ({ app }) => {
+      const file = app.vault.getAbstractFileByPath("Saved/Other page.html");
+      (window as unknown as { e2eTab: unknown }).e2eTab = app.workspace.getMostRecentLeaf();
+      await app.workspace.getLeaf("tab").openFile(file as never, { active: true });
+    });
+    try {
+      expect(await showsSource()).toBe(false);
+      expect(await themeButton()).toBe("Theme ON");
+    } finally {
+      await browser.executeObsidian(({ app }) => {
+        app.workspace.getMostRecentLeaf()?.detach();
+        const tab = (window as unknown as { e2eTab: Parameters<typeof app.workspace.setActiveLeaf>[0] }).e2eTab;
+        app.workspace.setActiveLeaf(tab, { focus: true });
+      });
+    }
+    await clickToolbarButton("Rendered");
+    await clickToolbarButton("Theme OFF");
+  });
+
   it("shows every line of the file in the source view", async function () {
     await openInActiveTab("Saved/Example article.html");
     await clickToolbarButton("Source");

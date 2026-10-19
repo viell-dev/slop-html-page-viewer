@@ -17,11 +17,23 @@ const HTML_EXTENSIONS = ["html", "htm"];
 
 type ViewMode = "rendered" | "source";
 
+/** The toolbar choices that a tab keeps from one file to the next. */
+interface TabChoices {
+  readonly mode: ViewMode;
+  readonly theme: boolean;
+}
+
 export default class HtmlPageViewerPlugin extends Plugin {
+  /**
+   * Each tab's choices, kept while the tab shows other views, such as a note:
+   * Obsidian then replaces this plugin's view, but keeps the tab.
+   */
+  readonly tabChoices = new WeakMap<WorkspaceLeaf, TabChoices>();
+
   async onload(): Promise<void> {
     this.registerView(
       VIEW_TYPE_HTML_PAGE_VIEWER,
-      (leaf) => new HtmlPageViewerView(leaf),
+      (leaf) => new HtmlPageViewerView(leaf, this.tabChoices),
     );
     this.registerExtensions(HTML_EXTENSIONS, VIEW_TYPE_HTML_PAGE_VIEWER);
 
@@ -59,8 +71,22 @@ class HtmlPageViewerView extends TextFileView {
   private shownStyle: string | null = null;
   private themeButton: HTMLButtonElement | null = null;
 
-  constructor(leaf: WorkspaceLeaf) {
+  constructor(
+    leaf: WorkspaceLeaf,
+    private readonly tabChoices: WeakMap<WorkspaceLeaf, TabChoices>,
+  ) {
     super(leaf);
+    // Scripts are not among them: they start off for every file.
+    const choices = tabChoices.get(leaf);
+    if (choices) {
+      this.mode = choices.mode;
+      this.themeEnabled = choices.theme;
+    }
+  }
+
+  /** Keeps the tab's choices for the next view in it. */
+  private rememberChoices(): void {
+    this.tabChoices.set(this.leaf, { mode: this.mode, theme: this.themeEnabled });
   }
 
   getViewType(): string {
@@ -176,10 +202,12 @@ class HtmlPageViewerView extends TextFileView {
 
     renderedButton.addEventListener("click", () => {
       this.mode = "rendered";
+      this.rememberChoices();
       this.render();
     });
     sourceButton.addEventListener("click", () => {
       this.mode = "source";
+      this.rememberChoices();
       this.render();
     });
 
@@ -205,6 +233,7 @@ class HtmlPageViewerView extends TextFileView {
     themeButton.setAttribute("title", "Show pages without styles of their own in Obsidian's theme");
     themeButton.addEventListener("click", () => {
       this.themeEnabled = !this.themeEnabled;
+      this.rememberChoices();
       this.render();
     });
     this.themeButton = themeButton;
