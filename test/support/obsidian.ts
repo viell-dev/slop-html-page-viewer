@@ -66,8 +66,20 @@ export class App {
   readonly leaves: WorkspaceLeaf[] = [];
   activeFile: TFile | null = null;
   readError: Error | null = null;
+  /** Obsidian's settings, as `vault.getConfig` reads them, with Obsidian's defaults. */
+  readonly config = new Map<string, unknown>([["readableLineLength", true]]);
+  readonly vaultListeners = new Map<string, ((...data: unknown[]) => void)[]>();
 
   readonly vault = {
+    getConfig: (setting: string): unknown => this.config.get(setting),
+    on: (name: string, callback: (...data: unknown[]) => void): { name: string } => {
+      this.vaultListeners.set(name, [...(this.vaultListeners.get(name) ?? []), callback]);
+      return { name };
+    },
+    /** Fires a vault event, as Obsidian does: `config-changed` after a setting changes. */
+    trigger: (name: string, ...data: unknown[]): void => {
+      for (const callback of this.vaultListeners.get(name) ?? []) callback(...data);
+    },
     getResourcePath: (file: TFile): string => resourcePath(file),
     getAbstractFileByPath: (path: string): TFile | null => (this.files.has(path) ? new TFile(path) : null),
     getRoot: (): null => null,

@@ -18,8 +18,9 @@ and anyone may use it under the license.
 - Shows a page with its local files: images and stylesheets in the vault load as they would next to
   the file on disk. A reference that does not resolve as a path finds its file as Obsidian's own
   links do, by name or by a partial path.
-- Shows pages without styles of their own in Obsidian's theme, light or dark: its colors, fonts, and
-  line width. The **Theme** button shows a page as a browser would instead.
+- Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
+  and its line width while **Readable line length** is on. The **Theme** button shows a page as a
+  browser would instead.
 - Follows links as Obsidian does: web links open outside Obsidian, in the default browser, links to
   other HTML pages open them in the viewer, links to notes and other vault files open them as
   Obsidian opens a file, and links within the page scroll to their target. Ctrl-click (Cmd-click on
