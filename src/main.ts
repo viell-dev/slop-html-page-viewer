@@ -1,5 +1,6 @@
 import {
   Notice,
+  Platform,
   Plugin,
   TFile,
   TextFileView,
@@ -7,6 +8,7 @@ import {
   setIcon,
 } from "obsidian";
 import { preparePage, styleElementText, withoutQuery } from "./document";
+import { type PaneChoice, watchLinks } from "./links";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
 
 const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
@@ -256,10 +258,36 @@ class HtmlPageViewerView extends TextFileView {
       page = data;
     }
     if (this.iframe !== iframe) return;
+    iframe.addEventListener("load", () => {
+      // Only a page with Obsidian's origin (scripts off) can be reached.
+      const doc = iframe.contentDocument;
+      if (!doc) return;
+      watchLinks(doc, pageUrl, vaultUrl, Platform.isMacOS, {
+        openVault: (path, pane) => void this.openVaultPath(path, pane),
+        openExternal: (url) => window.open(url),
+        refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
+      });
+    });
     iframe.srcdoc = page;
     if (ownStyles && this.themeButton) {
       this.themeButton.disabled = true;
       this.themeButton.setAttribute("title", "This page has styles of its own");
+    }
+  }
+
+  /** Opens a vault file a link leads to; a folder opens its index page. */
+  private async openVaultPath(path: string, pane: PaneChoice): Promise<void> {
+    const vault = this.app.vault;
+    const clean = path.replace(/\/+$/, "");
+    let target = clean === "" ? vault.getRoot() : vault.getAbstractFileByPath(clean);
+    if (target !== null && !(target instanceof TFile)) {
+      const folder = clean === "" ? "" : `${clean}/`;
+      target = vault.getAbstractFileByPath(`${folder}index.html`) ?? vault.getAbstractFileByPath(`${folder}index.htm`);
+    }
+    if (target instanceof TFile) {
+      await this.app.workspace.getLeaf(pane).openFile(target);
+    } else {
+      new Notice(`There is no file at "${path}" in this vault.`);
     }
   }
 

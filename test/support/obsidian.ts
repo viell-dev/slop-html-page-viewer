@@ -34,9 +34,13 @@ export interface ViewState {
   active?: boolean;
 }
 
+export const Platform = { isMacOS: false };
+
 export class WorkspaceLeaf {
   readonly app: App;
   readonly viewStates: ViewState[] = [];
+  readonly openedFiles: string[] = [];
+  pane: false | string = false;
 
   constructor(app: App) {
     this.app = app;
@@ -44,6 +48,10 @@ export class WorkspaceLeaf {
 
   async setViewState(state: ViewState): Promise<void> {
     this.viewStates.push(state);
+  }
+
+  async openFile(file: TFile): Promise<void> {
+    this.openedFiles.push(file.path);
   }
 }
 
@@ -62,6 +70,7 @@ export class App {
   readonly vault = {
     getResourcePath: (file: TFile): string => resourcePath(file),
     getAbstractFileByPath: (path: string): TFile | null => (this.files.has(path) ? new TFile(path) : null),
+    getRoot: (): null => null,
     cachedRead: async (file: TFile): Promise<string> => this.files.get(file.path) ?? "",
     read: async (file: TFile): Promise<string> => {
       this.reads.push(file.path);
@@ -82,8 +91,9 @@ export class App {
       for (const callback of this.listeners.get(name) ?? []) callback();
     },
     getActiveFile: (): TFile | null => this.activeFile,
-    getLeaf: (): WorkspaceLeaf => {
+    getLeaf: (pane: false | string = false): WorkspaceLeaf => {
       const leaf = new WorkspaceLeaf(this);
+      leaf.pane = pane;
       this.leaves.push(leaf);
       return leaf;
     },

@@ -92,3 +92,28 @@ export async function framePixels(color: Color): Promise<number> {
   const shot = await browser.takeElementScreenshot(await frame.elementId);
   return decodePng(Buffer.from(shot, "base64")).count(color);
 }
+
+/** Clicks a link in the active tab's page, as a user does, with optional modifier keys. */
+export async function clickInPage(selector: string, modifiers: string[] = []): Promise<void> {
+  const point = await browser.execute((selector) => {
+    const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
+    const target = frame?.contentDocument?.querySelector(selector);
+    if (!frame || !target) throw new Error(`No ${selector} in the page`);
+    target.scrollIntoView({ block: "center" });
+    const outer = frame.getBoundingClientRect();
+    const inner = target.getBoundingClientRect();
+    return { x: Math.round(outer.left + inner.left + 4), y: Math.round(outer.top + inner.top + inner.height / 2) };
+  }, selector);
+  if (modifiers.length > 0) await browser.action("key").down(modifiers[0]).perform(true);
+  await browser.action("pointer").move({ x: point.x, y: point.y }).down().up().perform();
+  if (modifiers.length > 0) await browser.action("key").up(modifiers[0]).perform();
+}
+
+/** The active tab's file path and view type. */
+export async function activeFile(): Promise<{ path: string | null; type: string | null }> {
+  return browser.executeObsidian(({ app }) => {
+    const leaf = app.workspace.getMostRecentLeaf();
+    const view = leaf?.view as { file?: { path: string } | null; getViewType(): string } | undefined;
+    return { path: view?.file?.path ?? null, type: view?.getViewType() ?? null };
+  });
+}
