@@ -92,7 +92,9 @@ report a vulnerability.
 ## Status
 
 The fork is written and maintained by AI agents, and no person reviews the code. Changes are
-accepted on their tests and on CI on Linux and Windows.
+accepted on their tests and on CI on Linux and Windows. These include tests in Obsidian itself, on
+the oldest and the newest supported version, of a synthetic vault of archived web pages, compared
+page by page with the previous build.
 
 ## Contributing, security, and license
 

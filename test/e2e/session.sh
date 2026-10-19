@@ -23,7 +23,12 @@ if [ -z "${DISPLAY:-}" ]; then
     fi
     sleep 0.25
   done
-  herbstluftwm >/tmp/html-page-viewer-wm.log 2>&1 &
+  # One full-size window at a time: tiling would shrink each Obsidian window
+  # whenever another test worker opens one, and reflow its pages mid-test.
+  autostart=/tmp/html-page-viewer-wm-autostart
+  printf '#!/bin/sh\nherbstclient set_layout max\nherbstclient set default_frame_layout max\n' >"$autostart"
+  chmod +x "$autostart"
+  herbstluftwm --autostart "$autostart" >/tmp/html-page-viewer-wm.log 2>&1 &
 fi
 
 cd "$(dirname "$0")"

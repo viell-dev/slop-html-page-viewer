@@ -78,8 +78,41 @@ volume.
 
 The suite runs Obsidian 1.5.3, the oldest public release that the manifest's `minAppVersion` allows,
 and the latest public release. Set `OBSIDIAN_VERSIONS` to `appVersion/installerVersion` pairs to
-test others. Obsidian is downloaded, never stored in the repository or the image, because its terms
-do not allow redistributing it.
+test others, and `E2E_ONLY` to spec file names, such as `links.e2e.ts`, to run only those.
+Obsidian is downloaded, never stored in the repository or the image, because its terms do not allow
+redistributing it. It serves files whose paths are not ASCII only under a UTF-8 locale, which
+`session.sh` sets, together with a window manager layout that keeps every Obsidian window at full
+size, so that one test worker's window never reflows another's pages.
+
+### The archive corpus
+
+The plugin's main use is a vault that caches web pages as archival semantic HTML, so the suite also
+opens every page of a synthetic vault in that layout. `test/e2e/corpus/vault/` holds hand-written
+pages, each with a README, dated HTML representations, and dated asset directories, in the format
+such a cache uses. `test/e2e/corpus/generate.mjs` copies them into `dist/e2e-vaults/archive/`, adds
+generated parts at the sizes such a vault reaches, and writes every asset the pages refer to, so
+that the repository holds no binaries. The corpus covers:
+
+- names with accents, ampersands, apostrophes, commas, dashes, and parentheses;
+- tables with merged cells and header groups, note groups, figures, many languages and writing
+  systems, and downloads;
+- an asset that is missing on purpose, and assets that only Obsidian's link resolution finds;
+- a 600 KB page with 500 images;
+- a mirrored fan site with stylesheets, an import, a font, scripts, query strings, and folder
+  links.
+
+`specs/corpus.e2e.ts` checks each page against the files on disk:
+
+- every image that resolves, by path or by name, loads, and a missing one does not;
+- stylesheets and imports apply, and the font loads;
+- scripts never run;
+- the reading style appears exactly on pages without styles.
+
+The same spec also runs with the frozen prototype build in `test/e2e/prototype/`, byte-identical to
+the one in the owner's vault, with that vault's settings. `corpus/compare.mjs` then fails if the
+prototype showed an image the plugin does not. To add a case, add a page in the cache's format to
+`corpus/vault/`, and to `UNAVAILABLE` or `ELSEWHERE` in `generate.mjs` when its assets are meant to
+be missing or stored elsewhere.
 
 ### CI
 

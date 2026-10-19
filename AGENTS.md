@@ -123,7 +123,11 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 - `test/e2e/` runs the built plugin in Obsidian: `wdio.conf.mts` copies `main.js`, `manifest.json`,
   and `styles.css` into `dist/e2e-plugin/` and installs it into a copy of `vaults/pages/`;
   `support/viewer.ts` drives the view; `specs/` holds the suites. Measure loading, origins, and link
-  behavior there, never only in jsdom. Keep the fixture vault synthetic.
+  behavior there, never only in jsdom. Keep the fixture vaults synthetic.
+- `test/e2e/corpus/` is the archive corpus that CONTRIBUTING.md describes, and
+  `test/e2e/prototype/` the frozen prototype build it is compared with; `wdio.conf.mts` runs the
+  corpus spec once per Obsidian version with the plugin and once with the prototype. Model new
+  corpus pages on the owner's cache format, never on its content.
 - The view type, CSS classes, and command ids stay upstream's; only the manifest's id, name, author,
   and description identify the fork.
 - Deploy only for an approved test request (#12): build, then copy `main.js`, `manifest.json`, and

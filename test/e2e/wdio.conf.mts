@@ -60,7 +60,12 @@ if (setting(process.env.PRINT_OBSIDIAN_CACHE_KEY) !== undefined) {
   if (generated.status !== 0) throw new Error("Generating the archive corpus failed.");
 }
 
+// E2E_ONLY lists spec file names to run, such as "links.e2e.ts", for a quick
+// run while working on one suite; capabilities left without specs are dropped.
+const only = setting(process.env.E2E_ONLY)?.split(",").map((name) => name.trim());
+
 function capability(appVersion: string, installerVersion: string, plugin: string, vault: string, files: string[]) {
+  files = only ? files.filter((file) => only.includes(path.basename(file))) : files;
   return {
     browserName: "obsidian",
     browserVersion: appVersion,
@@ -88,7 +93,7 @@ export const config: WebdriverIO.Config = {
       capability(appVersion, installerVersion, pluginDir, corpusDir, [specs("corpus.e2e.ts")]),
     ]),
     capability(latest[0], latest[1], prototypeDir, corpusDir, [specs("corpus.e2e.ts")]),
-  ],
+  ].filter((entry) => entry["wdio:specs"].length > 0),
   services: ["obsidian"],
   reporters: ["obsidian"],
   cacheDir,
