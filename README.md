@@ -15,17 +15,18 @@ It is built for its owner's vaults, and anyone may build and use it under the li
 - Opens `.html` and `.htm` files in their own Obsidian view, as a rendered preview by default.
 - Shows a page with its local files: images and stylesheets in the vault load as they would next to
   the file on disk.
-- Shows pages without styles of their own in Obsidian's theme, light or dark: its colors, fonts,
-  and line width. The **Theme** button shows a page as a browser would instead.
+- Shows pages without styles of their own in Obsidian's theme, light or dark: its colors, fonts, and
+  line width. The **Theme** button shows a page as a browser would instead.
+- Follows links as Obsidian does: web links open outside Obsidian, in the default browser, links to
+  other HTML pages open them in the viewer, links to notes and other vault files open them as
+  Obsidian opens a file, and links within the page scroll to their target. Ctrl-click (Cmd-click on
+  macOS) or a middle click opens a new tab.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the current tab only.
 - Shows the source with HTML syntax highlighting and line numbers.
 - Never writes to the files it opens.
 
-Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues),
-such as [links that open where they
-should](https://github.com/viell-dev/slop-html-page-viewer/issues/9): external links in the browser,
-and links between vault files in Obsidian.
+Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).
 
 ### Limits
 
@@ -35,12 +36,17 @@ and links between vault files in Obsidian.
 - **With scripts on, local files do not load.** Scripts run without access to Obsidian, and Obsidian
   does not serve vault files to such a page. Copied stylesheets still apply. [Issue
   #11](https://github.com/viell-dev/slop-html-page-viewer/issues/11) plans another option.
-- **Files outside the vault never load**, even when a page refers to them.
+- **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
+  them, so a link opens in the frame itself.
+- **A link to a part of another page** opens that page at its top.
+- **Files outside the vault never load**, even when a page refers to them, and links to them are
+  refused.
 
 ## How it differs from upstream
 
-- It shows a page's local files and gives unstyled pages Obsidian's theme. Upstream loads the file
-  itself into the frame, where the page's local images and stylesheets do not load.
+- It shows a page's local files, gives unstyled pages Obsidian's theme, and follows links in
+  Obsidian. Upstream loads the file itself into the frame, where the page's local images and
+  stylesheets do not load.
 - Its plugin id is `viell-html-page-viewer` and its name "HTML Page Viewer (viell)", so that
   Obsidian never replaces it with an upstream release. Both plugins open `.html` and `.htm` files,
   so enable only one of them.

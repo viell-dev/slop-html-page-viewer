@@ -104,10 +104,13 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 - `src/reading.ts` builds the reading style from Obsidian's theme variables, for pages without a
   `<style>` or a stylesheet link. `preparePage` adds it to the copy; on Obsidian's `css-change`
   event the view replaces its text in place when it can reach the page (scripts off), and prepares
-  the page again otherwise. Theme values are stripped of characters that could end a declaration.-
-  `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when its first argument is
-  `production`. `styles.css` is the plugin's stylesheet; `test-fixtures/` holds HTML files for
-  manual and automated tests.
+  the page again otherwise. Theme values are stripped of characters that could end a declaration.
+- `src/links.ts` classifies a link's resolved URL and follows clicks in the page: the view calls
+  `watchLinks` on each load of a page it can reach, and its capturing `click` and `auxclick`
+  listeners run although the page's scripts are disabled (measured in #9). External links go to
+  `window.open`, vault files to `openVaultPath` in `src/main.ts`.- `esbuild.config.mjs` bundles
+  `src/main.ts` into `main.js`, minified when its first argument is `production`. `styles.css` is
+  the plugin's stylesheet; `test-fixtures/` holds HTML files for manual and automated tests.
 - `scripts/test.mjs` bundles each `test/*.test.ts` into `dist/test/` and runs it with Node.js's test
   runner. `test/support/dom.ts` installs a jsdom window and Obsidian's element helpers as globals,
   `test/support/obsidian.ts` stands in for the `obsidian` module and records what the plugin asks of
