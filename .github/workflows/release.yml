@@ -75,15 +75,22 @@ jobs:
         run: |
           # The checksums go last, so that they are only there once the rest is.
           assets="release/viell-html-page-viewer-$VERSION.zip release/main.js release/manifest.json release/styles.css release/SHA256SUMS"
-          # gh prints an error's body on standard output, so read the commit
-          # only when the request succeeds: the tag exists.
-          tag=""
-          if found=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$VERSION" --jq .sha 2>/dev/null); then
-            tag=$found
-          fi
-          if [ -n "$tag" ] && [ "$tag" != "$GITHUB_SHA" ]; then
-            echo "The tag $VERSION points to $tag, not to $GITHUB_SHA; refusing to publish." >&2
-            exit 1
+          # Claim the version's tag at this commit first. If it exists already,
+          # it must point here; any other failure stops the release.
+          if ! gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
+            if ! ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq '.object.type + " " + .object.sha'); then
+              echo "Could neither create nor read the tag $VERSION." >&2
+              exit 1
+            fi
+            type=${ref%% *}
+            tag=${ref#* }
+            if [ "$type" = "tag" ]; then
+              tag=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag" --jq .object.sha)
+            fi
+            if [ "$tag" != "$GITHUB_SHA" ]; then
+              echo "The tag $VERSION points to $tag, not to $GITHUB_SHA; refusing to publish." >&2
+              exit 1
+            fi
           fi
           if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             # Resume a release whose upload stopped part way: add what it lacks.
@@ -99,7 +106,7 @@ jobs:
             # shellcheck disable=SC2086 # The asset paths have no spaces.
             gh release create "$VERSION" $prerelease \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
+              --verify-tag \
               --title "$VERSION" \
               --notes-file ".github/release-notes/$VERSION.md" \
               $assets
