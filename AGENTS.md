@@ -56,8 +56,9 @@ a merge commit after checking the exact head: `gh pr merge --merge --match-head-
 - GitHub does not delete merged branches. Keep an upstream-bound branch until upstream merges or
   declines it, or until #2 records that upstream is no longer followed; delete other branches after
   merging.
-- `prototype` is the previous fork's build, which the owner's vault uses until #12 replaces it. It
-  is frozen by a ruleset: read it as a reference for redoing its work, and never try to update it.
+- `prototype` is the previous fork's build, which the owner's vault used until this fork's
+  0.2.0-rc.1 replaced it (#12). It is frozen by a ruleset: read it as a reference for redoing its
+  work, and never try to update it.
 - Never commit `main.js`.
 
 ## Releases
@@ -65,7 +66,8 @@ a merge commit after checking the exact head: `gh pr merge --merge --match-head-
 The owner installs the fork by hand from GitHub releases; it is not in Obsidian's community plugin
 directory. On 2026-10-19 the owner allowed beta and release-candidate releases, without asking each
 time, for installing in their vault, and asked not to rely on them for testing: test a release as
-thoroughly as anything else before publishing it.
+thoroughly as anything else before publishing it. A full release needs the owner's go-ahead, as
+0.2.0 had after they used 0.2.0-rc.1 in their vault.
 
 1. In a fork-only pull request, set the version in `manifest.json`, `package.json` and its lockfile,
    and `versions.json`, and add `.github/release-notes/<version>.md`, written for someone installing

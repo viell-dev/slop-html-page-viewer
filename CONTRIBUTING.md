@@ -111,10 +111,10 @@ that the repository holds no binaries. The corpus covers:
 - the reading style appears exactly on pages without styles.
 
 The same spec also runs with the frozen prototype build in `test/e2e/prototype/`, byte-identical to
-the one in the owner's vault, with that vault's settings. `corpus/compare.mjs` then fails if the
-prototype showed an image the plugin does not. To add a case, add a page in the cache's format to
-`corpus/vault/`, and to `UNAVAILABLE` or `ELSEWHERE` in `generate.mjs` when its assets are meant to
-be missing or stored elsewhere.
+the one the owner's vault used before this fork, with its settings. `corpus/compare.mjs` fails if
+the prototype showed an image the plugin does not. To add a case, add a page in the cache's format
+to `corpus/vault/`, and to `UNAVAILABLE` or `ELSEWHERE` in `generate.mjs` when its assets are meant
+to be missing or stored elsewhere.
 
 ### CI
 
