@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    labels: ["Type: Maintenance", "Target: Fork"]
+    schedule:
+      interval: weekly
+    # A version becomes a candidate a week after its publication, which leaves
+    # time for a compromised or broken release to be found and withdrawn.
+    cooldown:
+      default-days: 7
+    groups:
+      development:
+        dependency-type: development
+  - package-ecosystem: github-actions
+    directory: /
+    labels: ["Type: Maintenance", "Target: Fork"]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

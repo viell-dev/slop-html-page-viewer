@@ -1,143 +1,81 @@
-<p align="center">
-  <img src="assets/hero.svg" alt="HTML Page Viewer for Obsidian" width="100%">
-</p>
+# HTML Page Viewer (viell)
 
-<p align="center">
-  <a href="https://github.com/viggomeesters/obsidian-html-page-viewer/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/viggomeesters/obsidian-html-page-viewer?style=flat-square"></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-green?style=flat-square"></a>
-  <img alt="Obsidian 1.5.0+" src="https://img.shields.io/badge/Obsidian-1.5.0%2B-7c3aed?style=flat-square">
-  <img alt="Read-only" src="https://img.shields.io/badge/mode-read--only-0f766e?style=flat-square">
-</p>
+A personal fork of [HTML Page Viewer](https://github.com/viggomeesters/obsidian-html-page-viewer),
+the Obsidian plugin by Viggo Meesters that opens HTML files in a vault, for reading saved web pages
+and other local HTML in Obsidian.
 
-# HTML Page Viewer
+[![CI](https://github.com/viell-dev/slop-html-page-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/viell-dev/slop-html-page-viewer/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-HTML Page Viewer is a read-only Obsidian plugin for opening `.html` and `.htm` files as rendered pages inside Obsidian. It is built for local reports, exported dashboards, documentation pages, prototypes, and generated visual artifacts that you want to inspect without leaving the vault.
+The fork is not published: it is not in Obsidian's community plugin directory and has no releases.
+It is built for its owner's vaults, and anyone may build and use it under the license.
 
-![HTML Page Viewer preview](assets/screenshot.svg)
+## What it does
 
-## Features
+- Opens `.html` and `.htm` files in their own Obsidian view, as a rendered preview by default.
+- Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
+  for the current tab only.
+- Shows the source with HTML syntax highlighting and line numbers.
+- Never writes to the files it opens.
 
-- Opens `.html` and `.htm` files in a dedicated Obsidian view.
-- Shows a rendered preview by default.
-- Provides a source view with lightweight HTML syntax highlighting and line numbers.
-- Includes a toolbar for Rendered/Source, Refresh, and Scripts OFF/ON.
-- Keeps scripts disabled by default.
-- Enables scripts only for the current viewer tab when explicitly toggled on.
-- Renders through a sandboxed iframe.
-- Blocks forms, popups, top-level navigation, and same-origin access.
-- Stays read-only by design: it never writes back to HTML files.
+These are upstream's features, unchanged so far. The fork is being set up, and the changes planned
+for it are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues):
+
+- [local images, stylesheets, and media](https://github.com/viell-dev/slop-html-page-viewer/issues/7)
+  in the rendered page;
+- [a reading style that follows Obsidian's theme](https://github.com/viell-dev/slop-html-page-viewer/issues/8)
+  for pages without styles of their own;
+- [links that open where they should](https://github.com/viell-dev/slop-html-page-viewer/issues/9):
+  external links in the browser, and links between vault files in Obsidian.
+
+## How it differs from upstream
+
+- Its plugin id is `viell-html-page-viewer` and its name "HTML Page Viewer (viell)", so that
+  Obsidian never replaces it with an upstream release. Both plugins open `.html` and `.htm` files,
+  so enable only one of them.
+- `npm run build` works on Windows. The fix is
+  [offered upstream](https://github.com/viggomeesters/obsidian-html-page-viewer/pull/1).
+
+Changes that could serve upstream's users are kept separate from fork-only ones and offered upstream;
+[issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
+[CHANGELOG.md](CHANGELOG.md) is upstream's record of its releases.
+
+## Install
+
+Build the plugin from a checkout. It needs Node.js 24 and npm.
+
+```sh
+git clone https://github.com/viell-dev/slop-html-page-viewer.git
+cd slop-html-page-viewer
+npm ci
+npm run build
+```
+
+1. Create the folder `.obsidian/plugins/viell-html-page-viewer/` in your vault.
+2. Copy `main.js`, `manifest.json`, and `styles.css` into it.
+3. Reload Obsidian, and enable **HTML Page Viewer (viell)** in **Settings → Community plugins**.
+   Disable upstream's HTML Page Viewer first if it is installed.
 
 ## Security model
 
-HTML files can execute powerful browser behavior if a viewer permits it. HTML Page Viewer uses a conservative default:
+Scripts are off by default. With scripts on, the frame's sandbox gets `allow-scripts` and nothing
+else: no same-origin access, forms, popups, or top-level navigation. The plugin itself makes no
+network requests, does not use the clipboard, and does not edit vault files. A rendered page can
+still load external images, stylesheets, fonts, or scripts that it refers to, as any browser would.
+[SECURITY.md](SECURITY.md) has the details and how to report a vulnerability.
 
-- Scripts are **OFF** by default.
-- Scripts **ON** adds only `allow-scripts` to the iframe sandbox.
-- The iframe is never granted `allow-same-origin`, `allow-forms`, `allow-popups`, or `allow-top-navigation`.
-- The plugin code does not make network requests.
-- The plugin code does not read or write the system clipboard.
-- The plugin code does not edit vault files.
+## Status
 
-Rendered HTML may still request external resources, such as images, stylesheets, fonts, or scripts, when the HTML document itself references them. This is normal browser behavior for rendered HTML pages and is separate from plugin code making network requests.
+The fork is written and maintained by AI agents, and no person reviews the code. Changes are
+accepted on their tests and on CI on Linux and Windows.
 
-## Why read-only?
+## Contributing, security, and license
 
-HTML reports and exported pages are often generated artifacts. HTML Page Viewer intentionally does not write to disk, so it cannot reformat, truncate, or corrupt your files.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how to report a defect and how to make a change, and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) what is expected of everyone who takes part. Report
+vulnerabilities as [SECURITY.md](SECURITY.md) describes.
 
-## Installation
-
-### Community plugin directory
-
-HTML Page Viewer is ready for submission to the Obsidian Community plugin directory. Once accepted, it can be installed from **Settings -> Community plugins -> Browse** inside Obsidian.
-
-### Manual installation
-
-Until the community directory submission is accepted:
-
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/viggomeesters/obsidian-html-page-viewer/releases/latest).
-2. Create this folder in your vault: `.obsidian/plugins/html-page-viewer/`.
-3. Put the downloaded files in that folder.
-4. Reload Obsidian.
-5. Enable **HTML Page Viewer** in **Settings -> Community plugins**.
-
-### BRAT installation
-
-For beta testing, install the plugin with [BRAT](https://github.com/TfTHacker/obsidian42-brat) using this repository URL:
-
-```text
-https://github.com/viggomeesters/obsidian-html-page-viewer
-```
-
-## Usage
-
-Open any `.html` or `.htm` file in your vault. Obsidian will open it with HTML Page Viewer.
-
-Use the toolbar to:
-
-- switch between the rendered preview and source view
-- refresh the rendered preview after file changes
-- turn scripts on or off for the current viewer tab
-
-Scripts are intentionally per-tab. Opening a new HTML file starts with scripts off again.
-
-## Development
-
-```bash
-npm install
-npm run build
-npx tsc --noEmit
-npm test
-```
-
-For local development, copy or symlink this repository into `.obsidian/plugins/html-page-viewer/` inside an Obsidian vault.
-
-## Release process
-
-Obsidian installs community plugin files from GitHub releases. For each release:
-
-1. Update `manifest.json`, `package.json`, and `versions.json`.
-2. Run `npm install`, `npm run build`, `npx tsc --noEmit`, and `npm test`.
-3. Create a GitHub release whose tag exactly matches `manifest.json.version`.
-4. Attach `main.js`, `manifest.json`, and `styles.css` as release assets.
-
-The repository includes a GitHub Actions release workflow with artifact attestation support. If GitHub Actions is disabled for the owner account, manual releases are still usable for Obsidian, but the Community automated review may show a recommendation about missing artifact attestations.
-
-## Community directory submission
-
-The repository is prepared for Obsidian Community plugin submission. The remaining submission step must be completed by the repository owner in the Obsidian Community site because it requires signing in, linking GitHub, and confirming the developer policies/support commitment.
-
-Submit this repository URL:
-
-```text
-https://github.com/viggomeesters/obsidian-html-page-viewer
-```
-
-Steps:
-
-1. Sign in to [community.obsidian.md](https://community.obsidian.md).
-2. Link the GitHub account that owns this repository.
-3. Open **Plugins -> New plugin**.
-4. Enter the repository URL above.
-5. Confirm the developer policies and submit.
-6. Address any automated review feedback.
-
-The current release is ready for review:
-
-- root `README.md`, `LICENSE`, and `manifest.json` exist
-- `manifest.json.version` is `0.1.1`
-- GitHub release `0.1.1` exists
-- release assets include `main.js`, `manifest.json`, and `styles.css`
-- `versions.json` maps supported Obsidian versions
-
-Official references:
-
-- [Submit your plugin](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)
-- [Obsidian releases repository](https://github.com/obsidianmd/obsidian-releases)
-
-## Acknowledgements
-
-HTML Page Viewer was built independently, but it was informed by the existing Obsidian HTML viewer ecosystem, including the MIT-licensed [JiaLinZhang24/obsidian-html-viewer](https://github.com/JiaLinZhang24/obsidian-html-viewer). No source code from that project is included in this repository.
-
-## License
-
-[MIT](LICENSE)
+The fork is released under the [MIT license](LICENSE), as upstream is, and keeps upstream's
+copyright notice. Upstream acknowledges that it was informed by the MIT-licensed
+[JiaLinZhang24/obsidian-html-viewer](https://github.com/JiaLinZhang24/obsidian-html-viewer), and
+includes no source code from it.

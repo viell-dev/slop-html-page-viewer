@@ -1,17 +1,17 @@
 {
-  "name": "obsidian-html-page-viewer",
+  "name": "slop-html-page-viewer",
   "version": "0.1.1",
-  "description": "Read-only rendered and source HTML page viewer.",
+  "description": "Personal fork of HTML Page Viewer, a read-only rendered and source HTML page viewer for Obsidian.",
   "license": "MIT",
-  "author": "Viggo Meesters",
+  "author": "viell",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/viggomeesters/obsidian-html-page-viewer.git"
+    "url": "git+https://github.com/viell-dev/slop-html-page-viewer.git"
   },
   "bugs": {
-    "url": "https://github.com/viggomeesters/obsidian-html-page-viewer/issues"
+    "url": "https://github.com/viell-dev/slop-html-page-viewer/issues"
   },
-  "homepage": "https://github.com/viggomeesters/obsidian-html-page-viewer#readme",
+  "homepage": "https://github.com/viell-dev/slop-html-page-viewer#readme",
   "type": "module",
   "scripts": {
     "build": "node esbuild.config.mjs production",

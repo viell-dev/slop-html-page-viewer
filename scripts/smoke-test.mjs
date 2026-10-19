@@ -7,7 +7,7 @@ const staticFixture = fs.readFileSync("test-fixtures/static.html", "utf8");
 const interactiveFixture = fs.readFileSync("test-fixtures/interactive.html", "utf8");
 
 const assertions = [
-  [manifest.id === "html-page-viewer", "manifest id is html-page-viewer"],
+  [manifest.id === "viell-html-page-viewer", "manifest id is viell-html-page-viewer"],
   [manifest.version === "0.1.1", "manifest version is 0.1.1"],
   [main.includes("private scriptsEnabled = false"), "scripts default to off"],
   [main.includes("sandboxValue(this.scriptsEnabled)"), "iframe sandbox is derived from script toggle"],
