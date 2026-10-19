@@ -28,7 +28,9 @@ authorized publishing it. Report vulnerabilities privately, as [SECURITY.md](SEC
 
 ## Set up
 
-Development needs Node.js 24 and npm.
+Development needs npm and the Node.js version in `.nvmrc`, currently 24; in the checkout, `nvm use`
+or `fnm use` selects it. CI and the release workflow read the same file. The end-to-end Docker image
+names the version in its `FROM` line, so change the two together.
 
 ```sh
 git clone https://github.com/viell-dev/slop-html-page-viewer.git
@@ -116,10 +118,10 @@ be missing or stored elsewhere.
 
 ### CI
 
-GitHub Actions runs the type check, build, and tests on Linux and Windows with Node.js 24, and an
-`npm audit` on Linux; `main` requires both platforms. The `e2e` job runs the tests in Obsidian on
-Linux for every pull request, and weekly, so that a new Obsidian release is tested within a week.
-The Docker image is built and run weekly and on request.
+GitHub Actions runs the type check, build, and tests on Linux and Windows with the Node.js version
+in `.nvmrc`, and an `npm audit` on Linux; `main` requires both platforms. The `e2e` job runs the
+tests in Obsidian on Linux for every pull request, and weekly, so that a new Obsidian release is
+tested within a week. The Docker image is built and run weekly and on request.
 
 ## Branches
 
