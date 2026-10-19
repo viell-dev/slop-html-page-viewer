@@ -26,6 +26,8 @@ and anyone may use it under the license.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the current tab only.
 - Shows the source with HTML syntax highlighting and line numbers.
+- Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
+  after a note in between. A new tab starts rendered, with the theme on.
 - Never writes to the files it opens.
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).

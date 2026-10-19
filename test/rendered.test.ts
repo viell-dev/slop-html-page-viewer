@@ -145,6 +145,35 @@ describe("rendered view", () => {
     assert.ok(view.contentEl.querySelector(".html-page-viewer__source"));
   });
 
+  it("keeps the tab's view mode and theme while the tab shows a note", async () => {
+    const harness = await Harness.load();
+    const before = harness.newView();
+    harness.open(before, "first.html", PAGE);
+    button(before, "Theme ON").click();
+    button(before, "Source").click();
+    button(before, "Scripts OFF").click();
+
+    // A note replaced the view; this view is the tab's next HTML file.
+    const after = harness.newView(before.leaf);
+    harness.open(after, "second.html", PAGE);
+    assert.ok(after.contentEl.querySelector(".html-page-viewer__source"));
+    assert.equal(button(after, "Theme OFF").getAttribute("aria-pressed"), "false");
+    assert.equal(securityPill(after), "Scripts OFF");
+  });
+
+  it("starts a new tab rendered, with the theme on", async () => {
+    const harness = await Harness.load();
+    const first = harness.newView();
+    harness.open(first, "first.html", PAGE);
+    button(first, "Theme ON").click();
+    button(first, "Source").click();
+
+    const second = harness.newView();
+    harness.open(second, "second.html", PAGE);
+    assert.ok(frame(second));
+    assert.equal(button(second, "Theme ON").getAttribute("aria-pressed"), "true");
+  });
+
   it("reloads the file and the frame when refreshed", async () => {
     const harness = await Harness.load();
     const view = harness.newView();
