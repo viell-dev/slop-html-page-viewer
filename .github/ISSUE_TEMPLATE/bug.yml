@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a page that shows wrongly, a crash, or another reproducible defect
+labels: ["Type: Bug"]
+body:
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Existing issues
+      options:
+        - label: I searched the open and closed issues and found no report of this.
+          required: true
+        - label:
+            I follow the project's [code of
+            conduct](https://github.com/viell-dev/slop-html-page-viewer/blob/main/CODE_OF_CONDUCT.md).
+          required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Build and environment
+      description:
+        The commit you built, the Obsidian version, the operating system, and whether it is desktop
+        or mobile.
+    validations:
+      required: true
+  - type: dropdown
+    id: view
+    attributes:
+      label: View
+      options:
+        - Rendered, scripts off
+        - Rendered, scripts on
+        - Source
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Minimal HTML file
+      description: >-
+        The smallest page that shows the problem, between the fences below, and the paths of any files
+        it refers to. Use a synthetic or public example; never paste private documents.
+      value: |
+        ```html
+
+        ```
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: What the viewer showed or did. A screenshot can help; leave private content out of it.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What you expected instead, and why.
+    validations:
+      required: true

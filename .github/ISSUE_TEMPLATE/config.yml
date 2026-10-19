@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/viell-dev/slop-html-page-viewer/security/advisories/new
+    about: Report it privately. Do not open a public issue for a vulnerability.
+  - name: Upstream HTML Page Viewer
+    url: https://github.com/viggomeesters/obsidian-html-page-viewer/issues
+    about: Problems with upstream's published plugin belong in its own repository.

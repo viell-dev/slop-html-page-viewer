@@ -1,0 +1,11 @@
+name: Question
+description: Ask how the viewer works or how to use it, after reading the README
+labels: ["Type: Question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What you want to do, what you tried, and what you read.
+    validations:
+      required: true

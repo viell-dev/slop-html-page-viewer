@@ -3,3 +3,5 @@ dist/
 .DS_Store
 *.log
 .env
+# Built by npm run build or npm run dev; not tracked in this fork.
+main.js
