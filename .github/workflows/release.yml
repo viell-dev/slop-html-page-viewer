@@ -12,8 +12,10 @@ on:
         required: true
 permissions:
   contents: read
+# One group per version, so that a pending release of one version is never
+# replaced by a dispatch for another.
 concurrency:
-  group: release
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 jobs:
   release:
@@ -42,7 +44,9 @@ jobs:
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
             const problems = [];
-            if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) problems.push("not a version");
+            // SemVer 2.0.0 without build metadata, which a tag should not carry.
+            const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
+            if (!semver.test(version)) problems.push(`${version} is not a SemVer version`);
             if (manifest.version !== version) problems.push(`manifest.json has ${manifest.version}`);
             if (pkg.version !== version) problems.push(`package.json has ${pkg.version}`);
             if (versions[version] !== manifest.minAppVersion) problems.push("versions.json lacks it");
@@ -58,7 +62,10 @@ jobs:
           mkdir -p "release/viell-html-page-viewer"
           cp main.js manifest.json styles.css "release/viell-html-page-viewer/"
           cd release
-          zip -r -X "viell-html-page-viewer-$VERSION.zip" viell-html-page-viewer
+          # Fixed times make the zip the same on every run, so that a retry of
+          # a partly published release matches the checksums already there.
+          touch -d "1980-01-01 00:00:00 UTC" viell-html-page-viewer viell-html-page-viewer/*
+          TZ=UTC zip -r -X "viell-html-page-viewer-$VERSION.zip" viell-html-page-viewer
           cp viell-html-page-viewer/main.js viell-html-page-viewer/manifest.json viell-html-page-viewer/styles.css .
           sha256sum "viell-html-page-viewer-$VERSION.zip" main.js manifest.json styles.css > SHA256SUMS
           cat SHA256SUMS
@@ -66,12 +73,29 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          prerelease=""
-          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$VERSION" $prerelease \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "$VERSION" \
-            --notes-file ".github/release-notes/$VERSION.md" \
-            "release/viell-html-page-viewer-$VERSION.zip" \
-            release/main.js release/manifest.json release/styles.css release/SHA256SUMS
+          # The checksums go last, so that they are only there once the rest is.
+          assets="release/viell-html-page-viewer-$VERSION.zip release/main.js release/manifest.json release/styles.css release/SHA256SUMS"
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$VERSION" --jq .sha 2>/dev/null || true)
+          if [ -n "$tag" ] && [ "$tag" != "$GITHUB_SHA" ]; then
+            echo "The tag $VERSION points to $tag, not to $GITHUB_SHA; refusing to publish." >&2
+            exit 1
+          fi
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Resume a release whose upload stopped part way: add what it lacks.
+            existing=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+            for asset in $assets; do
+              if ! printf '%s\n' "$existing" | grep -qxF "$(basename "$asset")"; then
+                gh release upload "$VERSION" "$asset" --repo "$GITHUB_REPOSITORY"
+              fi
+            done
+          else
+            prerelease=""
+            case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+            # shellcheck disable=SC2086 # The asset paths have no spaces.
+            gh release create "$VERSION" $prerelease \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$VERSION" \
+              --notes-file ".github/release-notes/$VERSION.md" \
+              $assets
+          fi

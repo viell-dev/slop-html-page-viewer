@@ -67,7 +67,8 @@ upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2
 2. Unzip it into your vault's `.obsidian/plugins/` folder, so that
    `.obsidian/plugins/viell-html-page-viewer/` holds `main.js`, `manifest.json`, and `styles.css`.
 3. In **Settings → Community plugins**, turn off upstream's HTML Page Viewer if it is installed,
-   and turn on **HTML Page Viewer (viell)**.
+   and turn on **HTML Page Viewer (viell)**; if it is not listed yet, reload the list of installed
+   plugins.
 
 To build it from a checkout instead, with Node.js 24 and npm, run `npm ci` and `npm run build`, and
 copy the same three files from the checkout's root.
