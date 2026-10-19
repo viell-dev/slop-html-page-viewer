@@ -72,6 +72,7 @@ upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2
 
 To build it from a checkout instead, with Node.js 24 and npm, run `npm ci` and `npm run build`, and
 copy the same three files from the checkout's root.
+
 ## Security model
 
 The view shows a copy of the page, never the file itself, in a sandboxed frame. Scripts are off by
@@ -87,6 +88,7 @@ itself makes no network requests, does not use the clipboard, and only reads vau
 and the stylesheets it links. A rendered page can still load the images, fonts, or scripts on the
 web that it refers to, as any browser would. [SECURITY.md](SECURITY.md) has the details and how to
 report a vulnerability.
+
 ## Status
 
 The fork is written and maintained by AI agents, and no person reviews the code. Changes are
