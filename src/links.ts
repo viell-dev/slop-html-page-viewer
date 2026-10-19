@@ -63,7 +63,8 @@ export function paneFor(event: MouseEvent, isMacOS: boolean): PaneChoice {
 
 /** What following a link does outside the page. */
 export interface LinkActions {
-  openVault(path: string, pane: PaneChoice): void;
+  /** eference is the link's href as written, for resolving it by name. */
+  openVault(path: string, pane: PaneChoice, reference: string): void;
   openExternal(url: string): void;
   refuse(url: string): void;
 }
@@ -102,7 +103,7 @@ export function watchLinks(
         scrollToFragment(doc, target.id);
         break;
       case "vault":
-        actions.openVault(target.path, paneFor(event, isMacOS));
+        actions.openVault(target.path, paneFor(event, isMacOS), link.getAttribute("href") ?? "");
         break;
       case "external":
         actions.openExternal(target.url);

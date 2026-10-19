@@ -78,12 +78,22 @@ export async function vaultFolder(): Promise<string> {
 export async function waitForPage(): Promise<void> {
   const frame = await browser.$(`${ACTIVE} iframe.html-page-viewer__frame`);
   await frame.waitForExist();
-  await browser.waitUntil(async () => ((await frame.getAttribute("srcdoc")) ?? "") !== "", {
-    timeoutMsg: "the frame got no page",
-  });
-  // The frame's load event is not observable from here when the page has an
-  // opaque origin, so give its resources a moment.
-  await browser.pause(1000);
+  let state = "none";
+  await browser.waitUntil(
+    async () => {
+      state = await browser.execute((active) => {
+        const frame = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`);
+        if (!frame?.srcdoc) return "none";
+        const doc = frame.contentDocument;
+        return doc === null ? "opaque" : doc.URL === "about:srcdoc" ? doc.readyState : "none";
+      }, ACTIVE);
+      return state === "complete" || state === "opaque";
+    },
+    { timeout: 20_000, timeoutMsg: "the frame's page did not finish loading" },
+  );
+  // A page with an opaque origin (scripts on) cannot be reached to see when it
+  // has loaded, so give its resources a moment.
+  if (state === "opaque") await browser.pause(1000);
 }
 
 /** How many pixels of the active tab's frame show `color`. */
