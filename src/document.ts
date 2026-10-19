@@ -179,6 +179,41 @@ function locateSrcset(srcset: string, baseUrl: string, context: PageContext): st
 }
 
 /**
+ * What a link's tooltip shows: the vault path of the file that a click opens
+ * (see `openVaultPath` in main.ts), or the address of anything else. A link
+ * within the page, such as a footnote, and a `javascript:` link show none, as
+ * `linkTarget` in links.ts treats them.
+ */
+function linkTooltip(reference: string, absolute: string, context: PageContext): string | null {
+  const url = new URL(absolute);
+  if (url.protocol === "javascript:") return null;
+  if (url.hash !== "" && withoutQuery(url.href) === withoutQuery(context.pageUrl)) return null;
+  const opened = locatedUrl(reference, absolute, context) ?? absolute;
+  // The vault's own folder has no path to show.
+  if (withoutQuery(opened) === withoutQuery(context.vaultUrl)) return null;
+  return vaultPath(opened, context.vaultUrl) ?? opened;
+}
+
+/**
+ * Gives links and images without a title one (#42). A browser shows a link's
+ * address in its status bar, which the viewer's frame does not have, and an
+ * image's alt text only when the image does not load. A page's own titles stay.
+ */
+function addTooltips(doc: Document, baseUrl: string, context: PageContext): void {
+  for (const link of doc.querySelectorAll("a[href], area[href]")) {
+    if (link.hasAttribute("title")) continue;
+    const reference = (link.getAttribute("href") ?? "").trim();
+    const absolute = resolve(reference, baseUrl);
+    const tooltip = absolute === null ? null : linkTooltip(reference, absolute, context);
+    if (tooltip !== null) link.setAttribute("title", tooltip);
+  }
+  for (const image of doc.querySelectorAll("img[alt]")) {
+    const alt = image.getAttribute("alt")?.trim() ?? "";
+    if (alt !== "" && !image.hasAttribute("title")) image.setAttribute("title", alt);
+  }
+}
+
+/**
  * Points the page's references that do not resolve as paths at the files
  * Obsidian's link resolution finds for them, as the previous fork did. A
  * reference that resolves, or that nothing matches, stays as written.
@@ -290,6 +325,7 @@ export async function preparePage(html: string, context: PageContext, options: P
   const baseUrl = resolve(pageBase, context.pageUrl) ?? context.pageUrl;
 
   locateReferences(doc, baseUrl, context);
+  addTooltips(doc, baseUrl, context);
 
   for (const link of [...doc.querySelectorAll("link")].filter(isStylesheetLink)) {
     const href = link.getAttribute("href") ?? "";

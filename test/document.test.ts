@@ -318,3 +318,54 @@ describe("preparePage", () => {
     });
   });
 });
+
+describe("tooltips", () => {
+  const FILES: Record<string, string> = { "Saved/Other page.html": "", "Shared/glossary.html": "" };
+  const page = (): PageContext => ({
+    ...context(FILES),
+    exists: (path: string) => path in FILES,
+    locate: (linktext: string) => Object.keys(FILES).find((path) => path.endsWith(`/${linktext}`)) ?? null,
+  });
+
+  async function titles(html: string, selector: string): Promise<(string | null)[]> {
+    return [...parse(await prepare(html, page())).querySelectorAll(selector)].map((element) => element.getAttribute("title"));
+  }
+
+  it("shows a web link's address and a vault link's path, as the link would open it", async () => {
+    const html = [
+      `<a href="https://example.com/wiki/Page?x=1#part">web</a>`,
+      `<a href="mailto:someone@example.com">mail</a>`,
+      `<a href="Other%20page.html#top">vault</a>`,
+      `<a href="glossary.html">by name</a>`,
+      `<map><area href="../Shared/glossary.html"></map>`,
+    ].join("");
+    assert.deepEqual(await titles(html, "a, area"), [
+      "https://example.com/wiki/Page?x=1#part",
+      "mailto:someone@example.com",
+      "Saved/Other page.html",
+      "Shared/glossary.html",
+      "Shared/glossary.html",
+    ]);
+  });
+
+  it("shows none for a link within the page, a javascript: link, or the vault's own folder", async () => {
+    const html = `<a href="#fn1">1</a><a href="javascript:void(0)">js</a><a href="../">vault</a><a>no href</a>`;
+    assert.deepEqual(await titles(html, "a"), [null, null, null, null]);
+  });
+
+  it("shows an image's alt text, and keeps every title the page has", async () => {
+    const html = [
+      `<img src="a.png" alt=" A photo ">`,
+      `<img src="b.png" alt="">`,
+      `<img src="c.png">`,
+      `<img src="d.png" alt="Alt" title="The page's own">`,
+      `<a href="https://example.com/" title="Its own">web</a>`,
+    ].join("");
+    assert.deepEqual(await titles(html, "img, a"), ["A photo", null, null, "The page's own", "Its own"]);
+  });
+
+  it("resolves links against the page's own base, as the frame does", async () => {
+    const html = `<base href="https://example.com/docs/"><a href="guide.html">guide</a>`;
+    assert.deepEqual(await titles(html, "a"), ["https://example.com/docs/guide.html"]);
+  });
+});
