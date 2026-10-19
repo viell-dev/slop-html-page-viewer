@@ -50,7 +50,13 @@ npm run build
 npm test
 ```
 
-`npm test` runs `scripts/smoke-test.mjs`, which checks the manifest and the security defaults.
+`npm test` bundles each `test/*.test.ts` file with esbuild and runs the bundles with Node.js's test
+runner. The tests run the plugin in a jsdom window, with a stand-in for the parts of Obsidian's API
+that it uses (`test/support/obsidian.ts`), and check what the view shows. A test marked `todo`
+reproduces a known defect and names its issue; remove the marker with the fix. Whether pages load
+and behave correctly in Obsidian itself needs a test in Obsidian; see
+[#6](https://github.com/viell-dev/slop-html-page-viewer/issues/6).
+
 GitHub Actions runs the type check, build, and tests on Linux and Windows with Node.js 24, and an
 `npm audit` on Linux; `main` requires both platforms.
 
