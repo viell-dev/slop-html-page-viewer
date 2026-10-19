@@ -1,5 +1,7 @@
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { browser, expect } from "@wdio/globals";
-import { activeFile, clickInPage, openInActiveTab, VIEW_TYPE, waitForPage } from "../support/viewer.ts";
+import { ACTIVE, activeFile, clickInPage, openInActiveTab, VIEW_TYPE, waitForPage } from "../support/viewer.ts";
 
 const CONTROL = "";
 
@@ -118,5 +120,39 @@ describe("Links in a page in Obsidian", function () {
     await notice.waitForExist();
     expect(await frameLocation()).toBe("about:srcdoc");
     expect((await activeFile()).path).toBe("Saved/Long page.html");
+  });
+
+  it("follows a link clicked while the page is still loading (#31)", async function () {
+    // An image from a server that never answers holds the page's load event
+    // back for as long as the test needs.
+    const server = http.createServer(() => {});
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      await browser.executeObsidian(async ({ app }, port) => {
+        const path = "Saved/Still loading.html";
+        const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Still loading</title></head><body><p><a href="https://example.com/still-loading">A web link</a></p><img src="http://127.0.0.1:${port}/never.png" alt="An image that never arrives" width="16" height="16"></body></html>`;
+        const existing = app.vault.getAbstractFileByPath(path);
+        if (existing) await app.vault.modify(existing as never, html);
+        else await app.vault.create(path, html);
+      }, port);
+      await openInActiveTab("Saved/Still loading.html");
+      await browser.waitUntil(
+        async () =>
+          browser.execute((active) => {
+            const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)?.contentDocument;
+            return doc?.URL === "about:srcdoc" && doc.readyState === "interactive";
+          }, ACTIVE),
+        { timeoutMsg: "the page did not reach the state between parsing and loading" },
+      );
+      await recordWindowOpen();
+      await clickInPage('a[href^="https://"]');
+      await browser.pause(500);
+      expect(await openedUrls()).toEqual(["https://example.com/still-loading"]);
+      expect(await frameLocation()).toBe("about:srcdoc");
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
   });
 });

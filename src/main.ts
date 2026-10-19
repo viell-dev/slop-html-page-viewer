@@ -264,21 +264,39 @@ class HtmlPageViewerView extends TextFileView {
       page = data;
     }
     if (this.iframe !== iframe) return;
-    iframe.addEventListener("load", () => {
+    const watched = new WeakSet<Document>();
+    const watch = (): boolean => {
       // Only a page with Obsidian's origin (scripts off) can be reached.
       const doc = iframe.contentDocument;
-      if (!doc) return;
-      watchLinks(doc, pageUrl, vaultUrl, Platform.isMacOS, {
-        openVault: (path, pane, reference) => void this.openVaultPath(path, pane, reference, file.path),
-        openExternal: (url) => window.open(url),
-        refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
-      });
-    });
+      if (!doc || doc.URL !== "about:srcdoc") return false;
+      if (!watched.has(doc)) {
+        watched.add(doc);
+        watchLinks(doc, pageUrl, vaultUrl, Platform.isMacOS, {
+          openVault: (path, pane, reference) => void this.openVaultPath(path, pane, reference, file.path),
+          openExternal: (url) => window.open(url),
+          refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
+        });
+      }
+      return true;
+    };
+    iframe.addEventListener("load", watch);
     iframe.srcdoc = page;
     if (ownStyles && this.themeButton) {
       this.themeButton.disabled = true;
       this.themeButton.setAttribute("title", "This page has styles of its own");
     }
+
+    // The page's document exists long before its images have loaded and the
+    // frame fires load, so watch its links as soon as it does.
+    if (!(iframe.getAttribute("sandbox") ?? "").includes("allow-same-origin")) return;
+    const win = iframe.ownerDocument.defaultView;
+    if (!win?.requestAnimationFrame) return;
+    const started = Date.now();
+    const poll = (): void => {
+      if (watch() || !iframe.isConnected || Date.now() - started > 10_000) return;
+      win.requestAnimationFrame(poll);
+    };
+    poll();
   }
 
   /**
