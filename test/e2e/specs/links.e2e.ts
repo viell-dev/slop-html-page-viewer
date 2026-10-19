@@ -100,15 +100,33 @@ describe("Links in a page in Obsidian", function () {
   it("scrolls to a part of the page", async function () {
     await openInActiveTab("Saved/Long page.html");
     await waitForPage();
-    await clickInPage('a[href="#end"]');
+    await browser.execute(() => {
+      document.querySelector(".workspace-leaf.mod-active iframe.html-page-viewer__frame")?.setAttribute("data-e2e-marker", "");
+    });
+    const attempts = await clickInPage('a[href="#end"]');
     await browser.pause(500);
-    const endInView = await browser.execute(() => {
+    const after = await browser.execute(() => {
       const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
       const end = frame?.contentDocument?.getElementById("end")?.getBoundingClientRect();
       const height = frame?.contentWindow?.innerHeight ?? 0;
-      return end !== undefined && end.top >= 0 && end.top < height;
+      let location = "cross-origin";
+      try {
+        location = frame?.contentWindow?.location.href ?? "none";
+      } catch {
+        // A frame that navigated away is cross-origin.
+      }
+      return {
+        sameFrame: frame?.hasAttribute("data-e2e-marker") ?? false,
+        endInView: end !== undefined && end.top >= 0 && end.top < height,
+        detail: { location, scrollY: frame?.contentWindow?.scrollY ?? null, endTop: end?.top ?? null, height },
+      };
     });
-    expect(endInView).toBe(true);
+    expect({ sameFrame: after.sameFrame, endInView: after.endInView, attempts, detail: after.detail }).toEqual({
+      sameFrame: true,
+      endInView: true,
+      attempts,
+      detail: after.detail,
+    });
     expect(await frameLocation()).toBe("about:srcdoc");
   });
 

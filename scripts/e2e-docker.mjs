@@ -2,7 +2,8 @@
 // included: builds test/e2e/Dockerfile from this checkout and runs it.
 // Arguments go to `wdio run`, such as `--spec specs/viewer.e2e.ts`.
 //
-// OBSIDIAN_VERSIONS picks the Obsidian versions, as in test/e2e/wdio.conf.mts.
+// OBSIDIAN_VERSIONS picks the Obsidian versions and E2E_ONLY the spec files, as in
+// test/e2e/wdio.conf.mts.
 // Downloaded versions stay in the named volume `html-page-viewer-obsidian-cache`;
 // screenshots and logs go to test-results/e2e.
 
@@ -33,6 +34,7 @@ run("docker", [
   "--init",
   "--shm-size=1g",
   ...(versions === undefined ? [] : ["--env", `OBSIDIAN_VERSIONS=${versions}`]),
+  ...(process.env.E2E_ONLY === undefined ? [] : ["--env", `E2E_ONLY=${process.env.E2E_ONLY}`]),
   "--volume",
   `${cacheVolume}:/cache`,
   "--volume",

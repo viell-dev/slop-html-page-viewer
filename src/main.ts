@@ -289,12 +289,15 @@ class HtmlPageViewerView extends TextFileView {
     // The page's document exists long before its images have loaded and the
     // frame fires load, so watch its links as soon as it does.
     if (!(iframe.getAttribute("sandbox") ?? "").includes("allow-same-origin")) return;
+    // A timer, not requestAnimationFrame, which pauses in windows that are not
+    // painted. Without animation frames the window renders nothing, as in the
+    // unit tests' jsdom, and only the load event remains.
     const win = iframe.ownerDocument.defaultView;
     if (!win?.requestAnimationFrame) return;
     const started = Date.now();
     const poll = (): void => {
       if (watch() || !iframe.isConnected || Date.now() - started > 10_000) return;
-      win.requestAnimationFrame(poll);
+      win.setTimeout(poll, 15);
     };
     poll();
   }

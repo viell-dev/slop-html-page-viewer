@@ -103,22 +103,57 @@ export async function framePixels(color: Color): Promise<number> {
   return decodePng(Buffer.from(shot, "base64")).count(color);
 }
 
-/** Clicks a link in the active tab's page, as a user does, with optional modifier keys. */
-export async function clickInPage(selector: string, modifiers: string[] = []): Promise<void> {
-  const point = await browser.execute((selector) => {
+/** Where a link in the active tab's page is, once it has stopped moving. */
+async function stablePoint(selector: string): Promise<{ x: number; y: number }> {
+  return browser.execute(async (selector) => {
     const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
     const target = frame?.contentDocument?.querySelector(selector);
     if (!frame || !target) throw new Error(`No ${selector} in the page`);
     target.scrollIntoView({ block: "center" });
-    const outer = frame.getBoundingClientRect();
-    const inner = target.getBoundingClientRect();
-    return { x: Math.round(outer.left + inner.left + 4), y: Math.round(outer.top + inner.top + inner.height / 2) };
+    const measure = () => {
+      const outer = frame.getBoundingClientRect();
+      const inner = target.getBoundingClientRect();
+      return { x: Math.round(outer.left + inner.left + 4), y: Math.round(outer.top + inner.top + inner.height / 2) };
+    };
+    // Text can reflow while fonts load; wait until two measurements agree.
+    let point = measure();
+    for (let tries = 0; tries < 30; tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const next = measure();
+      if (next.x === point.x && next.y === point.y) break;
+      point = next;
+    }
+    return point;
   }, selector);
-  if (modifiers.length > 0) await browser.action("key").down(modifiers[0]).perform(true);
-  await browser.action("pointer").move({ x: point.x, y: point.y }).down().up().perform();
-  if (modifiers.length > 0) await browser.action("key").up(modifiers[0]).perform();
 }
 
+/**
+ * Clicks a link in the active tab's page, as a user does, with optional
+ * modifier keys. It checks that the click reached the link, and clicks again
+ * when the page moved under the pointer.
+ */
+export async function clickInPage(selector: string, modifiers: string[] = []): Promise<number> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const point = await stablePoint(selector);
+    await browser.execute((selector) => {
+      const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
+      const state = window as unknown as { e2eHit?: boolean };
+      state.e2eHit = false;
+      const record = (event: Event) => {
+        state.e2eHit ||= (event.target as Element | null)?.closest?.(selector) != null;
+      };
+      // The window sees the event before the view's listeners on the document,
+      // which may replace the frame while the event is still being delivered.
+      frame?.contentWindow?.addEventListener("click", record, true);
+      frame?.contentWindow?.addEventListener("auxclick", record, true);
+    }, selector);
+    if (modifiers.length > 0) await browser.action("key").down(modifiers[0]).perform(true);
+    await browser.action("pointer").move(point).down().up().perform();
+    if (modifiers.length > 0) await browser.action("key").up(modifiers[0]).perform();
+    if (await browser.execute(() => (window as unknown as { e2eHit?: boolean }).e2eHit === true)) return attempt;
+  }
+  throw new Error(`Three clicks at ${selector} missed it`);
+}
 /** The active tab's file path and view type. */
 export async function activeFile(): Promise<{ path: string | null; type: string | null }> {
   return browser.executeObsidian(({ app }) => {

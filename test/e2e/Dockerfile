@@ -26,5 +26,6 @@ RUN npm ci --prefix test/e2e
 COPY --chown=node:node . .
 RUN npm run build
 
-ENV OBSIDIAN_CACHE_DIR=/cache E2E_OUTPUT_DIR=/out
+# Without a UTF-8 locale, Obsidian cannot serve files whose paths are not ASCII.
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 OBSIDIAN_CACHE_DIR=/cache E2E_OUTPUT_DIR=/out
 ENTRYPOINT ["sh", "test/e2e/session.sh"]

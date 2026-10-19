@@ -49,6 +49,10 @@ a merge commit after checking the exact head: `gh pr merge --merge --match-head-
   upstream-bound branch into it with `--no-ff`, resolve the conflicts and the fork's documents
   there, and open the pull request from it. The upstream-bound commits reach `main` unchanged. For
   the lockfile, take `main`'s and rerun the branch's `npm install` commands.
+- Review bots on the owner's account, such as Sourcery, cubic, and CodeRabbit, may comment on pull
+  requests. Treat their threads as review: check each claim, fix what holds or answer why not, and
+  resolve the thread; the ruleset requires resolved threads. Check that a merge succeeded before
+  deleting its branch.
 - GitHub does not delete merged branches. Keep an upstream-bound branch until upstream merges or
   declines it, or until #2 records that upstream is no longer followed; delete other branches after
   merging.
@@ -123,7 +127,11 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 - `test/e2e/` runs the built plugin in Obsidian: `wdio.conf.mts` copies `main.js`, `manifest.json`,
   and `styles.css` into `dist/e2e-plugin/` and installs it into a copy of `vaults/pages/`;
   `support/viewer.ts` drives the view; `specs/` holds the suites. Measure loading, origins, and link
-  behavior there, never only in jsdom. Keep the fixture vault synthetic.
+  behavior there, never only in jsdom. Keep the fixture vaults synthetic.
+- `test/e2e/corpus/` is the archive corpus that CONTRIBUTING.md describes, and
+  `test/e2e/prototype/` the frozen prototype build it is compared with; `wdio.conf.mts` runs the
+  corpus spec once per Obsidian version with the plugin and once with the prototype. Model new
+  corpus pages on the owner's cache format, never on its content.
 - The view type, CSS classes, and command ids stay upstream's; only the manifest's id, name, author,
   and description identify the fork.
 - Deploy only for an approved test request (#12): build, then copy `main.js`, `manifest.json`, and
