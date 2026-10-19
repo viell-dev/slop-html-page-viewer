@@ -26,11 +26,11 @@ and anyone may use it under the license.
   macOS) or a middle click opens a new tab.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page.
-- Shows the source with HTML syntax highlighting and line numbers.
+- Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
   after a note in between. A new tab starts rendered.
-- Has settings for how pages open: **Theme in new tabs**, on by default, and **Scripts when a page
-  opens**, off by default.
+- Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
+  default; and **Wrap long lines in the source view**, on by default.
 - Never writes to the files it opens.
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).

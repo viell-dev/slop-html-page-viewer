@@ -15,6 +15,8 @@ import { DEFAULT_SETTINGS, readSettings, type SettingsHost, type ViewerSettings,
 
 const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
 const HTML_EXTENSIONS = ["html", "htm"];
+/** The workspace event that tells open views the settings changed. */
+const SETTINGS_CHANGE = "html-page-viewer:settings-change";
 
 type ViewMode = "rendered" | "source";
 
@@ -66,9 +68,13 @@ export default class HtmlPageViewerPlugin extends Plugin implements SettingsHost
     });
   }
 
-  /** Changes and saves settings. Open tabs keep what they show; the change applies to what opens next. */
+  /**
+   * Changes and saves settings. Open tabs keep their Theme and Scripts state,
+   * which the settings choose only for what opens next; wrapping applies at once.
+   */
   async updateSettings(change: Partial<ViewerSettings>): Promise<void> {
     this.settings = { ...this.settings, ...change };
+    (this.app.workspace as Events).trigger(SETTINGS_CHANGE);
     await this.saveData(this.settings);
   }
 }
@@ -114,6 +120,14 @@ class HtmlPageViewerView extends TextFileView {
         if (setting === undefined || setting === "readableLineLength") this.updateTheme();
       }),
     );
+    this.registerEvent((this.app.workspace as Events).on(SETTINGS_CHANGE, () => this.updateWrap()));
+  }
+
+  /** Wraps the source view's long lines, or not, as the settings say. */
+  private updateWrap(): void {
+    this.contentEl
+      .querySelector<HTMLElement>(".html-page-viewer__source")
+      ?.toggleClass("is-wrapped", this.plugin.settings.wrapSource);
   }
 
   getDisplayText(): string {
@@ -182,6 +196,7 @@ class HtmlPageViewerView extends TextFileView {
 
     if (this.mode === "source") {
       renderSource(container, this.data);
+      this.updateWrap();
       return;
     }
 

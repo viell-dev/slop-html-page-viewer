@@ -144,9 +144,10 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   listeners run although the page's scripts are disabled (measured in #9). External links go to
   `window.open`, vault files to `openVaultPath` in `src/main.ts`.
 - `src/settings.ts` holds the settings (#38), how they are read from the plugin's saved data
-  (`readSettings`, where a missing or mistyped value takes today's default), and the settings tab.
-  Each setting chooses how something starts; the toolbar changes it for one tab or page. Obsidian
-  1.14 shows its settings in a window of its own, so tests reach a settings tab through
+  (`readSettings`, where a missing or mistyped value takes its default), and the settings tab. The
+  Theme and Scripts settings choose how those buttons start, and open tabs keep their state; source
+  wrapping (#40) applies at once, through the workspace event `html-page-viewer:settings-change`.
+  Obsidian 1.14 shows its settings in a window of its own, so tests reach a settings tab through
   `app.setting.activeTab`, not the main window's document.
 - `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when its first argument is
   `production`. `styles.css` is the plugin's stylesheet; `test-fixtures/` holds HTML files for

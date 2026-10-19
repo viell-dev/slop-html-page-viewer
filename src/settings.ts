@@ -1,6 +1,6 @@
-// The plugin's settings and its tab in Obsidian's settings. Each setting
-// chooses how something starts; the toolbar still changes it for one tab or
-// one page.
+// The plugin's settings and its tab in Obsidian's settings. The Theme and
+// Scripts settings choose how those buttons start; the toolbar still changes
+// them for one tab or one page.
 
 import { type App, type Plugin, PluginSettingTab, Setting } from "obsidian";
 
@@ -9,12 +9,15 @@ export interface ViewerSettings {
   readonly themeOn: boolean;
   /** Whether a page runs its scripts when it opens. */
   readonly scriptsOn: boolean;
+  /** Whether the source view wraps lines longer than the view. */
+  readonly wrapSource: boolean;
 }
 
-/** Today's behavior, for vaults that have saved no settings. */
+/** The defaults, for vaults that have saved no settings. */
 export const DEFAULT_SETTINGS: ViewerSettings = {
   themeOn: true,
   scriptsOn: false,
+  wrapSource: true,
 };
 
 /**
@@ -28,7 +31,7 @@ export function readSettings(data: unknown): ViewerSettings {
     const value = saved[key];
     return typeof value === "boolean" ? value : DEFAULT_SETTINGS[key];
   };
-  return { themeOn: flag("themeOn"), scriptsOn: flag("scriptsOn") };
+  return { themeOn: flag("themeOn"), scriptsOn: flag("scriptsOn"), wrapSource: flag("wrapSource") };
 }
 
 /** The plugin, as the settings tab uses it. */
@@ -69,6 +72,15 @@ export class ViewerSettingTab extends PluginSettingTab {
         toggle
           .setValue(this.host.settings.scriptsOn)
           .onChange((value) => this.host.updateSettings({ scriptsOn: value })),
+      );
+
+    new Setting(containerEl)
+      .setName("Wrap long lines in the source view")
+      .setDesc("Wrap lines that are longer than the view. Turn it off to scroll sideways instead.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.host.settings.wrapSource)
+          .onChange((value) => this.host.updateSettings({ wrapSource: value })),
       );
   }
 }

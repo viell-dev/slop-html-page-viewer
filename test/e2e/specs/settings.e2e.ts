@@ -72,7 +72,46 @@ describe("The settings in Obsidian", function () {
 
   it("are in the plugin's tab of Obsidian's settings", async function () {
     await openSettingsTab();
-    expect(await settingNames()).toEqual(["Theme in new tabs", "Scripts when a page opens"]);
+    expect(await settingNames()).toEqual([
+      "Theme in new tabs",
+      "Scripts when a page opens",
+      "Wrap long lines in the source view",
+    ]);
+  });
+
+  it("wrap long lines in the source view, and stop at once when wrapping is turned off", async function () {
+    /** The active source view's width and scroll width, and the height of its longest line. */
+    const source = async (): Promise<{ overflow: number; tallest: number; lineHeight: number }> =>
+      browser.execute(() => {
+        const view = document.querySelector<HTMLElement>(".workspace-leaf.mod-active .html-page-viewer__source");
+        const lines = [...(view?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line") ?? [])];
+        const heights = lines.map((line) => line.getBoundingClientRect().height);
+        return {
+          overflow: view ? view.scrollWidth - view.clientWidth : 0,
+          tallest: Math.max(...heights),
+          lineHeight: Math.min(...heights),
+        };
+      });
+    await openInActiveTab("Saved/Long lines.html");
+    await clickToolbarButton("Source");
+    const wrapped = await source();
+    expect(wrapped.overflow).toBeLessThanOrEqual(1);
+    expect(wrapped.tallest).toBeGreaterThan(wrapped.lineHeight * 2);
+
+    await openSettingsTab();
+    expect(await clickToggle("Wrap long lines in the source view")).toBe(false);
+    await closeSettings();
+    try {
+      const unwrapped = await source();
+      expect(unwrapped.overflow).toBeGreaterThan(100);
+      expect(unwrapped.tallest).toBeLessThan(unwrapped.lineHeight * 1.5);
+    } finally {
+      await openSettingsTab();
+      expect(await clickToggle("Wrap long lines in the source view")).toBe(true);
+      await closeSettings();
+    }
+    expect((await source()).overflow).toBeLessThanOrEqual(1);
+    await clickToolbarButton("Rendered");
   });
 
   it("open the next page with scripts on once the setting is on, and save it", async function () {
