@@ -89,6 +89,10 @@ Labels follow [`.github/labels.json`](./.github/labels.json); keep GitHub in syn
 - `Target: Upstream` or `Target: Fork` says where the change can go. An upstream-bound defect found
   in upstream's code is also listed in #2.
 - The fixing pull request names its issue with a closing keyword and carries the same labels.
+- Edit an issue's or pull request's text from its exact bytes: write it to a file with `gh api`
+  from a tool that keeps them, and send it back with `gh api -X PATCH … -F body=@file`. PowerShell
+  turns captured `gh` output into an array of lines, and writing that array joins them with
+  spaces; that flattened four descriptions here on 2026-10-19. Read the result back.
 
 ## Settings
 
