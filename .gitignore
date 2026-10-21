@@ -8,3 +8,5 @@ main.js
 # End-to-end tests: downloaded Obsidian versions and each run's logs and screenshots.
 .obsidian-cache/
 test-results/
+# Release assets that scripts/release.ts packages.
+release/
