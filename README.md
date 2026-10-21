@@ -86,7 +86,7 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 
 Changes that could serve upstream's users are kept separate from fork-only ones and offered
 upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
-[CHANGELOG.md](CHANGELOG.md) is upstream's record of its releases.
+[CHANGELOG.md](CHANGELOG.md) lists the fork's releases, and upstream's before them.
 
 ## Install
 
@@ -100,6 +100,48 @@ upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2
 
 To build it from a checkout instead, with Node.js 24 and npm, run `npm ci` and `npm run build`, and
 copy the same three files from the checkout's root.
+
+**Compatibility.** The plugin needs Obsidian 1.5.0 or later. Each change is tested in Obsidian
+1.5.3, the oldest public release that this allows, and in the latest release, on Linux desktop.
+Desktop Windows and macOS, and mobile, are not tested in Obsidian
+([#65](https://github.com/viell-dev/slop-html-page-viewer/issues/65)).
+
+**Update.** Install the newer release the same way, replacing the three files, then turn the
+plugin off and on again in **Settings → Community plugins**, or restart Obsidian. Its settings are
+kept. To go back to an earlier version, install that release the same way.
+
+**Remove.** Uninstall the plugin in **Settings → Community plugins**. That deletes its folder,
+`.obsidian/plugins/viell-html-page-viewer/`, with its settings, the only file it writes; turning it
+off instead keeps them. It never changes the pages it opens.
+
+## Keyboard
+
+The toolbar's buttons are ordinary buttons with labels, reached with Tab. **Scripts** and
+**Theme** say whether they are on. Ctrl+F (Cmd+F on macOS), while the viewer has focus, opens the
+find bar. In it, Enter moves to the next match and Shift+Enter to the previous one, Escape closes
+it, and the number of matches is announced as it changes. The **Find in page** command has no
+hotkey of its own; one can be set in **Settings → Hotkeys**.
+
+## Troubleshooting
+
+- **The plugin is not listed** after unzipping: check that its folder is named
+  `viell-html-page-viewer` and directly holds `main.js`, `manifest.json`, and `styles.css`, then
+  reload the list of installed plugins.
+- **HTML files open in another viewer**: upstream's HTML Page Viewer or another plugin has the
+  extension. Turn the other plugin off; the **File extensions** setting says when another view has
+  an extension.
+- **A page shows without its images**: with scripts on, local files load only with **Local files
+  with scripts on**, and then only within its limits. Files outside the vault never load. A
+  reference that resolves to no vault file, by path or by name, shows nothing.
+- **A page shows without its styles**: stylesheets from the web do not apply, apart from Google
+  Fonts, and a local stylesheet applies only from a `.css` file.
+- **Find in page finds nothing in the page**, or **the split view's sides scroll apart**: with
+  scripts on, the viewer cannot reach the page. Turn scripts off. The split view also follows only a
+  page that scrolls as a whole.
+- **Ctrl+F opens Obsidian's search**: the viewer does not have focus. Click in it first, or use the
+  **Find in page** command.
+
+If none of these explains it, [report a defect](CONTRIBUTING.md#report-a-defect).
 
 ## Security model
 
