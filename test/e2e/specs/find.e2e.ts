@@ -39,6 +39,17 @@ async function closeFind(): Promise<void> {
 }
 
 describe("Finding text in Obsidian", function () {
+  // Each test starts with the find bar closed, in the rendered view, with scripts off.
+  afterEach(async function () {
+    await browser.execute((active) => {
+      const input = document.querySelector<HTMLInputElement>(` .html-page-viewer__find input`);
+      input?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>(` .html-page-viewer__toolbar button`)];
+      buttons.find((button) => button.textContent === "Rendered")?.click();
+      buttons.find((button) => button.textContent === "Scripts ON")?.click();
+    }, ACTIVE);
+  });
+
   it("finds in a page, highlights the matches, and moves from one to the next", async function () {
     await openInActiveTab("Saved/Example article.html");
     await waitForPage();
@@ -81,9 +92,10 @@ describe("Finding text in Obsidian", function () {
     await browser.$(`${ACTIVE} .html-page-viewer__source`).click();
     await browser.keys(["Control", "f"]);
     await expect(findInput()).toBeFocused();
+    // The article has three paragraphs.
     await find("<p");
-    expect(await findCount()).toMatch(/^1 of \d+$/);
-    expect(await highlighted("html-page-viewer-match", false)).toBeGreaterThanOrEqual(4);
+    expect(await findCount()).toBe("1 of 3");
+    expect(await highlighted("html-page-viewer-match", false)).toBe(3);
     await closeFind();
     expect(await highlighted("html-page-viewer-match", false)).toBe(0);
     await clickToolbarButton("Rendered");
