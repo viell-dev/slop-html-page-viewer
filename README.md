@@ -42,7 +42,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 
 - **Stylesheets from the web do not apply**, apart from Google Fonts. Obsidian's own security policy
   allows a page only inline styles, so the viewer copies each linked stylesheet from the vault into
-  the page it shows; it does not download stylesheets from the web.
+  the page it shows; it does not download stylesheets from the web. A local stylesheet applies only
+  from a file whose name ends in `.css`.
 - **With scripts on, local files do not load.** Scripts run without access to Obsidian, and Obsidian
   does not serve vault files to such a page. Copied stylesheets still apply. [Issue
   #11](https://github.com/viell-dev/slop-html-page-viewer/issues/11) plans another option.
@@ -91,13 +92,13 @@ granted together:
 - **Scripts off:** the sandbox grants only `allow-same-origin`, so that the page can load the
   vault's files. It cannot run scripts, submit forms, open popups, or navigate Obsidian.
 - **Scripts on:** the sandbox grants only `allow-scripts`. The page cannot reach Obsidian or the
-  vault's files.
+  vault's files, apart from the `.css` stylesheets copied into it.
 
 The copy carries a policy that lets Obsidian's file URLs load only from inside the vault. The plugin
 itself makes no network requests, does not use the clipboard, and only reads vault files: the page
-and the stylesheets it links. The one file it writes is its own settings. A rendered page can still
-load the images, fonts, or scripts on the web that it refers to, as any browser would.
-[SECURITY.md](SECURITY.md) has the details and how to report a vulnerability.
+and the `.css` files it links as stylesheets. The one file it writes is its own settings. A rendered
+page can still load the images, fonts, or scripts on the web that it refers to, as any browser
+would. [SECURITY.md](SECURITY.md) has the details and how to report a vulnerability.
 
 ## Status
 

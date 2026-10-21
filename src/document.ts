@@ -32,6 +32,16 @@ export interface PageContext {
 /** The deepest chain of stylesheet imports that is followed. */
 const MAX_IMPORT_DEPTH = 8;
 
+/**
+ * Whether a vault file is a stylesheet, by its extension; the copy includes
+ * no other file that a page names as one. With scripts on, the page's scripts
+ * can read the copy's stylesheets, so a page that named a note as one would
+ * let them read the note.
+ */
+function isStylesheetFile(path: string): boolean {
+  return /\.css$/i.test(path);
+}
+
 /** Removes a URL's query and fragment. */
 export function withoutQuery(url: string): string {
   return url.replace(/[?#].*$/, "");
@@ -263,7 +273,8 @@ export async function inlineStylesheet(
     // Cascade layers and support conditions have no plain block form to wrap
     // the imported text in, so such imports stay imports.
     const wrappable = !/\b(layer|supports)\s*\(|^layer\b/i.test(conditions);
-    if (target !== null && path !== null && wrappable && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH) {
+    const readable = path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
+    if (target !== null && path !== null && readable && wrappable) {
       const imported = await context.read(path);
       if (imported !== null) {
         const inner = await inlineStylesheet(imported, target, context, new Set([...seen, path]));
@@ -332,7 +343,7 @@ export async function preparePage(html: string, context: PageContext, options: P
     const resolved = resolve(href, baseUrl);
     const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
     const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
-    if (sheetUrl === null || path === null) continue;
+    if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
     const css = await context.read(path);
     if (css === null) continue;
     const style = doc.createElement("style");
