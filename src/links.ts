@@ -45,8 +45,8 @@ export function linkTarget(href: string, pageUrl: string, vaultUrl: string): Lin
   if (withoutQuery(url.href) === withoutQuery(vaultUrl)) return { kind: "vault", path: "" };
   // Custom schemes such as Obsidian's app: have opaque origins, so compare the
   // scheme and host: the same ones as the vault's mean a local file.
-  const vault = new URL(vaultUrl);
-  if (url.protocol === vault.protocol && url.host === vault.host) return { kind: "outside", url: url.href };
+  const vaultOrigin = new URL(vaultUrl);
+  if (url.protocol === vaultOrigin.protocol && url.host === vaultOrigin.host) return { kind: "outside", url: url.href };
   return { kind: "external", url: url.href };
 }
 

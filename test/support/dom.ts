@@ -29,6 +29,15 @@ for (const name of globals) {
   });
 }
 
+// Chromium's CSS Custom Highlight API, which jsdom lacks and the find bar uses
+// (#13): a highlight is a set of ranges with a priority, and CSS.highlights
+// holds them by name.
+class Highlight extends Set<Range> {
+  priority = 0;
+}
+Object.defineProperty(window, "Highlight", { configurable: true, value: Highlight });
+Object.defineProperty(window.CSS, "highlights", { configurable: true, value: new Map<string, Highlight>() });
+
 interface ElementInfo {
   cls?: string | string[];
   text?: string;

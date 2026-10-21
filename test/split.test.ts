@@ -156,6 +156,20 @@ describe("the split view", () => {
     assert.ok(next.contentEl.querySelector(".html-page-viewer__split"), "the tab keeps the split view");
   });
 
+  it("finds in its source", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "Notes.html", PAGE);
+    button(view, "Split").click();
+    button(view, "Find in page").click();
+    const input = view.contentEl.querySelector<HTMLInputElement>(".html-page-viewer__find input");
+    assert.ok(input);
+    input.value = "<p";
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    assert.equal(view.contentEl.querySelector(".html-page-viewer__find-count")?.textContent, "1 of 2");
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+
   it("says that the two sides scroll apart while scripts are on", async () => {
     const harness = await Harness.load({ scriptsOn: true });
     const view = harness.newView();

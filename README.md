@@ -32,6 +32,12 @@ and anyone may use it under the license.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Shows the source and the page side by side in its **Split** view, one above the other in a narrow
   pane. With scripts off, the two sides scroll in step.
+- Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
+  Ctrl+F (Cmd+F on macOS) while the viewer has focus, or the **Find in page** command opens a find
+  bar, which highlights every match, up to 10,000, and moves between them with Enter and
+  Shift+Enter; Escape closes it. In the page, a match stays within a paragraph or another block, and
+  leaves out text that the page hides. In the split view, it finds in the source, which the page
+  follows.
 - Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
   shows, also after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
@@ -55,9 +61,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   about a second longer to open for every 8 MB. Files that a script loads itself, such as with
   `fetch`, modules that a module script imports, and pages in frames still do not load.
 - **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
-  them, so a link opens in the frame itself.
-- **With scripts on, the split view's sides scroll apart**, as the viewer cannot reach the page to
-  follow its scrolling.
+  them, so a link opens in the frame itself. For the same reason, the find bar then finds only in
+  the source view, and the split view's sides scroll apart.
 - **A link to a part of another page** opens that page at its top.
 - **Files outside the vault never load**, even when a page refers to them, and links to them are
   refused.

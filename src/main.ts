@@ -3,12 +3,14 @@ import {
   Notice,
   Platform,
   Plugin,
+  Scope,
   TFile,
   TextFileView,
   WorkspaceLeaf,
   setIcon,
 } from "obsidian";
 import { type LocalFiles, preparePage, styleElementText, withoutQuery } from "./document";
+import { FIND_STYLE, FIND_STYLE_ID, findRanges, Highlighter, pageRuns, sourceRuns, type TextRun } from "./find";
 import { type PaneChoice, watchLinks } from "./links";
 import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
@@ -69,6 +71,18 @@ export default class HtmlPageViewerPlugin extends Plugin implements SettingsHost
         if (!checking) {
           void this.openHtmlFile(file);
         }
+        return true;
+      },
+    });
+
+    // No default hotkey: in the viewer, Mod+F opens its find bar (#13).
+    this.addCommand({
+      id: "find-in-page",
+      name: "Find in page",
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(HtmlPageViewerView);
+        if (!view) return false;
+        if (!checking) view.openFind();
         return true;
       },
     });
@@ -146,6 +160,14 @@ class HtmlPageViewerView extends TextFileView {
   /** Whether the frame's page has its local files copied into it (#11). */
   private copyingFiles = false;
 
+  /** The find bar's state, which it keeps when the view shows the page again (#13). */
+  private readonly find = { open: false, query: "", index: 0 };
+  private findMatches: Range[] = [];
+  private findMore = false;
+  private findHighlighter: Highlighter | null = null;
+  private findBar: HTMLElement | null = null;
+  private findTimer: number | null = null;
+
   constructor(
     leaf: WorkspaceLeaf,
     private readonly plugin: HtmlPageViewerPlugin,
@@ -184,6 +206,18 @@ class HtmlPageViewerView extends TextFileView {
         this.updateCopying();
       }),
     );
+
+    // While the view has focus, Mod+F opens its find bar rather than Obsidian's,
+    // which notes have and this view does not.
+    this.scope = new Scope(this.app.scope);
+    this.scope.register(["Mod"], "f", () => {
+      this.openFind();
+      return false;
+    });
+    this.register(() => {
+      this.cancelFindTimer();
+      this.clearFindMatches();
+    });
   }
 
   /**
@@ -228,11 +262,16 @@ class HtmlPageViewerView extends TextFileView {
     this.data = "";
     this.scriptsEnabled = this.plugin.settings.scriptsOn;
     this.iframe = null;
+    this.flushFindInput();
+    this.clearFindMatches();
+    this.findBar = null;
     this.contentEl.empty();
   }
 
   private render(): void {
     const container = this.contentEl;
+    this.flushFindInput();
+    this.clearFindMatches();
     container.empty();
     this.iframe = null;
     this.shownStyle = null;
@@ -241,6 +280,7 @@ class HtmlPageViewerView extends TextFileView {
     const header = container.createDiv({ cls: "html-page-viewer__header" });
     this.renderTitle(header);
     this.renderToolbar(header);
+    this.findBar = this.find.open ? this.renderFindBar(container) : null;
 
     if (!this.file) {
       renderMessage(container, "No HTML file is attached to this viewer.");
@@ -270,7 +310,10 @@ class HtmlPageViewerView extends TextFileView {
 
     if (this.mode === "source") {
       renderSource(container, this.data);
+      // Focusable, so that the find bar can give the keys back to it.
+      container.querySelector(".html-page-viewer__source")?.setAttribute("tabindex", "-1");
       this.updateWrap();
+      this.runFind();
       return;
     }
 
@@ -278,12 +321,17 @@ class HtmlPageViewerView extends TextFileView {
       // The source beside the page, or above it in a narrow view (styles.css).
       const split = container.createDiv({ cls: "html-page-viewer__split" });
       renderSource(split, this.data);
+      split.querySelector(".html-page-viewer__source")?.setAttribute("tabindex", "-1");
       this.updateWrap();
       this.renderIframe(split);
+      this.runFind();
       return;
     }
 
     this.renderIframe(container);
+    // The page is searched once its document is there; until then, this says
+    // why it cannot be, with scripts on.
+    this.runFind();
   }
 
   private securityText(): string {
@@ -329,6 +377,9 @@ class HtmlPageViewerView extends TextFileView {
       });
     }
 
+    const findButton = createIconButton(toolbar, "search", "Find in page");
+    findButton.addEventListener("click", () => (this.find.open ? this.closeFind() : this.openFind()));
+
     const refreshButton = createIconButton(toolbar, "refresh-cw", "Refresh preview");
     refreshButton.addEventListener("click", () => {
       void this.reloadFile();
@@ -355,6 +406,173 @@ class HtmlPageViewerView extends TextFileView {
       this.render();
     });
     this.themeButton = themeButton;
+  }
+
+  /** Opens the find bar, or focuses it if it is open, with its text selected. */
+  openFind(): void {
+    if (!this.find.open) {
+      this.find.open = true;
+      const header = this.contentEl.querySelector(".html-page-viewer__header");
+      if (header) {
+        this.findBar = this.renderFindBar(this.contentEl);
+        header.after(this.findBar);
+      }
+      this.runFind();
+    }
+    const input = this.findBar?.querySelector("input");
+    input?.focus();
+    input?.select();
+  }
+
+  /** Closes the find bar; given `refocus`, the keys go back to what the view shows. */
+  private closeFind(refocus = false): void {
+    this.cancelFindTimer();
+    this.find.open = false;
+    this.clearFindMatches();
+    this.findBar?.remove();
+    this.findBar = null;
+    if (refocus) {
+      const shown =
+        this.mode === "rendered" ? this.iframe : this.contentEl.querySelector<HTMLElement>(".html-page-viewer__source");
+      shown?.focus();
+    }
+  }
+
+  private cancelFindTimer(): void {
+    if (this.findTimer === null) return;
+    this.contentEl.ownerDocument.defaultView?.clearTimeout(this.findTimer);
+    this.findTimer = null;
+  }
+
+  /** Takes the text typed into the find bar before the bar is replaced, if it has not been searched yet. */
+  private flushFindInput(): void {
+    if (this.findTimer === null) return;
+    this.cancelFindTimer();
+    const input = this.findBar?.querySelector("input");
+    if (input && input.value !== this.find.query) {
+      this.find.query = input.value;
+      this.find.index = 0;
+    }
+  }
+
+  private renderFindBar(parent: HTMLElement): HTMLElement {
+    const bar = parent.createDiv({ cls: "html-page-viewer__find" });
+    const input = bar.createEl("input", {
+      attr: { type: "search", placeholder: "Find", "aria-label": "Find in page", spellcheck: "false" },
+    });
+    input.value = this.find.query;
+    bar.createSpan({ cls: "html-page-viewer__find-count", attr: { "aria-live": "polite" } });
+    const previous = createIconButton(bar, "chevron-up", "Previous match");
+    const next = createIconButton(bar, "chevron-down", "Next match");
+    const close = createIconButton(bar, "x", "Close find");
+
+    const win = parent.ownerDocument.defaultView;
+    input.addEventListener("input", () => {
+      // Searching a long page at every key would make typing lag.
+      this.cancelFindTimer();
+      this.findTimer =
+        win?.setTimeout(() => {
+          this.findTimer = null;
+          if (!this.contentEl.contains(input)) return;
+          this.find.query = input.value;
+          this.find.index = 0;
+          this.runFind();
+        }, 150) ?? null;
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.cancelFindTimer();
+        if (input.value !== this.find.query) {
+          this.find.query = input.value;
+          this.find.index = 0;
+          this.runFind();
+        } else {
+          this.moveFind(event.shiftKey ? -1 : 1);
+        }
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        this.closeFind(true);
+      }
+    });
+    previous.addEventListener("click", () => this.moveFind(-1));
+    next.addEventListener("click", () => this.moveFind(1));
+    close.addEventListener("click", () => this.closeFind());
+    return bar;
+  }
+
+  /**
+   * The text to find in, and the window that shows it: the source view's, or
+   * the page's while the view can reach it. Null while there is nothing to
+   * search yet, and a message where the view cannot search.
+   */
+  private findTarget(): { runs: TextRun[]; win: Window | null } | string | null {
+    // The split view finds in its source, which the page follows while it can.
+    if (this.mode !== "rendered") {
+      const source = this.contentEl.querySelector(".html-page-viewer__source");
+      return source ? { runs: sourceRuns(source), win: this.contentEl.ownerDocument.defaultView } : null;
+    }
+    if (this.scriptsEnabled) return "Find works in the source view while scripts are on.";
+    const doc = this.iframe?.contentDocument;
+    if (!doc || doc.URL !== "about:srcdoc" || doc.readyState === "loading") return null;
+    if (!doc.getElementById(FIND_STYLE_ID)) {
+      const style = doc.createElement("style");
+      style.id = FIND_STYLE_ID;
+      style.textContent = FIND_STYLE;
+      doc.head.append(style);
+    }
+    return { runs: pageRuns(doc), win: doc.defaultView };
+  }
+
+  /** Finds the find bar's text in what the view shows, and shows the current match. */
+  private runFind(): void {
+    // Not for a bar that the view has replaced.
+    if (!this.find.open || !this.findBar || !this.contentEl.contains(this.findBar)) return;
+    this.clearFindMatches();
+    const target = this.findTarget();
+    if (target === null || typeof target === "string") {
+      this.setFindCount(target ?? "");
+      return;
+    }
+    const { ranges, more } = findRanges(target.runs, this.find.query);
+    this.findMatches = ranges;
+    this.findMore = more;
+    this.findHighlighter = new Highlighter(target.win);
+    this.find.index = Math.min(this.find.index, Math.max(ranges.length - 1, 0));
+    this.showFindMatch();
+  }
+
+  private moveFind(step: number): void {
+    const count = this.findMatches.length;
+    if (count === 0) return;
+    this.find.index = (this.find.index + step + count) % count;
+    this.showFindMatch(false);
+  }
+
+  /** Shows the current match, and with `all`, every match. */
+  private showFindMatch(all = true): void {
+    const count = this.findMatches.length;
+    const current = this.findMatches[this.find.index] ?? null;
+    if (all) this.findHighlighter?.show(this.findMatches, current);
+    else this.findHighlighter?.setCurrent(current);
+    if (count === 0) {
+      this.setFindCount(this.find.query === "" ? "" : "No matches");
+    } else {
+      this.setFindCount(`${this.find.index + 1} of ${count}${this.findMore ? "+" : ""}`);
+    }
+    if (current) scrollToRange(current);
+  }
+
+  private setFindCount(text: string): void {
+    const count = this.findBar?.querySelector(".html-page-viewer__find-count");
+    if (count) count.textContent = text;
+  }
+
+  private clearFindMatches(): void {
+    this.findHighlighter?.clear();
+    this.findHighlighter = null;
+    this.findMatches = [];
+    this.findMore = false;
   }
 
   /** The reading style for Obsidian's current theme and settings. */
@@ -465,6 +683,16 @@ class HtmlPageViewerView extends TextFileView {
           openVault: (path, pane, reference) => void this.openVaultPath(path, pane, reference, file.path),
           openExternal: (url) => window.open(url),
           refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
+        });
+        // Search the page as soon as its text is there, before its images load.
+        if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", () => this.runFind());
+        else this.runFind();
+        // Keys pressed in the page go to its own document, not to Obsidian.
+        doc.addEventListener("keydown", (event) => {
+          if (isFindKey(event)) {
+            event.preventDefault();
+            this.openFind();
+          }
         });
       }
       return true;
@@ -637,6 +865,8 @@ class HtmlPageViewerView extends TextFileView {
       this.data = await this.app.vault.read(this.file);
       this.render();
     } catch (error) {
+      // The message replaces the find bar too.
+      this.closeFind();
       this.contentEl.empty();
       this.contentEl.addClass("html-page-viewer");
       renderMessage(this.contentEl, `Unable to read HTML file: ${getErrorMessage(error)}`);
@@ -852,6 +1082,26 @@ function rawTextEnd(html: string, start: number, name: string): number {
   const endTag = new RegExp(`</${name}[\\t\\n\\f\\r />]`, "gi");
   endTag.lastIndex = start;
   return endTag.exec(html)?.index ?? html.length;
+}
+
+/** Whether a key press asks to find, as Mod+F does in Obsidian. */
+function isFindKey(event: KeyboardEvent): boolean {
+  const mod = Platform.isMacOS ? event.metaKey : event.ctrlKey;
+  // The code names the key where it is, for layouts whose F key types another letter.
+  return mod && !event.altKey && !event.shiftKey && (event.key.toLowerCase() === "f" || event.code === "KeyF");
+}
+
+/**
+ * Scrolls a match into view: its element first, as nested scrolling areas need,
+ * and then the window, as the element can be taller than the window, as a
+ * `<pre>` or a page's text directly in its body is.
+ */
+function scrollToRange(range: Range): void {
+  range.startContainer.parentElement?.scrollIntoView?.({ block: "center", inline: "nearest" });
+  const win = range.startContainer.ownerDocument?.defaultView;
+  const box = range.getBoundingClientRect?.();
+  if (!win || !box || (box.width === 0 && box.height === 0)) return;
+  if (box.top < 0 || box.bottom > win.innerHeight) win.scrollBy(0, box.top - win.innerHeight / 2);
 }
 
 function createIconButton(parent: HTMLElement, icon: string, label: string): HTMLButtonElement {

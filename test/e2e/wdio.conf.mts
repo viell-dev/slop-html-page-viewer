@@ -90,6 +90,7 @@ export const config: WebdriverIO.Config = {
         specs("theme.e2e.ts"),
         specs("links.e2e.ts"),
         specs("settings.e2e.ts"),
+        specs("find.e2e.ts"),
         specs("split.e2e.ts"),
       ]),
       capability(appVersion, installerVersion, pluginDir, corpusDir, [specs("corpus.e2e.ts")]),
