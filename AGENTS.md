@@ -64,10 +64,11 @@ a merge commit after checking the exact head: `gh pr merge --merge --match-head-
 ## Releases
 
 The owner installs the fork by hand from GitHub releases; it is not in Obsidian's community plugin
-directory. On 2026-10-19 the owner allowed beta and release-candidate releases, without asking each
-time, for installing in their vault, and asked not to rely on them for testing: test a release as
-thoroughly as anything else before publishing it. A full release needs the owner's go-ahead, as
-0.2.0 had after they used 0.2.0-rc.1 in their vault.
+directory. The owner does not test releases: test each one as thoroughly as anything else before
+publishing it. On 2026-10-21 they gave standing approval for full releases: release new versions,
+without asking each time, as issues are resolved, until none that can be resolved remain. Publish
+full versions; a release candidate only waited for the owner's use, which releases no longer need.
+Choose the version by semantic versioning: a minor version for new features, a patch for fixes.
 
 1. In a fork-only pull request, set the version in `manifest.json`, `package.json` and its lockfile,
    and `versions.json`, and add `.github/release-notes/<version>.md`, written for someone installing
