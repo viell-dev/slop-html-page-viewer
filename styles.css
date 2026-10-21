@@ -7,6 +7,8 @@
   --html-page-viewer-string: #e6d85c;
   --html-page-viewer-comment: #8f8f8f;
   --html-page-viewer-punctuation: #b6b6b6;
+  /* The split view stacks its sides by the view's own width (#13). */
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -182,6 +184,32 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  /* Its lines' offsetTop, which the split view scrolls by, is from its top. */
+  position: relative;
+}
+
+.html-page-viewer__split {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-height: 0;
+}
+
+.html-page-viewer__split > .html-page-viewer__source,
+.html-page-viewer__split > .html-page-viewer__frame-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+@container (max-width: 700px) {
+  .html-page-viewer__split {
+    flex-direction: column;
+  }
+
+  /* The page's frame has a minimum height of its own. */
+  .html-page-viewer__split > .html-page-viewer__source {
+    min-height: 160px;
+  }
 }
 
 .html-page-viewer__source pre {

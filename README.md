@@ -30,13 +30,16 @@ and anyone may use it under the license.
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
+- Shows the source and the page side by side in its **Split** view, one above the other in a narrow
+  pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole.
 - Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
   Ctrl+F (Cmd+F on macOS) while the viewer has focus, or the **Find in page** command opens a find
   bar, which highlights every match, up to 10,000, and moves between them with Enter and
   Shift+Enter; Escape closes it. In the page, a match stays within a paragraph or another block, and
-  leaves out text that the page hides.
-- Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
-  after a note in between. A new tab starts rendered.
+  leaves out text that the page hides. In the split view, it finds in the source, which the page
+  follows.
+- Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
+  shows, also after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
   on by default; and **File extensions**, `html, htm` by default.
@@ -59,7 +62,7 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   `fetch`, modules that a module script imports, and pages in frames still do not load.
 - **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
   them, so a link opens in the frame itself. For the same reason, the find bar then finds only in
-  the source view.
+  the source view, and the split view's sides scroll apart.
 - **A link to a part of another page** opens that page at its top.
 - **Files outside the vault never load**, even when a page refers to them, and links to them are
   refused.
@@ -74,6 +77,10 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   so enable only one of them.
 - Scripts are off again for each file that opens in a tab, as upstream's README promises, unless
   the settings start every page with them on.
+- Its source view shows every character of the file and highlights it as HTML reads it, also where a
+  tag or a comment continues over several lines. Upstream's leaves out the space after an attribute
+  without a value, and highlights only the first line of such a tag.
+- It has settings, a find bar, and a split view of the source beside the page.
 - `npm run build` works on Windows. The fix is [offered
   upstream](https://github.com/viggomeesters/obsidian-html-page-viewer/pull/1).
 

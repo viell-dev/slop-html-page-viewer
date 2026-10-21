@@ -121,11 +121,11 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 
 - `src/main.ts` holds the plugin class, which registers the view for the extensions the settings
   list and keeps each tab's toolbar choices (`tabChoices`, #39) while the tab shows other views;
-  `HtmlPageViewerView`, a `TextFileView` that renders the toolbar and either the sandboxed frame or
-  the source view; `sandboxValue`, the one place that computes the frame's sandbox; and the source
-  highlighter, whose `tokenizeHtml` reads the whole file as HTML's tokenizer does, into tokens that
-  together are exactly the file's text, which `renderSource` splits into lines (#54). Scripts are
-  never among the kept choices: they start off for every file.
+  `HtmlPageViewerView`, a `TextFileView` that renders the toolbar and the sandboxed frame, the
+  source view, or both side by side; `sandboxValue`, the one place that computes the frame's
+  sandbox; and the source highlighter, whose `tokenizeHtml` reads the whole file as HTML's tokenizer
+  does, into tokens that together are exactly the file's text, which `renderSource` splits into
+  lines (#54). Scripts are never among the kept choices: they start off for every file.
 - `src/document.ts` prepares the copy of the page that the frame shows through `srcdoc`: a `<base>`
   at the file's resource URL, a Content Security Policy that keeps Obsidian's file URLs inside the
   vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute;
@@ -161,8 +161,21 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   ranges, and `Highlighter` shows them with the CSS Custom Highlight API, sharing the named
   highlights of a window with other views. The view opens the bar from its toolbar, from Mod+F in
   its `scope`, from a key press in a page it can reach, and from the `find-in-page` command, and
-  searches the page only with scripts off; measured in Obsidian 1.5.3 and 1.14.4, highlights work in
-  the page's frame, and a view's `scope` gets Mod+F before Obsidian's own hotkeys.
+  searches the page only with scripts off, and the source in the split view; measured in Obsidian
+  1.5.3 and 1.14.4, highlights work in the page's frame, and a view's `scope` gets Mod+F before
+  Obsidian's own hotkeys.
+- `src/split.ts` keeps the split view's sides in step (#13): `startTags` in `src/main.ts` lists the
+  source's start tags with their lines, and `anchorElements` pairs the page's elements with them by
+  aligning the two sequences of names (`alignSequences`, Myers's algorithm), as the parser adds
+  elements, such as `tbody` and copies of misnested formatting, and drops tags; past 1,000
+  differences it looks 16 tags ahead instead. `syncPoints` keeps the longest run of paired elements
+  whose heights on the page are in order, leaving out fixed, sticky, and hidden ones, and adds both
+  sides' ends; `pageTopForLine` and `lineForPageTop` map between a source line and a height of the
+  page in proportion between them. `ScrollFollower` lets the scrolled side lead once per animation
+  frame and passes over the one scroll that moving the other side causes. The view's
+  `syncScrolling` starts once the page's document is parsed, measures again at most every 250 ms
+  when a side's height changes (`remeasured`), and scrolls instantly; it works only with scripts
+  off, and only for a page that scrolls as a whole.
 - `src/settings.ts` holds the settings (#38), how they are read from the plugin's saved data
   (`readSettings`, where a missing or mistyped value takes its default), and the settings tab. The
   Theme and Scripts settings choose how those buttons start, and open tabs keep their state; source
