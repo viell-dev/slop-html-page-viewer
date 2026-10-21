@@ -30,8 +30,10 @@ and anyone may use it under the license.
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
-- Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
-  after a note in between. A new tab starts rendered.
+- Shows the source and the page side by side in its **Split** view, one above the other in a narrow
+  pane. With scripts off, the two sides scroll in step.
+- Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
+  shows, also after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
   on by default; and **File extensions**, `html, htm` by default.
@@ -54,6 +56,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   `fetch`, modules that a module script imports, and pages in frames still do not load.
 - **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
   them, so a link opens in the frame itself.
+- **With scripts on, the split view's sides scroll apart**, as the viewer cannot reach the page to
+  follow its scrolling.
 - **A link to a part of another page** opens that page at its top.
 - **Files outside the vault never load**, even when a page refers to them, and links to them are
   refused.
