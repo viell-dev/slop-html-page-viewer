@@ -190,7 +190,8 @@ describe("source view", () => {
     // Fragments of markup in random order, from a fixed seed.
     const pieces = [
       ...["<", ">", "/", "!", "?", "-", "--", "=", '"', "'", " ", "\t", "\n", "a", "B", "1", "&amp;"],
-      ...["<!--", "-->", "<script>", "</script>", "<style>", "</style>", "<title>", "<plaintext>", "<p ", "x="],
+      ...["<!--", "-->", "--!>", "<!DOCTYPE", "<p ", "x=", "\r"],
+      ...["<script>", "</script>", "</SCRIPT ", "</scriptx>", "<style>", "</style>", "<title>", "<plaintext>"],
     ];
     let seed = 1;
     const random = (limit: number): number => {
@@ -204,6 +205,19 @@ describe("source view", () => {
       for (let piece = 0; piece < length; piece += 1) data += pieces[random(pieces.length)];
       // The view shows a message for a file of only whitespace.
       if (data.trim() === "") continue;
+      const view = harness.newView();
+      harness.open(view, "page.html", data);
+      button(view, "Source").click();
+      const shown = lines(view).map((line) => line.querySelector(".html-page-viewer__source-code")?.textContent);
+      assert.deepEqual(shown, data.split("\n"), JSON.stringify(data));
+    }
+  });
+
+  it("shows a file that ends inside a tag, a value, a comment, or a script unchanged", async () => {
+    const page = '<!DOCTYPE html>\n<p class="a\nb" hidden>Text<!-- c\n--!><script>x<y</script >';
+    const harness = await Harness.load();
+    for (let end = 1; end <= page.length; end += 1) {
+      const data = page.slice(0, end);
       const view = harness.newView();
       harness.open(view, "page.html", data);
       button(view, "Source").click();

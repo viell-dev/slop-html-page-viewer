@@ -253,6 +253,11 @@ const RAW_TEXT_ELEMENTS = new Set(["iframe", "noembed", "noframes", "script", "s
 /** HTML's whitespace, which excludes the other spaces that `\s` matches. */
 const HTML_SPACE = /[\t\n\f\r ]/;
 
+/** What ends a tag's name, an attribute's name, and a value without quotes. */
+const TAG_NAME_END = /[\t\n\f\r />]/;
+const ATTRIBUTE_NAME_END = /[\t\n\f\r />=]/;
+const UNQUOTED_VALUE_END = /[\t\n\f\r >]/;
+
 /**
  * Splits HTML into tokens to highlight, where HTML's tokenizer would see tags,
  * comments, and text. The tokens' texts together are exactly `html`.
@@ -295,13 +300,15 @@ function tokenizeHtml(html: string): Token[] {
     }
 
     let nameEnd = nameStart;
-    while (nameEnd < html.length && !/[\t\n\f\r />]/.test(html[nameEnd])) nameEnd += 1;
+    while (nameEnd < html.length && !TAG_NAME_END.test(html[nameEnd])) nameEnd += 1;
     push("punctuation", html.slice(start, nameStart));
     push("tag", html.slice(nameStart, nameEnd));
-    cursor = tokenizeAttributes(html, nameEnd, push);
+    const end = tokenizeAttributes(html, nameEnd, push);
+    if (end === -1) break;
+    cursor = end;
 
     const name = html.slice(nameStart, nameEnd).toLowerCase();
-    if (isEndTag || html[cursor - 1] !== ">") continue;
+    if (isEndTag) continue;
     if (name === "plaintext") {
       push("text", html.slice(cursor));
       break;
@@ -338,7 +345,8 @@ function commentEnd(html: string, start: number): number {
 
 /**
  * Tokenizes a tag's attributes from `start`, after its name, and returns where
- * the tag ends: after its `>`, which a quoted value can contain.
+ * the tag ends: after its `>`, which a quoted value can contain, or -1 if the
+ * file ends first.
  */
 function tokenizeAttributes(html: string, start: number, push: (kind: TokenKind, text: string) => void): number {
   let cursor = start;
@@ -357,7 +365,7 @@ function tokenizeAttributes(html: string, start: number, push: (kind: TokenKind,
     // A name runs up to whitespace, "/", ">", or "=", and can start with "=".
     const nameStart = cursor;
     cursor += 1;
-    while (cursor < html.length && !/[\t\n\f\r />=]/.test(html[cursor])) cursor += 1;
+    while (cursor < html.length && !ATTRIBUTE_NAME_END.test(html[cursor])) cursor += 1;
     push("attr", html.slice(nameStart, cursor));
 
     let equals = cursor;
@@ -377,11 +385,11 @@ function tokenizeAttributes(html: string, start: number, push: (kind: TokenKind,
       cursor = end;
     } else {
       const valueStart = cursor;
-      while (cursor < html.length && !/[\t\n\f\r >]/.test(html[cursor])) cursor += 1;
+      while (cursor < html.length && !UNQUOTED_VALUE_END.test(html[cursor])) cursor += 1;
       push("string", html.slice(valueStart, cursor));
     }
   }
-  return cursor;
+  return -1;
 }
 
 /** Where the text of a raw text element such as `script` ends: at its end tag. */
