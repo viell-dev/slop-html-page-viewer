@@ -204,7 +204,10 @@ class HtmlPageViewerView extends TextFileView {
       this.openFind();
       return false;
     });
-    this.register(() => this.clearFindMatches());
+    this.register(() => {
+      this.cancelFindTimer();
+      this.clearFindMatches();
+    });
   }
 
   /**
@@ -249,11 +252,15 @@ class HtmlPageViewerView extends TextFileView {
     this.data = "";
     this.scriptsEnabled = this.plugin.settings.scriptsOn;
     this.iframe = null;
+    this.flushFindInput();
+    this.clearFindMatches();
+    this.findBar = null;
     this.contentEl.empty();
   }
 
   private render(): void {
     const container = this.contentEl;
+    this.flushFindInput();
     this.clearFindMatches();
     container.empty();
     this.iframe = null;
@@ -293,12 +300,17 @@ class HtmlPageViewerView extends TextFileView {
 
     if (this.mode === "source") {
       renderSource(container, this.data);
+      // Focusable, so that the find bar can give the keys back to it.
+      container.querySelector(".html-page-viewer__source")?.setAttribute("tabindex", "-1");
       this.updateWrap();
       this.runFind();
       return;
     }
 
     this.renderIframe(container);
+    // The page is searched once its document is there; until then, this says
+    // why it cannot be, with scripts on.
+    this.runFind();
   }
 
   private securityText(): string {
@@ -391,11 +403,34 @@ class HtmlPageViewerView extends TextFileView {
     input?.select();
   }
 
-  private closeFind(): void {
+  /** Closes the find bar; given `refocus`, the keys go back to what the view shows. */
+  private closeFind(refocus = false): void {
+    this.cancelFindTimer();
     this.find.open = false;
     this.clearFindMatches();
     this.findBar?.remove();
     this.findBar = null;
+    if (refocus) {
+      const shown = this.mode === "source" ? this.contentEl.querySelector<HTMLElement>(".html-page-viewer__source") : this.iframe;
+      shown?.focus();
+    }
+  }
+
+  private cancelFindTimer(): void {
+    if (this.findTimer === null) return;
+    this.contentEl.ownerDocument.defaultView?.clearTimeout(this.findTimer);
+    this.findTimer = null;
+  }
+
+  /** Takes the text typed into the find bar before the bar is replaced, if it has not been searched yet. */
+  private flushFindInput(): void {
+    if (this.findTimer === null) return;
+    this.cancelFindTimer();
+    const input = this.findBar?.querySelector("input");
+    if (input && input.value !== this.find.query) {
+      this.find.query = input.value;
+      this.find.index = 0;
+    }
   }
 
   private renderFindBar(parent: HTMLElement): HTMLElement {
@@ -412,10 +447,11 @@ class HtmlPageViewerView extends TextFileView {
     const win = parent.ownerDocument.defaultView;
     input.addEventListener("input", () => {
       // Searching a long page at every key would make typing lag.
-      if (this.findTimer !== null) win?.clearTimeout(this.findTimer);
+      this.cancelFindTimer();
       this.findTimer =
         win?.setTimeout(() => {
           this.findTimer = null;
+          if (!this.contentEl.contains(input)) return;
           this.find.query = input.value;
           this.find.index = 0;
           this.runFind();
@@ -424,6 +460,7 @@ class HtmlPageViewerView extends TextFileView {
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
+        this.cancelFindTimer();
         if (input.value !== this.find.query) {
           this.find.query = input.value;
           this.find.index = 0;
@@ -433,7 +470,7 @@ class HtmlPageViewerView extends TextFileView {
         }
       } else if (event.key === "Escape") {
         event.preventDefault();
-        this.closeFind();
+        this.closeFind(true);
       }
     });
     previous.addEventListener("click", () => this.moveFind(-1));
@@ -454,7 +491,7 @@ class HtmlPageViewerView extends TextFileView {
     }
     if (this.scriptsEnabled) return "Find works in the source view while scripts are on.";
     const doc = this.iframe?.contentDocument;
-    if (!doc || doc.URL !== "about:srcdoc" || doc.readyState !== "complete") return null;
+    if (!doc || doc.URL !== "about:srcdoc" || doc.readyState === "loading") return null;
     if (!doc.getElementById(FIND_STYLE_ID)) {
       const style = doc.createElement("style");
       style.id = FIND_STYLE_ID;
@@ -466,7 +503,8 @@ class HtmlPageViewerView extends TextFileView {
 
   /** Finds the find bar's text in what the view shows, and shows the current match. */
   private runFind(): void {
-    if (!this.find.open) return;
+    // Not for a bar that the view has replaced.
+    if (!this.find.open || !this.findBar || !this.contentEl.contains(this.findBar)) return;
     this.clearFindMatches();
     const target = this.findTarget();
     if (target === null || typeof target === "string") {
@@ -485,19 +523,21 @@ class HtmlPageViewerView extends TextFileView {
     const count = this.findMatches.length;
     if (count === 0) return;
     this.find.index = (this.find.index + step + count) % count;
-    this.showFindMatch();
+    this.showFindMatch(false);
   }
 
-  private showFindMatch(): void {
+  /** Shows the current match, and with `all`, every match. */
+  private showFindMatch(all = true): void {
     const count = this.findMatches.length;
     const current = this.findMatches[this.find.index] ?? null;
-    this.findHighlighter?.show(this.findMatches, current);
+    if (all) this.findHighlighter?.show(this.findMatches, current);
+    else this.findHighlighter?.setCurrent(current);
     if (count === 0) {
       this.setFindCount(this.find.query === "" ? "" : "No matches");
     } else {
       this.setFindCount(`${this.find.index + 1} of ${count}${this.findMore ? "+" : ""}`);
     }
-    current?.startContainer.parentElement?.scrollIntoView?.({ block: "center", inline: "nearest" });
+    if (current) scrollToRange(current);
   }
 
   private setFindCount(text: string): void {
@@ -621,6 +661,9 @@ class HtmlPageViewerView extends TextFileView {
           openExternal: (url) => window.open(url),
           refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
         });
+        // Search the page as soon as its text is there, before its images load.
+        if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", () => this.runFind());
+        else this.runFind();
         // Keys pressed in the page go to its own document, not to Obsidian.
         doc.addEventListener("keydown", (event) => {
           if (isFindKey(event)) {
@@ -632,10 +675,6 @@ class HtmlPageViewerView extends TextFileView {
       return true;
     };
     iframe.addEventListener("load", watch);
-    // Find in the page once all of it is there.
-    iframe.addEventListener("load", () => {
-      if (this.iframe === iframe) this.runFind();
-    });
     iframe.srcdoc = page;
     if (ownStyles && this.themeButton) {
       this.themeButton.disabled = true;
@@ -723,6 +762,8 @@ class HtmlPageViewerView extends TextFileView {
       this.data = await this.app.vault.read(this.file);
       this.render();
     } catch (error) {
+      // The message replaces the find bar too.
+      this.closeFind();
       this.contentEl.empty();
       this.contentEl.addClass("html-page-viewer");
       renderMessage(this.contentEl, `Unable to read HTML file: ${getErrorMessage(error)}`);
@@ -929,7 +970,21 @@ function rawTextEnd(html: string, start: number, name: string): number {
 /** Whether a key press asks to find, as Mod+F does in Obsidian. */
 function isFindKey(event: KeyboardEvent): boolean {
   const mod = Platform.isMacOS ? event.metaKey : event.ctrlKey;
-  return mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f";
+  // The code names the key where it is, for layouts whose F key types another letter.
+  return mod && !event.altKey && !event.shiftKey && (event.key.toLowerCase() === "f" || event.code === "KeyF");
+}
+
+/**
+ * Scrolls a match into view: its element first, as nested scrolling areas need,
+ * and then the window, as the element can be taller than the window, as a
+ * `<pre>` or a page's text directly in its body is.
+ */
+function scrollToRange(range: Range): void {
+  range.startContainer.parentElement?.scrollIntoView?.({ block: "center", inline: "nearest" });
+  const win = range.startContainer.ownerDocument?.defaultView;
+  const box = range.getBoundingClientRect?.();
+  if (!win || !box || (box.width === 0 && box.height === 0)) return;
+  if (box.top < 0 || box.bottom > win.innerHeight) win.scrollBy(0, box.top - win.innerHeight / 2);
 }
 
 function createIconButton(parent: HTMLElement, icon: string, label: string): HTMLButtonElement {

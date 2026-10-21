@@ -19,7 +19,19 @@ export const FIND_STYLE = [
 ].join("\n");
 
 /** Elements whose text a page does not show as its text. */
-const UNSHOWN = new Set(["script", "style", "noscript", "template", "textarea", "select", "head", "title"]);
+const UNSHOWN = new Set(["script", "style", "template", "textarea", "select", "head", "title"]);
+
+/**
+ * Whether a page hides an element: by the `hidden` attribute, or by its styles,
+ * as Chromium's `checkVisibility` reads them. An element whose `display` is
+ * `contents` has no box of its own, but shows its children.
+ */
+function isHidden(element: Element): boolean {
+  if (element.hasAttribute("hidden")) return true;
+  const check = (element as Element & { checkVisibility?: () => boolean }).checkVisibility;
+  if (!check || check.call(element)) return false;
+  return element.ownerDocument.defaultView?.getComputedStyle(element).display !== "contents";
+}
 
 /** Elements that start a block of their own, so that a match never runs from one into the next. */
 const BLOCKS = new Set([
@@ -68,12 +80,14 @@ export function pageRuns(doc: Document): TextRun[] {
     nodes = [];
   };
   const visit = (element: Element): void => {
+    // A closed details element shows only its summary.
+    const closed = element.localName === "details" && !element.hasAttribute("open");
     for (const child of element.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
-        nodes.push(child as Text);
+        if (!closed) nodes.push(child as Text);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         const name = (child as Element).localName;
-        if (UNSHOWN.has(name)) continue;
+        if (UNSHOWN.has(name) || (closed && name !== "summary") || isHidden(child as Element)) continue;
         const block = BLOCKS.has(name);
         if (block) end();
         visit(child as Element);
@@ -103,13 +117,15 @@ function position(textRun: TextRun, index: number, atEnd: boolean): [Text, numbe
 
 /**
  * The places where `query` occurs in the runs, ignoring case, in order, up to
- * `limit`; `more` says whether there were more.
+ * `limit`; `more` says whether there were more. A run of whitespace in the
+ * query matches any run of whitespace, as a page shows any run as one space.
  */
 export function findRanges(runs: readonly TextRun[], query: string, limit = MAX_MATCHES): { ranges: Range[]; more: boolean } {
   const ranges: Range[] = [];
   if (query === "") return { ranges, more: false };
   // The characters that a pattern with the u flag lets be escaped, and needs.
-  const pattern = new RegExp(query.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&"), "giu");
+  const text = query.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&").replace(/\s+/gu, "[\\s\\u00a0]+");
+  const pattern = new RegExp(text, "giu");
   for (const textRun of runs) {
     for (const match of textRun.text.matchAll(pattern)) {
       if (ranges.length === limit) return { ranges, more: true };
@@ -160,6 +176,13 @@ export class Highlighter {
       highlight = created;
     }
     return highlight;
+  }
+
+  /** Moves the current match, leaving the others as they are. */
+  setCurrent(current: Range | null): void {
+    if (this.current) this.api?.registry.get(CURRENT_HIGHLIGHT)?.delete(this.current);
+    if (current) this.highlight(CURRENT_HIGHLIGHT, 1)?.add(current);
+    this.current = current;
   }
 
   show(matches: readonly Range[], current: Range | null): void {

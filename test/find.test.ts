@@ -23,8 +23,24 @@ describe("finding text in a page", () => {
   });
 
   it("leaves out text the page does not show", () => {
-    const html = "<p>shown</p><script>var shown;</script><style>.shown {}</style><noscript>shown</noscript>";
+    const html = [
+      "<p>shown</p><script>var shown;</script><style>.shown {}</style><template>shown</template>",
+      "<div hidden>shown</div><details><summary>Open</summary>shown<p>shown</p></details>",
+    ].join("");
     assert.deepEqual(texts(html, "shown"), ["shown"]);
+    assert.deepEqual(texts("<details><summary>Open</summary>more</details>", "open"), ["Open"]);
+    assert.deepEqual(texts("<details open><summary>Open</summary>more</details>", "more"), ["more"]);
+  });
+
+  it("finds the text of noscript, which a page with scripts off shows", () => {
+    // With scripts off, the parser reads noscript's contents as markup.
+    const doc = new DOMParser().parseFromString("<noscript><p>Enable JavaScript</p></noscript>", "text/html");
+    assert.deepEqual(findRanges(pageRuns(doc), "javascript").ranges.map(String), ["JavaScript"]);
+  });
+
+  it("matches any run of whitespace, as a page shows it, for a space in the query", () => {
+    const html = "<p>Saved\n    page, Saved&nbsp;page, Saved\tpage, <b>Saved</b>\n<i>page</i></p>";
+    assert.deepEqual(texts(html, "saved page"), ["Saved\n    page", "Saved page", "Saved\tpage", "Saved\npage"]);
   });
 
   it("finds a query as text, not as a pattern", () => {
@@ -51,6 +67,19 @@ describe("finding text in a page", () => {
     assert.equal(range.endOffset, 1);
   });
 
+  it("maps a match that ends where its node ends, past empty nodes", () => {
+    const doc = parse("<p></p>");
+    const paragraph = doc.querySelector("p")!;
+    for (const text of ["ab", "", "cd", ""]) paragraph.append(doc.createTextNode(text));
+    const [first] = findRanges(pageRuns(doc), "ab").ranges;
+    assert.equal(first.endContainer.textContent, "ab");
+    assert.equal(first.endOffset, 2);
+    const [second] = findRanges(pageRuns(doc), "cd").ranges;
+    assert.equal(second.startContainer.textContent, "cd");
+    assert.equal(second.startOffset, 0);
+    assert.equal(findRanges(pageRuns(doc), "bc").ranges[0]?.toString(), "bc");
+  });
+
   it("finds text in a source view line by line", () => {
     const doc = parse(
       `<div class="src"><div><span class="html-page-viewer__source-code"><span>&lt;</span><span>p</span>&gt;one</span></div>` +
@@ -63,6 +92,8 @@ describe("finding text in a page", () => {
   });
 });
 
+// jsdom does not load a frame's srcdoc, so finding in the rendered page is tested
+// in Obsidian, in test/e2e/specs/find.e2e.ts.
 describe("the find bar", () => {
   const PAGE = "<!doctype html>\n<title>Notes</title>\n<p>A saved page about pages.</p>\n<p>Page three.</p>";
 
@@ -128,6 +159,56 @@ describe("the find bar", () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.equal(count(view), "1 of 1");
     press(field, "Escape");
+  });
+
+  it("leaves nothing behind when the bar or the view closes while a search waits", async () => {
+    const { view } = await sourceView();
+    button(view, "Find in page").click();
+    input(view).value = "page";
+    input(view).dispatchEvent(new window.Event("input"));
+    press(input(view), "Escape");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
+
+    button(view, "Find in page").click();
+    input(view).value = "page";
+    input(view).dispatchEvent(new window.Event("input"));
+    // What Obsidian does when it closes the view.
+    for (const cleanup of (view as unknown as { cleanups: (() => void)[] }).cleanups) cleanup();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
+  });
+
+  it("stays on its match when Enter comes before the search it waited for", async () => {
+    const { view } = await sourceView();
+    button(view, "Find in page").click();
+    const field = input(view);
+    field.value = "page";
+    field.dispatchEvent(new window.Event("input"));
+    press(field, "Enter");
+    press(field, "Enter");
+    assert.equal(count(view), "2 of 3");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(count(view), "2 of 3");
+    press(field, "Escape");
+  });
+
+  it("keeps text typed just before the view changes, and searches the next file in the tab", async () => {
+    const { harness, view } = await sourceView();
+    button(view, "Find in page").click();
+    input(view).value = "three";
+    input(view).dispatchEvent(new window.Event("input"));
+    button(view, "Rendered").click();
+    button(view, "Source").click();
+    assert.equal(input(view).value, "three");
+    assert.equal(count(view), "1 of 1");
+
+    input(view).value = "page";
+    press(input(view), "Enter");
+    harness.open(view, "Other.html", "<p>One page.</p>");
+    assert.equal(count(view), "1 of 1");
+    assert.deepEqual(highlighted(MATCH_HIGHLIGHT), ["page"]);
+    press(input(view), "Escape");
   });
 
   it("closes with Escape, and leaves no highlight behind", async () => {

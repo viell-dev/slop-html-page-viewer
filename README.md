@@ -32,7 +32,9 @@ and anyone may use it under the license.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
   Ctrl+F (Cmd+F on macOS) while the viewer has focus, or the **Find in page** command opens a find
-  bar, which highlights every match and moves between them with Enter and Shift+Enter.
+  bar, which highlights every match, up to 10,000, and moves between them with Enter and
+  Shift+Enter; Escape closes it. In the page, a match stays within a paragraph or another block, and
+  leaves out text that the page hides.
 - Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
   after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
