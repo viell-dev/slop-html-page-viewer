@@ -13,11 +13,17 @@ function texts(html: string, query: string): string[] {
 
 describe("finding text in a page", () => {
   it("ignores case, and finds a match across elements within a block", () => {
-    assert.deepEqual(texts("<p>Saved <b>Pa</b>ge, saved page</p>", "saved page"), ["Saved Page", "saved page"]);
+    assert.deepEqual(texts("<p>Saved <b>Pa</b>ge, saved page</p>", "saved page"), [
+      "Saved Page",
+      "saved page",
+    ]);
   });
 
   it("finds no match from one block into the next", () => {
-    assert.deepEqual(texts("<p>first</p><p>second</p><div>third<br>fourth</div>", "firstsecond"), []);
+    assert.deepEqual(
+      texts("<p>first</p><p>second</p><div>third<br>fourth</div>", "firstsecond"),
+      [],
+    );
     assert.deepEqual(texts("<div>third<br>fourth</div>", "thirdfourth"), []);
     assert.deepEqual(texts("<ul><li>one</li><li>two</li></ul>", "onetwo"), []);
   });
@@ -29,23 +35,35 @@ describe("finding text in a page", () => {
     ].join("");
     assert.deepEqual(texts(html, "shown"), ["shown"]);
     assert.deepEqual(texts("<details><summary>Open</summary>more</details>", "open"), ["Open"]);
-    assert.deepEqual(texts("<details open><summary>Open</summary>more</details>", "more"), ["more"]);
+    assert.deepEqual(texts("<details open><summary>Open</summary>more</details>", "more"), [
+      "more",
+    ]);
   });
 
   it("finds the text of noscript, which a page with scripts off shows", () => {
     // With scripts off, the parser reads noscript's contents as markup.
-    const doc = new DOMParser().parseFromString("<noscript><p>Enable JavaScript</p></noscript>", "text/html");
+    const doc = new DOMParser().parseFromString(
+      "<noscript><p>Enable JavaScript</p></noscript>",
+      "text/html",
+    );
     assert.deepEqual(findRanges(pageRuns(doc), "javascript").ranges.map(String), ["JavaScript"]);
   });
 
   it("matches any run of whitespace, as a page shows it, for a space in the query", () => {
     const html = "<p>Saved\n    page, Saved&nbsp;page, Saved\tpage, <b>Saved</b>\n<i>page</i></p>";
-    assert.deepEqual(texts(html, "saved page"), ["Saved\n    page", "Saved page", "Saved\tpage", "Saved\npage"]);
+    assert.deepEqual(texts(html, "saved page"), [
+      "Saved\n    page",
+      "Saved page",
+      "Saved\tpage",
+      "Saved\npage",
+    ]);
   });
 
   it("finds a query as text, not as a pattern", () => {
     assert.deepEqual(texts("<p>a.b axb (c) [d] \\e /f/ a-b</p>", "a.b"), ["a.b"]);
-    assert.deepEqual(texts("<p>(c) [d] \\e /f/ a-b $1</p>", "(c) [d] \\e /f/ a-b $1"), ["(c) [d] \\e /f/ a-b $1"]);
+    assert.deepEqual(texts("<p>(c) [d] \\e /f/ a-b $1</p>", "(c) [d] \\e /f/ a-b $1"), [
+      "(c) [d] \\e /f/ a-b $1",
+    ]);
     assert.deepEqual(texts("<p>Éclair éclair</p>", "éCLAIR"), ["Éclair", "éclair"]);
   });
 
@@ -86,7 +104,10 @@ describe("finding text in a page", () => {
         `<div><span class="html-page-viewer__source-code">two</span></div></div>`,
     );
     const runs = sourceRuns(doc.querySelector(".src")!);
-    assert.deepEqual(runs.map((run) => run.text), ["<p>one", "two"]);
+    assert.deepEqual(
+      runs.map((run) => run.text),
+      ["<p>one", "two"],
+    );
     assert.deepEqual(findRanges(runs, "p>o").ranges.map(String), ["p>o"]);
     assert.deepEqual(findRanges(runs, "onetwo").ranges, []);
   });
@@ -95,10 +116,12 @@ describe("finding text in a page", () => {
 // jsdom does not load a frame's srcdoc, so finding in the rendered page is tested
 // in Obsidian, in test/e2e/specs/find.e2e.ts.
 describe("the find bar", () => {
-  const PAGE = "<!doctype html>\n<title>Notes</title>\n<p>A saved page about pages.</p>\n<p>Page three.</p>";
+  const PAGE =
+    "<!doctype html>\n<title>Notes</title>\n<p>A saved page about pages.</p>\n<p>Page three.</p>";
 
   function highlighted(name: string): string[] {
-    const registry = (window as unknown as { CSS: { highlights: Map<string, Set<Range>> } }).CSS.highlights;
+    const registry = (window as unknown as { CSS: { highlights: Map<string, Set<Range>> } }).CSS
+      .highlights;
     return [...(registry.get(name) ?? [])].map(String);
   }
 
@@ -225,7 +248,9 @@ describe("the find bar", () => {
 
   it("opens with Mod+F while the view has focus, and from its command", async () => {
     const { harness, view } = await sourceView();
-    const scoped = view as HtmlView & { scope: { press(modifiers: string[], key: string): boolean } | null };
+    const scoped = view as HtmlView & {
+      scope: { press(modifiers: string[], key: string): boolean } | null;
+    };
     // Obsidian shows the view in its window; an element outside a document takes no focus.
     document.body.append(view.contentEl);
     assert.equal(scoped.scope?.press(["Mod"], "f"), true);

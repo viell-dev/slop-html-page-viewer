@@ -55,7 +55,11 @@ export default defineConfig(
       // node:test's test and describe return promises that the runner awaits.
       "@typescript-eslint/no-floating-promises": [
         "error",
-        { allowForKnownSafeCalls: [{ from: "package", package: "node:test", name: ["describe", "it", "test"] }] },
+        {
+          allowForKnownSafeCalls: [
+            { from: "package", package: "node:test", name: ["describe", "it", "test"] },
+          ],
+        },
       ],
       // The stand-in for Obsidian keeps its API's async signatures.
       "@typescript-eslint/require-await": "off",

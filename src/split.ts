@@ -16,7 +16,18 @@ export interface Anchor {
 }
 
 /** Tags that, before a page's first content, belong to its head. */
-const HEAD_ONLY = new Set(["html", "head", "title", "meta", "link", "base", "style", "script", "noscript", "template"]);
+const HEAD_ONLY = new Set([
+  "html",
+  "head",
+  "title",
+  "meta",
+  "link",
+  "base",
+  "style",
+  "script",
+  "noscript",
+  "template",
+]);
 
 /**
  * The most places in which the page's elements and the source's tags may
@@ -38,7 +49,11 @@ function nameKey(name: string): string {
  * time that grows with their lengths times the places they differ; null if
  * they differ in more than `limit` places.
  */
-export function alignSequences(a: readonly string[], b: readonly string[], limit: number): [number, number][] | null {
+export function alignSequences(
+  a: readonly string[],
+  b: readonly string[],
+  limit: number,
+): [number, number][] | null {
   const n = a.length;
   const m = b.length;
   const most = Math.min(n + m, limit);
@@ -132,11 +147,13 @@ export function anchorElements(body: Element, tags: readonly StartTag[]): Anchor
 
   const elementKeys = elements.map((element) => nameKey(element.localName));
   const tagKeys = content.map((tag) => nameKey(tag.name));
-  const pairs = alignSequences(elementKeys, tagKeys, MAX_DIFFERENCES) ?? pairAhead(elementKeys, tagKeys);
+  const pairs =
+    alignSequences(elementKeys, tagKeys, MAX_DIFFERENCES) ?? pairAhead(elementKeys, tagKeys);
   const anchors: Anchor[] = [];
   for (const [element, tag] of pairs) {
     const line = content[tag].line;
-    if (anchors.length === 0 || line > anchors[anchors.length - 1].line) anchors.push({ element: elements[element], line });
+    if (anchors.length === 0 || line > anchors[anchors.length - 1].line)
+      anchors.push({ element: elements[element], line });
   }
   return anchors;
 }
@@ -172,7 +189,12 @@ export interface Point {
  * both: between two points, in proportion; before the first and after the
  * last, the first's and the last's.
  */
-function along(points: readonly Point[], value: number, from: keyof Point, to: keyof Point): number | null {
+function along(
+  points: readonly Point[],
+  value: number,
+  from: keyof Point,
+  to: keyof Point,
+): number | null {
   if (points.length === 0) return null;
   const index = lastAtOrBefore(points, value, (point) => point[from]);
   if (index === -1) return points[0][to];
@@ -245,12 +267,15 @@ export function syncPoints(
     tails[low] = index;
   }
   const points: Point[] = [];
-  for (let index = tails[tails.length - 1] ?? -1; index !== -1; index = previous[index]) points.push(candidates[index]);
+  for (let index = tails[tails.length - 1] ?? -1; index !== -1; index = previous[index])
+    points.push(candidates[index]);
   points.reverse();
   if (ends) {
-    if (points.length === 0 || points[0].line > 1 || points[0].top > 0) points.unshift({ line: 1, top: 0 });
+    if (points.length === 0 || points[0].line > 1 || points[0].top > 0)
+      points.unshift({ line: 1, top: 0 });
     const last = points[points.length - 1];
-    if (ends.lines >= last.line && ends.height >= last.top) points.push({ line: ends.lines, top: ends.height });
+    if (ends.lines >= last.line && ends.height >= last.top)
+      points.push({ line: ends.lines, top: ends.height });
   }
   return points;
 }
@@ -321,7 +346,12 @@ export class ScrollFollower {
  * A measurement that is taken again when what it depends on changes size, at
  * most once every `wait` milliseconds, as measuring a long page is slow.
  */
-export function remeasured<T>(measure: () => T, size: () => number, now: () => number, wait = 250): () => T {
+export function remeasured<T>(
+  measure: () => T,
+  size: () => number,
+  now: () => number,
+  wait = 250,
+): () => T {
   let value = measure();
   let lastSize = size();
   let lastTime = now();

@@ -35,10 +35,52 @@ function isHidden(element: Element): boolean {
 
 /** Elements that start a block of their own, so that a match never runs from one into the next. */
 const BLOCKS = new Set([
-  "address", "article", "aside", "blockquote", "body", "br", "caption", "center", "dd", "details", "dialog", "dir",
-  "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
-  "header", "hgroup", "hr", "li", "main", "menu", "nav", "ol", "p", "pre", "section", "summary", "table", "tbody",
-  "td", "tfoot", "th", "thead", "tr", "ul",
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "body",
+  "br",
+  "caption",
+  "center",
+  "dd",
+  "details",
+  "dialog",
+  "dir",
+  "div",
+  "dl",
+  "dt",
+  "fieldset",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hgroup",
+  "hr",
+  "li",
+  "main",
+  "menu",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "summary",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "ul",
 ]);
 
 /** Text nodes that read as one piece of text, and where each starts in it. */
@@ -68,7 +110,9 @@ function collectText(node: Node, nodes: Text[]): Text[] {
 
 /** The text of a source view, one run for each line. */
 export function sourceRuns(source: Element): TextRun[] {
-  return [...source.querySelectorAll(".html-page-viewer__source-code")].map((code) => run(collectText(code, [])));
+  return [...source.querySelectorAll(".html-page-viewer__source-code")].map((code) =>
+    run(collectText(code, [])),
+  );
 }
 
 /** The text a page shows, in runs that end where a block does. */
@@ -87,7 +131,8 @@ export function pageRuns(doc: Document): TextRun[] {
         if (!closed) nodes.push(child as Text);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         const name = (child as Element).localName;
-        if (UNSHOWN.has(name) || (closed && name !== "summary") || isHidden(child as Element)) continue;
+        if (UNSHOWN.has(name) || (closed && name !== "summary") || isHidden(child as Element))
+          continue;
         const block = BLOCKS.has(name);
         if (block) end();
         visit(child as Element);
@@ -120,7 +165,11 @@ function position(textRun: TextRun, index: number, atEnd: boolean): [Text, numbe
  * `limit`; `more` says whether there were more. A run of whitespace in the
  * query matches any run of whitespace, as a page shows any run as one space.
  */
-export function findRanges(runs: readonly TextRun[], query: string, limit = MAX_MATCHES): { ranges: Range[]; more: boolean } {
+export function findRanges(
+  runs: readonly TextRun[],
+  query: string,
+  limit = MAX_MATCHES,
+): { ranges: Range[]; more: boolean } {
   const ranges: Range[] = [];
   if (query === "") return { ranges, more: false };
   // The characters that a pattern with the u flag lets be escaped, and needs.
@@ -147,7 +196,12 @@ interface HighlightApi {
 }
 
 function highlightApi(win: Window | null): HighlightApi | null {
-  const scope = win as (Window & { Highlight?: new () => Set<Range>; CSS?: { highlights?: Map<string, Set<Range>> } }) | null;
+  const scope = win as
+    | (Window & {
+        Highlight?: new () => Set<Range>;
+        CSS?: { highlights?: Map<string, Set<Range>> };
+      })
+    | null;
   const Highlight = scope?.Highlight;
   const registry = scope?.CSS?.highlights;
   return Highlight && registry ? { registry, create: () => new Highlight() } : null;

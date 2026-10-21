@@ -12,7 +12,10 @@ export const DEFAULT_EXTENSIONS: readonly string[] = ["html", "htm"];
  * the defaults.
  */
 export function normalizeExtensions(input: string | readonly unknown[]): string[] {
-  const parts = typeof input === "string" ? input.split(/[\s,;]+/) : input.filter((part) => typeof part === "string");
+  const parts =
+    typeof input === "string"
+      ? input.split(/[\s,;]+/)
+      : input.filter((part) => typeof part === "string");
   const extensions = new Set<string>();
   for (const part of parts) {
     const extension = (part as string).trim().replace(/^\.+/, "").toLowerCase();
@@ -37,7 +40,12 @@ export interface ExtensionRegistry {
 /** Obsidian's view registry, if it has every part this plugin uses. */
 export function extensionRegistry(app: unknown): ExtensionRegistry | null {
   const registry = (app as { viewRegistry?: Partial<ExtensionRegistry> }).viewRegistry;
-  const parts = ["registerExtensions", "unregisterExtensions", "getTypeByExtension", "isExtensionRegistered"] as const;
+  const parts = [
+    "registerExtensions",
+    "unregisterExtensions",
+    "getTypeByExtension",
+    "isExtensionRegistered",
+  ] as const;
   return registry && parts.every((name) => typeof registry[name] === "function")
     ? (registry as ExtensionRegistry)
     : null;
@@ -86,7 +94,9 @@ export class ExtensionRegistration {
   }
 
   private release(extensions: readonly string[]): void {
-    const own = extensions.filter((extension) => this.registry.getTypeByExtension(extension) === this.viewType);
+    const own = extensions.filter(
+      (extension) => this.registry.getTypeByExtension(extension) === this.viewType,
+    );
     if (own.length > 0) this.registry.unregisterExtensions(own);
   }
 }

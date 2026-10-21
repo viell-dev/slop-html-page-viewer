@@ -36,7 +36,10 @@ class Highlight extends Set<Range> {
   priority = 0;
 }
 Object.defineProperty(window, "Highlight", { configurable: true, value: Highlight });
-Object.defineProperty(window.CSS, "highlights", { configurable: true, value: new Map<string, Highlight>() });
+Object.defineProperty(window.CSS, "highlights", {
+  configurable: true,
+  value: new Map<string, Highlight>(),
+});
 
 interface ElementInfo {
   cls?: string | string[];

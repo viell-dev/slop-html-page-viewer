@@ -8,12 +8,16 @@ import { button, frame, Harness, settle } from "./support/harness";
 function themedDocument(dark: boolean, variables: Record<string, string>): Document {
   document.body.className = dark ? "theme-dark" : "theme-light";
   document.body.removeAttribute("style");
-  for (const [name, value] of Object.entries(variables)) document.body.style.setProperty(name, value);
+  for (const [name, value] of Object.entries(variables))
+    document.body.style.setProperty(name, value);
   return document;
 }
 
 function readingStyle(srcdoc: string): string | null {
-  return new DOMParser().parseFromString(srcdoc, "text/html").getElementById(READING_STYLE_ID)?.textContent ?? null;
+  return (
+    new DOMParser().parseFromString(srcdoc, "text/html").getElementById(READING_STYLE_ID)
+      ?.textContent ?? null
+  );
 }
 
 describe("readTheme", () => {
@@ -41,7 +45,9 @@ describe("readTheme", () => {
   });
 
   it("keeps values from ending their declaration, rule, or element", () => {
-    const theme = readTheme(themedDocument(false, { "--text-normal": "red; } body { display: none } </style>" }));
+    const theme = readTheme(
+      themedDocument(false, { "--text-normal": "red; } body { display: none } </style>" }),
+    );
     assert.doesNotMatch(theme.text, /[;{}<>]/);
   });
 });
@@ -49,7 +55,9 @@ describe("readTheme", () => {
 describe("readingStylesheet", () => {
   it("styles the page in the theme's colors, fonts, and line width", () => {
     const css = readingStylesheet(
-      readTheme(themedDocument(true, { "--background-primary": "#101010", "--text-normal": "#eeeeee" })),
+      readTheme(
+        themedDocument(true, { "--background-primary": "#101010", "--text-normal": "#eeeeee" }),
+      ),
     );
     assert.match(css, /color-scheme: dark;/);
     assert.match(css, /background: #101010;/);
@@ -59,7 +67,10 @@ describe("readingStylesheet", () => {
   });
 
   it("uses the full width without Readable line length", () => {
-    const css = readingStylesheet(readTheme(themedDocument(false, { "--file-line-width": "640px" })), false);
+    const css = readingStylesheet(
+      readTheme(themedDocument(false, { "--file-line-width": "640px" })),
+      false,
+    );
     assert.match(css, /max-width: none;/);
     assert.doesNotMatch(css, /640px/);
   });

@@ -15,7 +15,9 @@ interface Box {
 async function sides(): Promise<{ source: Box; page: Box }> {
   return browser.execute((active) => {
     const box = (selector: string): Box => {
-      const rect = document.querySelector(`${active} .html-page-viewer__split > ${selector}`)?.getBoundingClientRect();
+      const rect = document
+        .querySelector(`${active} .html-page-viewer__split > ${selector}`)
+        ?.getBoundingClientRect();
       if (!rect) throw new Error(`No ${selector} in the split view`);
       return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
     };
@@ -26,7 +28,9 @@ async function sides(): Promise<{ source: Box; page: Box }> {
 /** The number of the first paragraph the page shows at its top. */
 async function topParagraph(): Promise<number> {
   return browser.execute((active) => {
-    const frame = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`);
+    const frame = document.querySelector<HTMLIFrameElement>(
+      `${active} iframe.html-page-viewer__frame`,
+    );
     const paragraphs = [...(frame?.contentDocument?.querySelectorAll("p") ?? [])];
     const first = paragraphs.find((paragraph) => paragraph.getBoundingClientRect().bottom > 1);
     return Number(/Paragraph (\d+)/.exec(first?.textContent ?? "")?.[1] ?? 0);
@@ -36,9 +40,15 @@ async function topParagraph(): Promise<number> {
 /** The number of the first line the source shows at its top. */
 async function topLine(): Promise<number> {
   return browser.execute((active) => {
-    const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__split .html-page-viewer__source`);
-    const lines = [...(source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line") ?? [])];
-    const index = lines.findIndex((line) => line.offsetTop + line.offsetHeight > (source?.scrollTop ?? 0) + 1);
+    const source = document.querySelector<HTMLElement>(
+      `${active} .html-page-viewer__split .html-page-viewer__source`,
+    );
+    const lines = [
+      ...(source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line") ?? []),
+    ];
+    const index = lines.findIndex(
+      (line) => line.offsetTop + line.offsetHeight > (source?.scrollTop ?? 0) + 1,
+    );
     return index + 1;
   }, ACTIVE);
 }
@@ -60,7 +70,9 @@ describe("The split view in Obsidian", function () {
     expect(wide.source.right).toBeLessThanOrEqual(wide.page.left);
 
     await browser.execute((active) => {
-      document.querySelector<HTMLElement>(`${active} .view-content`)?.style.setProperty("width", "500px");
+      document
+        .querySelector<HTMLElement>(`${active} .view-content`)
+        ?.style.setProperty("width", "500px");
     }, ACTIVE);
     await browser.pause(200);
     const narrow = await sides();
@@ -74,7 +86,9 @@ describe("The split view in Obsidian", function () {
     await waitForPage();
 
     await browser.execute((active) => {
-      const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__split .html-page-viewer__source`);
+      const source = document.querySelector<HTMLElement>(
+        `${active} .html-page-viewer__split .html-page-viewer__source`,
+      );
       const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[19];
       if (!source || !line) throw new Error("No line 20");
       source.scrollTop = line.offsetTop;
@@ -89,10 +103,14 @@ describe("The split view in Obsidian", function () {
     expect(Math.abs((await topParagraph()) - 10)).toBeLessThanOrEqual(1);
 
     await browser.execute((active) => {
-      const frame = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`);
+      const frame = document.querySelector<HTMLIFrameElement>(
+        `${active} iframe.html-page-viewer__frame`,
+      );
       const win = frame?.contentWindow;
       const root = frame?.contentDocument?.documentElement;
-      const paragraph = [...(frame?.contentDocument?.querySelectorAll("p") ?? [])].find((p) => p.textContent?.startsWith("Paragraph 15 "));
+      const paragraph = [...(frame?.contentDocument?.querySelectorAll("p") ?? [])].find((p) =>
+        p.textContent?.startsWith("Paragraph 15 "),
+      );
       if (!win || !root || !paragraph) throw new Error("No paragraph 15");
       // A user's scroll, which the page's style does not animate.
       root.style.scrollBehavior = "auto";
@@ -113,7 +131,9 @@ describe("The split view in Obsidian", function () {
     // Targets that both sides can scroll to the top of: the source shows about forty of its lines.
     // Line 20 is paragraph 12's.
     await browser.execute((active) => {
-      const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__split .html-page-viewer__source`);
+      const source = document.querySelector<HTMLElement>(
+        `${active} .html-page-viewer__split .html-page-viewer__source`,
+      );
       const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[19];
       if (!source || !line) throw new Error("No line 20");
       source.scrollTop = line.offsetTop;
@@ -125,9 +145,13 @@ describe("The split view in Obsidian", function () {
 
     // Paragraph 18 is on line 26.
     await browser.execute((active) => {
-      const frame = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`);
+      const frame = document.querySelector<HTMLIFrameElement>(
+        `${active} iframe.html-page-viewer__frame`,
+      );
       const win = frame?.contentWindow;
-      const paragraph = [...(frame?.contentDocument?.querySelectorAll("p") ?? [])].find((p) => p.textContent?.startsWith("Paragraph 18 "));
+      const paragraph = [...(frame?.contentDocument?.querySelectorAll("p") ?? [])].find((p) =>
+        p.textContent?.startsWith("Paragraph 18 "),
+      );
       if (!win || !paragraph) throw new Error("No paragraph 18");
       win.scrollTo(0, paragraph.getBoundingClientRect().top + win.scrollY);
     }, ACTIVE);

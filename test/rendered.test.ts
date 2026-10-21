@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { sandboxValue } from "../src/main";
-import { button, frame, Harness, message, sandboxTokens, securityPill, settle } from "./support/harness";
+import {
+  button,
+  frame,
+  Harness,
+  message,
+  sandboxTokens,
+  securityPill,
+  settle,
+} from "./support/harness";
 
 const PAGE = "<!doctype html><title>Report</title><p>Quarterly figures</p>";
 
@@ -16,7 +24,10 @@ describe("rendered view", () => {
     assert.equal(iframe.getAttribute("src"), null, "the frame does not load the file itself");
     await settle();
     const page = new DOMParser().parseFromString(iframe.srcdoc, "text/html");
-    assert.equal(page.querySelector("base")?.getAttribute("href"), "app://test-vault/Reports/q3%20report.html");
+    assert.equal(
+      page.querySelector("base")?.getAttribute("href"),
+      "app://test-vault/Reports/q3%20report.html",
+    );
     assert.equal(page.querySelector("p")?.textContent, "Quarterly figures");
     assert.match(iframe.srcdoc, /^<!DOCTYPE html>/);
     assert.equal(iframe.getAttribute("title"), "q3 report.html");
@@ -33,9 +44,15 @@ describe("rendered view", () => {
     const iframe = frame(view);
     assert.ok(iframe);
     const page = new DOMParser().parseFromString(iframe.srcdoc, "text/html");
-    const policy = page.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content") ?? "";
+    const policy =
+      page.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content") ??
+      "";
     assert.match(policy, /img-src app:\/\/test-vault\/ https: http: data: blob:/);
-    assert.equal(page.head.firstElementChild?.tagName, "META", "the policy comes before anything it governs");
+    assert.equal(
+      page.head.firstElementChild?.tagName,
+      "META",
+      "the policy comes before anything it governs",
+    );
   });
   it("starts with scripts off", async () => {
     const harness = await Harness.load();
@@ -218,7 +235,10 @@ describe("view messages", () => {
     const harness = await Harness.load();
     const view = harness.newView();
     harness.open(view, "notes.md", "# Notes");
-    assert.equal(message(view), "The viewer does not open .md files. Its settings list the extensions it opens as HTML.");
+    assert.equal(
+      message(view),
+      "The viewer does not open .md files. Its settings list the extensions it opens as HTML.",
+    );
     assert.equal(frame(view), null);
   });
 
@@ -245,7 +265,10 @@ describe("view messages", () => {
     harness.open(view, "Reports/2026/summary.html", PAGE);
     const header = view.contentEl.querySelector(".html-page-viewer__header");
     assert.equal(header?.querySelector(".html-page-viewer__filename")?.textContent, "summary.html");
-    assert.equal(header?.querySelector(".html-page-viewer__path")?.textContent, "Reports/2026/summary.html");
+    assert.equal(
+      header?.querySelector(".html-page-viewer__path")?.textContent,
+      "Reports/2026/summary.html",
+    );
   });
 
   it("clears the view", async () => {

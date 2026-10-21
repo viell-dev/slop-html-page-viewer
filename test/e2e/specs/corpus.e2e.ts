@@ -19,11 +19,17 @@ function filesUnder(directory: string, prefix = ""): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.name === ".obsidian") return [];
-    return entry.isDirectory() ? filesUnder(path.join(directory, entry.name), relative) : [relative];
+    return entry.isDirectory()
+      ? filesUnder(path.join(directory, entry.name), relative)
+      : [relative];
   });
 }
 
-const pages = fs.existsSync(corpus) ? filesUnder(corpus).filter((file) => /\.html?$/i.test(file)).sort() : [];
+const pages = fs.existsSync(corpus)
+  ? filesUnder(corpus)
+      .filter((file) => /\.html?$/i.test(file))
+      .sort()
+  : [];
 
 interface Frame {
   images: { src: string; url: string; loaded: boolean }[];
@@ -40,15 +46,29 @@ async function inspectFrame(): Promise<Frame> {
   await browser.waitUntil(
     async () =>
       browser.execute(() => {
-        const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
+        const frame = document.querySelector<HTMLIFrameElement>(
+          ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
+        );
         const doc = frame?.contentDocument;
-        if (!frame?.srcdoc || !doc || doc.readyState !== "complete" || doc.body.childElementCount === 0) return false;
+        if (
+          !frame?.srcdoc ||
+          !doc ||
+          doc.readyState !== "complete" ||
+          doc.body.childElementCount === 0
+        )
+          return false;
         return [...doc.images].every((image) => image.complete);
       }),
-    { timeout: 20_000, interval: 100, timeoutMsg: "the page and its images did not finish loading" },
+    {
+      timeout: 20_000,
+      interval: 100,
+      timeoutMsg: "the page and its images did not finish loading",
+    },
   );
   return browser.execute(async () => {
-    const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame")!;
+    const frame = document.querySelector<HTMLIFrameElement>(
+      ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
+    )!;
     const doc = frame.contentDocument!;
     const style = frame.contentWindow!.getComputedStyle(doc.documentElement);
     await doc.fonts.ready;
@@ -64,32 +84,52 @@ async function inspectFrame(): Promise<Frame> {
         (link) => /\bstylesheet\b/i.test(link.rel) && !/^https?:/.test(link.href),
       ).length,
       markers: Object.fromEntries(
-        ["common", "light", "legacy"].map((name) => [name, style.getPropertyValue(`--fixture-${name}`).trim()]),
+        ["common", "light", "legacy"].map((name) => [
+          name,
+          style.getPropertyValue(`--fixture-${name}`).trim(),
+        ]),
       ),
       readingStyle: doc.getElementById("html-page-viewer-reading-style") !== null,
       script: doc.documentElement.dataset.fixtureScript ?? null,
-      font: doc.fonts.check('16px "Fixture Sans"') && [...doc.fonts].some((face) => face.family.includes("Fixture Sans") && face.status === "loaded"),
+      font:
+        doc.fonts.check('16px "Fixture Sans"') &&
+        [...doc.fonts].some(
+          (face) => face.family.includes("Fixture Sans") && face.status === "loaded",
+        ),
     };
   });
 }
 
 /** What the page's source says about it, read from disk. */
-function expectations(page: string): { images: { src: string; path: string | null }[]; ownStyles: boolean; sheets: string[] } {
+function expectations(page: string): {
+  images: { src: string; path: string | null }[];
+  ownStyles: boolean;
+  sheets: string[];
+} {
   const text = fs.readFileSync(path.join(corpus, page), "utf8");
   const directory = path.posix.dirname(page);
   const images = [...text.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)].map(([, src]) => {
     if (/^[a-z][a-z0-9+.-]*:/i.test(src)) return { src, path: null };
-    const relative = path.posix.normalize(path.posix.join(directory, decodeURIComponent(src.replace(/[?#].*$/, ""))));
+    const relative = path.posix.normalize(
+      path.posix.join(directory, decodeURIComponent(src.replace(/[?#].*$/, ""))),
+    );
     return { src, path: fs.existsSync(path.join(corpus, relative)) ? relative : null };
   });
-  const sheets = [...text.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*href="([^"]*)"/g)].map(([, href]) => href);
+  const sheets = [...text.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*href="([^"]*)"/g)].map(
+    ([, href]) => href,
+  );
   const imports = [...text.matchAll(/@import\s+url\("([^"]+)"\)/g)].map(([, href]) => href);
-  return { images, ownStyles: /<style\b/.test(text) || sheets.length > 0, sheets: [...sheets, ...imports] };
+  return {
+    images,
+    ownStyles: /<style\b/.test(text) || sheets.length > 0,
+    sheets: [...sheets, ...imports],
+  };
 }
 
 async function build(): Promise<"viewer" | "prototype"> {
   return browser.executeObsidian(({ app }) => {
-    const plugins = (app as unknown as { plugins: { plugins: Record<string, unknown> } }).plugins.plugins;
+    const plugins = (app as unknown as { plugins: { plugins: Record<string, unknown> } }).plugins
+      .plugins;
     return "viell-html-page-viewer" in plugins ? "viewer" : "prototype";
   });
 }
@@ -120,7 +160,11 @@ describe("The archive corpus", function () {
     fs.mkdirSync(output, { recursive: true });
     fs.writeFileSync(
       path.join(output, `corpus-${which}-${browser.getObsidianVersion()}.json`),
-      JSON.stringify({ build: which, version: browser.getObsidianVersion(), pages: results }, null, 2),
+      JSON.stringify(
+        { build: which, version: browser.getObsidianVersion(), pages: results },
+        null,
+        2,
+      ),
     );
   });
 
@@ -147,7 +191,10 @@ describe("The archive corpus", function () {
         page,
         expected.images.map((image) => image.src),
       );
-      const images = frame.images.map((image) => ({ ...image, path: vaultPathOf(image.url, vaultUrl) }));
+      const images = frame.images.map((image) => ({
+        ...image,
+        path: vaultPathOf(image.url, vaultUrl),
+      }));
       const wanted = expected.images.map((image, index) => image.path ?? byName[index]);
       results[page] = { milliseconds, ...frame, images, expected: wanted };
       if (which === "prototype") return;
@@ -165,12 +212,18 @@ describe("The archive corpus", function () {
       expect(frame.readingStyle).toBe(!expected.ownStyles);
       if (expected.sheets.some((sheet) => /common\.css|legacy\.css/.test(sheet))) {
         expect(frame.markers.common).toBe("loaded");
-        if (fs.existsSync(path.join(corpus, "Cache/Repositories/Example's Créature Site/fonts/FixtureSans.ttf"))) {
+        if (
+          fs.existsSync(
+            path.join(corpus, "Cache/Repositories/Example's Créature Site/fonts/FixtureSans.ttf"),
+          )
+        ) {
           expect(frame.font).toBe(true);
         }
       }
-      if (expected.sheets.some((sheet) => sheet.includes("light.css"))) expect(frame.markers.light).toBe("loaded");
-      if (expected.sheets.some((sheet) => sheet.includes("legacy.css"))) expect(frame.markers.legacy).toBe("loaded");
+      if (expected.sheets.some((sheet) => sheet.includes("light.css")))
+        expect(frame.markers.light).toBe("loaded");
+      if (expected.sheets.some((sheet) => sheet.includes("legacy.css")))
+        expect(frame.markers.legacy).toBe("loaded");
       expect(milliseconds).toBeLessThan(15_000);
     });
   }

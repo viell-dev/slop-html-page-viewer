@@ -8,13 +8,19 @@ import { App, type PluginSettingTab } from "./support/obsidian";
 const PAGE = "<!doctype html><title>Report</title><p>Quarterly figures</p>";
 
 /** The settings tab's field for the setting named `name`, and its description. */
-function field(tab: PluginSettingTab, name: string): { input: HTMLInputElement; description: string } {
+function field(
+  tab: PluginSettingTab,
+  name: string,
+): { input: HTMLInputElement; description: string } {
   const setting = [...tab.containerEl.querySelectorAll(".setting-item")].find(
     (item) => item.querySelector(".setting-item-name")?.textContent === name,
   );
   const input = setting?.querySelector<HTMLInputElement>("input[type=text]");
   assert.ok(input, `a text field named ${name}`);
-  return { input, description: setting?.querySelector(".setting-item-description")?.textContent ?? "" };
+  return {
+    input,
+    description: setting?.querySelector(".setting-item-description")?.textContent ?? "",
+  };
 }
 
 /** Types into a field and leaves it, as a person does: the change event fires on leaving. */
@@ -29,7 +35,13 @@ function registered(app: App): [string, string][] {
 
 describe("normalizeExtensions", () => {
   it("takes extensions in lower case, without dots, each once, in their order", () => {
-    assert.deepEqual(normalizeExtensions(".HTML, htm ,, xht; .XHTML  hbs"), ["html", "htm", "xht", "xhtml", "hbs"]);
+    assert.deepEqual(normalizeExtensions(".HTML, htm ,, xht; .XHTML  hbs"), [
+      "html",
+      "htm",
+      "xht",
+      "xhtml",
+      "hbs",
+    ]);
     assert.deepEqual(normalizeExtensions(["Html", "html", 3, null, ".tpl"]), ["html", "tpl"]);
   });
 
@@ -88,7 +100,10 @@ describe("extensions in the plugin", () => {
     const unlisted = harness.newView();
     harness.open(unlisted, "Pages/page.htm", PAGE);
     assert.equal(frame(unlisted), null);
-    assert.equal(message(unlisted), "The viewer does not open .htm files. Its settings list the extensions it opens as HTML.");
+    assert.equal(
+      message(unlisted),
+      "The viewer does not open .htm files. Its settings list the extensions it opens as HTML.",
+    );
   });
 
   it("follows a change in the settings tab at once, and says which extensions another view has", async () => {
@@ -107,7 +122,11 @@ describe("extensions in the plugin", () => {
       ["html", VIEW_TYPE],
       ["xht", VIEW_TYPE],
     ]);
-    assert.deepEqual((harness.plugin.saves.at(-1) as { extensions: string[] }).extensions, ["html", "md", "xht"]);
+    assert.deepEqual((harness.plugin.saves.at(-1) as { extensions: string[] }).extensions, [
+      "html",
+      "md",
+      "xht",
+    ]);
     const after = field(tab, "File extensions");
     assert.equal(after.input.value, "html, md, xht");
     assert.match(after.description, /Another view opens \.md, so the viewer does not\./);
@@ -126,6 +145,9 @@ describe("extensions in the plugin", () => {
     const harness = await Harness.load(null, { viewRegistry: false });
     const [tab] = harness.plugin.settingTabs;
     tab.display();
-    assert.match(field(tab, "File extensions").description, /A change applies when Obsidian loads the plugin again\./);
+    assert.match(
+      field(tab, "File extensions").description,
+      /A change applies when Obsidian loads the plugin again\./,
+    );
   });
 });

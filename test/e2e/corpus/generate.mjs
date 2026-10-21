@@ -14,7 +14,9 @@ const here = import.meta.dirname;
 const output = path.resolve(process.argv[2] ?? path.join(here, "../../../dist/e2e-vaults/archive"));
 
 /** References that stand for assets the cache could not retrieve. */
-const UNAVAILABLE = new Set(["Cache/Websites/Example Encyclopedia/Event Gallery - Unavailable Asset/2026-05-01/card-summer.png"]);
+const UNAVAILABLE = new Set([
+  "Cache/Websites/Example Encyclopedia/Event Gallery - Unavailable Asset/2026-05-01/card-summer.png",
+]);
 
 /**
  * Assets that pages refer to by a path that does not exist, stored where
@@ -57,7 +59,10 @@ function png(width, height, seed) {
   header.writeUInt32BE(height, 4);
   header[8] = 8;
   header[9] = 2;
-  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, () => color).flat())]);
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.from(Array.from({ length: width }, () => color).flat()),
+  ]);
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", header),
@@ -71,13 +76,52 @@ function png(width, height, seed) {
 // as PNG data under their own extensions.
 const GIF = Buffer.from([
   ...Buffer.from("GIF89a", "latin1"),
-  0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, // 1 × 1, a global table of two colors
-  0x2e, 0x7d, 0x32, 0xc6, 0x28, 0x28, // green, red
-  0x21, 0xff, 0x0b, ...Buffer.from("NETSCAPE2.0", "latin1"), 0x03, 0x01, 0x00, 0x00, 0x00, // loop forever
+  0x01,
+  0x00,
+  0x01,
+  0x00,
+  0x80,
+  0x00,
+  0x00, // 1 × 1, a global table of two colors
+  0x2e,
+  0x7d,
+  0x32,
+  0xc6,
+  0x28,
+  0x28, // green, red
+  0x21,
+  0xff,
+  0x0b,
+  ...Buffer.from("NETSCAPE2.0", "latin1"),
+  0x03,
+  0x01,
+  0x00,
+  0x00,
+  0x00, // loop forever
   ...[0x44, 0x4c].flatMap((pixels) => [
-    0x21, 0xf9, 0x04, 0x00, 0x32, 0x00, 0x00, 0x00, // 50 hundredths of a second
-    0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, // the whole image
-    0x02, 0x02, pixels, 0x01, 0x00, // LZW: clear, color 0 or 1, end
+    0x21,
+    0xf9,
+    0x04,
+    0x00,
+    0x32,
+    0x00,
+    0x00,
+    0x00, // 50 hundredths of a second
+    0x2c,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x01,
+    0x00,
+    0x00, // the whole image
+    0x02,
+    0x02,
+    pixels,
+    0x01,
+    0x00, // LZW: clear, color 0 or 1, end
   ]),
   0x3b,
 ]);
@@ -85,8 +129,12 @@ const GIF = Buffer.from([
 function asset(file, width = 16, height = 16) {
   const extension = path.extname(file).toLowerCase();
   if (extension === ".gif") return GIF;
-  if ([".png", ".jpg", ".jpeg", ".webp", ".ico"].includes(extension)) return png(width, height, file);
-  if (extension === ".pdf") return Buffer.from("%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n");
+  if ([".png", ".jpg", ".jpeg", ".webp", ".ico"].includes(extension))
+    return png(width, height, file);
+  if (extension === ".pdf")
+    return Buffer.from(
+      "%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n",
+    );
   if (extension === ".zip") return Buffer.from([0x50, 0x4b, 0x05, 0x06, ...new Array(18).fill(0)]);
   return Buffer.from(`Synthetic ${extension} file for the test corpus: ${file}\n`);
 }
@@ -95,7 +143,8 @@ function asset(file, width = 16, height = 16) {
 
 function write(relative, content) {
   const target = path.resolve(output, relative);
-  if (!target.startsWith(output + path.sep)) throw new Error(`${relative} leads outside the corpus`);
+  if (!target.startsWith(output + path.sep))
+    throw new Error(`${relative} leads outside the corpus`);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, content);
 }
@@ -171,10 +220,22 @@ ${rows.join("\n")}
 function mirroredSite() {
   const site = "Cache/Repositories/Example's Créature Site";
   const games = {
-    "Gen 1": [["Red & Blue", "rgby"], ["Yellow", "rgby"]],
-    "Gen 2": [["Gold & Silver", "gsc"], ["Crystal", "gsc"]],
-    "Gen 3": [["Ruby & Sapphire", "rse"], ["FireRed & LeafGreen", "frlg"]],
-    "Gen 4": [["Diamond & Pearl", "dppt"], ["HeartGold & SoulSilver", "hgss"]],
+    "Gen 1": [
+      ["Red & Blue", "rgby"],
+      ["Yellow", "rgby"],
+    ],
+    "Gen 2": [
+      ["Gold & Silver", "gsc"],
+      ["Crystal", "gsc"],
+    ],
+    "Gen 3": [
+      ["Ruby & Sapphire", "rse"],
+      ["FireRed & LeafGreen", "frlg"],
+    ],
+    "Gen 4": [
+      ["Diamond & Pearl", "dppt"],
+      ["HeartGold & SoulSilver", "hgss"],
+    ],
   };
   const head = (title, depth, extra = "") => {
     const up = "../".repeat(depth);
@@ -202,7 +263,10 @@ ${extra}</head>
 <ul>
 ${Object.entries(games)
   .flatMap(([generation, list]) =>
-    list.map(([game, query]) => `<li><a href="Main-Series/${generation}/${game}.html?${query}">${game}</a></li>`),
+    list.map(
+      ([game, query]) =>
+        `<li><a href="Main-Series/${generation}/${game}.html?${query}">${game}</a></li>`,
+    ),
   )
   .join("\n")}
 </ul>
@@ -240,11 +304,14 @@ ${Object.entries(games)
 </html>
 `,
   );
-  write(`${site}/Main-Series/index.html`, `${head("Main series", 1)}<main><h1>Main series</h1><ul>
+  write(
+    `${site}/Main-Series/index.html`,
+    `${head("Main series", 1)}<main><h1>Main series</h1><ul>
 ${Object.keys(games)
   .map((generation) => `<li><a href="${generation}/">${generation}</a></li>`)
   .join("\n")}
-</ul></main></body></html>\n`);
+</ul></main></body></html>\n`,
+  );
   let number = 1;
   for (const [generation, list] of Object.entries(games)) {
     write(
@@ -294,15 +361,24 @@ body { margin: 0; font-family: "Fixture Sans", sans-serif; }
 nav { padding: 8px 16px; }
 `,
   );
-  write(`${site}/light.css`, `:root { --fixture-light: loaded; }\nbody { background: rgb(250, 250, 245); }\n`);
-  write(`${site}/dark.css`, `:root { --fixture-dark: loaded; }\nbody { background: rgb(20, 20, 20); }\n`);
+  write(
+    `${site}/light.css`,
+    `:root { --fixture-light: loaded; }\nbody { background: rgb(250, 250, 245); }\n`,
+  );
+  write(
+    `${site}/dark.css`,
+    `:root { --fixture-dark: loaded; }\nbody { background: rgb(20, 20, 20); }\n`,
+  );
   write(`${site}/legacy.css`, `@import "common.css";\n:root { --fixture-legacy: loaded; }\n`);
   write(
     `${site}/colors.js`,
     `// Swaps the theme stylesheet in the original site; here it only marks that it ran.\ndocument.documentElement.dataset.fixtureScript = "colors.js";\n`,
   );
   write(`${site}/LICENSE`, "Synthetic test content; no license needed.\n");
-  write(`${site}/README.md`, "# Example's Créature Site\n\nA generated mirror of a fan site, in the layout of a cached Git repository.\n");
+  write(
+    `${site}/README.md`,
+    "# Example's Créature Site\n\nA generated mirror of a fan site, in the layout of a cached Git repository.\n",
+  );
 }
 
 // --- Assets for every reference -------------------------------------------------
@@ -319,9 +395,17 @@ function referencedAssets(file, text) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("#") || raw.startsWith("/")) continue;
     const clean = decodeURIComponent(raw.replace(/[?#].*$/, ""));
     if (!ASSET.test(clean)) continue;
-    const width = Number(/width="(\d+)"/.exec(text.slice(match.index, match.index + 200))?.[1] ?? 16);
-    const height = Number(/height="(\d+)"/.exec(text.slice(match.index, match.index + 200))?.[1] ?? 16);
-    references.push({ path: path.posix.normalize(path.posix.join(path.posix.dirname(file), clean)), width, height });
+    const width = Number(
+      /width="(\d+)"/.exec(text.slice(match.index, match.index + 200))?.[1] ?? 16,
+    );
+    const height = Number(
+      /height="(\d+)"/.exec(text.slice(match.index, match.index + 200))?.[1] ?? 16,
+    );
+    references.push({
+      path: path.posix.normalize(path.posix.join(path.posix.dirname(file), clean)),
+      width,
+      height,
+    });
   }
   return references;
 }
@@ -329,27 +413,42 @@ function referencedAssets(file, text) {
 function filesUnder(directory, prefix = "") {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-    return entry.isDirectory() ? filesUnder(path.join(directory, entry.name), relative) : [relative];
+    return entry.isDirectory()
+      ? filesUnder(path.join(directory, entry.name), relative)
+      : [relative];
   });
 }
 
 // The generator only replaces a directory it made itself, so that a mistaken
 // argument deletes nothing.
 const MARKER = ".html-page-viewer-corpus";
-if (fs.existsSync(output) && fs.readdirSync(output).length > 0 && !fs.existsSync(path.join(output, MARKER))) {
-  throw new Error(`${output} is not empty and was not made by this generator; choose a new or empty directory.`);
+if (
+  fs.existsSync(output) &&
+  fs.readdirSync(output).length > 0 &&
+  !fs.existsSync(path.join(output, MARKER))
+) {
+  throw new Error(
+    `${output} is not empty and was not made by this generator; choose a new or empty directory.`,
+  );
 }
 fs.rmSync(output, { recursive: true, force: true });
 fs.cpSync(path.join(here, "vault"), output, { recursive: true });
-fs.writeFileSync(path.join(output, MARKER), "Generated by test/e2e/corpus/generate.mjs; replaced on every run.\n");
+fs.writeFileSync(
+  path.join(output, MARKER),
+  "Generated by test/e2e/corpus/generate.mjs; replaced on every run.\n",
+);
 largePage();
 mirroredSite();
 
 let written = 0;
 for (const file of filesUnder(output).filter((name) => /\.(html?|css)$/i.test(name))) {
-  for (const reference of referencedAssets(file, fs.readFileSync(path.join(output, file), "utf8"))) {
+  for (const reference of referencedAssets(
+    file,
+    fs.readFileSync(path.join(output, file), "utf8"),
+  )) {
     if (UNAVAILABLE.has(reference.path)) continue;
-    if (reference.path.startsWith("../")) throw new Error(`${file} refers to ${reference.path}, outside the corpus`);
+    if (reference.path.startsWith("../"))
+      throw new Error(`${file} refers to ${reference.path}, outside the corpus`);
     const target = ELSEWHERE[reference.path] ?? reference.path;
     if (fs.existsSync(path.join(output, target))) continue;
     if (target.endsWith(".ttf")) continue;
@@ -360,9 +459,12 @@ for (const file of filesUnder(output).filter((name) => /\.(html?|css)$/i.test(na
 
 // The stylesheet's font, from the system when it has one; the tests skip the
 // font check without it.
-const font = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/arial.ttf"].find((file) =>
-  fs.existsSync(file),
+const font = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/arial.ttf"].find(
+  (file) => fs.existsSync(file),
 );
-if (font) write("Cache/Repositories/Example's Créature Site/fonts/FixtureSans.ttf", fs.readFileSync(font));
+if (font)
+  write("Cache/Repositories/Example's Créature Site/fonts/FixtureSans.ttf", fs.readFileSync(font));
 
-console.log(`Corpus in ${output}: ${filesUnder(output).length} files, ${written} generated assets.`);
+console.log(
+  `Corpus in ${output}: ${filesUnder(output).length} files, ${written} generated assets.`,
+);

@@ -45,14 +45,18 @@ async function openSettingsTab(): Promise<void> {
 }
 
 async function closeSettings(): Promise<void> {
-  await browser.executeObsidian(({ app }) => (app as unknown as { setting: SettingsWindow }).setting.close());
+  await browser.executeObsidian(({ app }) =>
+    (app as unknown as { setting: SettingsWindow }).setting.close(),
+  );
 }
 
 /** The names of the settings that the open settings tab shows. */
 async function settingNames(): Promise<string[]> {
   return browser.executeObsidian(({ app }) => {
     const tab = (app as unknown as { setting: SettingsWindow }).setting.activeTab;
-    return [...(tab?.containerEl?.querySelectorAll(".setting-item-name") ?? [])].map((name) => name.textContent ?? "");
+    return [...(tab?.containerEl?.querySelectorAll(".setting-item-name") ?? [])].map(
+      (name) => name.textContent ?? "",
+    );
   });
 }
 
@@ -100,8 +104,9 @@ async function enterText(name: string, text: string): Promise<string> {
 async function viewTypeFor(extension: string): Promise<string | null> {
   return browser.executeObsidian(
     ({ app }, extension) =>
-      (app as unknown as { viewRegistry: { getTypeByExtension(e: string): string | undefined } }).viewRegistry
-        .getTypeByExtension(extension) ?? null,
+      (
+        app as unknown as { viewRegistry: { getTypeByExtension(e: string): string | undefined } }
+      ).viewRegistry.getTypeByExtension(extension) ?? null,
     extension,
   );
 }
@@ -160,8 +165,12 @@ describe("The settings in Obsidian", function () {
     /** The active source view's width and scroll width, and the height of its longest line. */
     const source = async (): Promise<{ overflow: number; tallest: number; lineHeight: number }> =>
       browser.execute(() => {
-        const view = document.querySelector<HTMLElement>(".workspace-leaf.mod-active .html-page-viewer__source");
-        const lines = [...(view?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line") ?? [])];
+        const view = document.querySelector<HTMLElement>(
+          ".workspace-leaf.mod-active .html-page-viewer__source",
+        );
+        const lines = [
+          ...(view?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line") ?? []),
+        ];
         const heights = lines.map((line) => line.getBoundingClientRect().height);
         return {
           overflow: view ? view.scrollWidth - view.clientWidth : 0,
@@ -263,9 +272,13 @@ describe("The settings in Obsidian", function () {
         const file = app.vault.getAbstractFileByPath("Saved/Other page.html");
         await app.workspace.getLeaf("tab").openFile(file as never, { active: true });
       });
-      expect(await browser.$(".workspace-leaf.mod-active .html-page-viewer__theme-toggle").getText()).toBe("Theme OFF");
+      expect(
+        await browser.$(".workspace-leaf.mod-active .html-page-viewer__theme-toggle").getText(),
+      ).toBe("Theme OFF");
       await clickToolbarButton("Theme OFF");
-      expect(await browser.$(".workspace-leaf.mod-active .html-page-viewer__theme-toggle").getText()).toBe("Theme ON");
+      expect(
+        await browser.$(".workspace-leaf.mod-active .html-page-viewer__theme-toggle").getText(),
+      ).toBe("Theme ON");
     } finally {
       await browser.executeObsidian(({ app }) => app.workspace.getMostRecentLeaf()?.detach());
       await openSettingsTab();

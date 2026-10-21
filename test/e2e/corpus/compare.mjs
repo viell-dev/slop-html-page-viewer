@@ -9,9 +9,13 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-const directory = path.resolve(process.argv[2] ?? path.join(import.meta.dirname, "../../../test-results/e2e"));
+const directory = path.resolve(
+  process.argv[2] ?? path.join(import.meta.dirname, "../../../test-results/e2e"),
+);
 const read = (name) => JSON.parse(fs.readFileSync(path.join(directory, name), "utf8"));
-const prototypes = fs.readdirSync(directory).filter((name) => /^corpus-prototype-.+\.json$/.test(name));
+const prototypes = fs
+  .readdirSync(directory)
+  .filter((name) => /^corpus-prototype-.+\.json$/.test(name));
 
 if (prototypes.length === 0) {
   console.log("No prototype results to compare with.");
@@ -27,7 +31,14 @@ for (const name of prototypes) {
     process.exit(1);
   }
   const viewer = read(viewerName);
-  const totals = { prototype: 0, viewer: 0, images: 0, styledPrototype: 0, styledViewer: 0, pages: 0 };
+  const totals = {
+    prototype: 0,
+    viewer: 0,
+    images: 0,
+    styledPrototype: 0,
+    styledViewer: 0,
+    pages: 0,
+  };
   for (const [page, before] of Object.entries(prototype.pages)) {
     const after = viewer.pages[page];
     if (!after) {

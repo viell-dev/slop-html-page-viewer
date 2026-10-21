@@ -43,7 +43,9 @@ export function readSettings(data: unknown): ViewerSettings {
     scriptsOn: flag("scriptsOn"),
     copyLocalFiles: flag("copyLocalFiles"),
     wrapSource: flag("wrapSource"),
-    extensions: Array.isArray(saved.extensions) ? normalizeExtensions(saved.extensions) : DEFAULT_EXTENSIONS,
+    extensions: Array.isArray(saved.extensions)
+      ? normalizeExtensions(saved.extensions)
+      : DEFAULT_EXTENSIONS,
   };
 }
 
@@ -117,14 +119,20 @@ export class ViewerSettingTab extends PluginSettingTab {
       .setDesc(
         [
           "The extensions of the files that open in the viewer, separated by commas. The viewer shows them all as HTML. Leave it empty for html and htm.",
-          refused.length > 0 ? `Another view opens ${refused.map((extension) => `.${extension}`).join(", ")}, so the viewer does not.` : "",
-          this.host.extensionsApplyAtOnce ? "" : "A change applies when Obsidian loads the plugin again.",
+          refused.length > 0
+            ? `Another view opens ${refused.map((extension) => `.${extension}`).join(", ")}, so the viewer does not.`
+            : "",
+          this.host.extensionsApplyAtOnce
+            ? ""
+            : "A change applies when Obsidian loads the plugin again.",
         ]
           .filter(Boolean)
           .join(" "),
       )
       .addText((text) => {
-        text.setPlaceholder(DEFAULT_EXTENSIONS.join(", ")).setValue(this.host.settings.extensions.join(", "));
+        text
+          .setPlaceholder(DEFAULT_EXTENSIONS.join(", "))
+          .setValue(this.host.settings.extensions.join(", "));
         // A change applies when the field is left, not at every key.
         text.inputEl.addEventListener("change", () => {
           void this.host

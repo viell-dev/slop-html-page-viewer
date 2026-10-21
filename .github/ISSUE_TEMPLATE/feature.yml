@@ -9,8 +9,7 @@ body:
       options:
         - label: I searched the open and closed issues and found no request for this.
           required: true
-        - label:
-            I follow the project's [code of
+        - label: I follow the project's [code of
             conduct](https://github.com/viell-dev/slop-html-page-viewer/blob/main/CODE_OF_CONDUCT.md).
           required: true
   - type: textarea

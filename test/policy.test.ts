@@ -54,7 +54,8 @@ describe("plugin code", () => {
       "takes(this.app.vault)",
     ];
     for (const code of writes) assert.notDeepEqual(writesToVault(code), [], code);
-    const reads = "const vault = this.app.vault; vault.getAbstractFileByPath(p); highlight.delete(r); el.remove(); doc.head.append(s)";
+    const reads =
+      "const vault = this.app.vault; vault.getAbstractFileByPath(p); highlight.delete(r); el.remove(); doc.head.append(s)";
     assert.deepEqual(writesToVault(reads), []);
   });
 });
@@ -92,7 +93,9 @@ function writesToVault(code: string): string[] {
   const refuse = (pattern: RegExp): void => {
     for (const match of code.matchAll(pattern)) found.push(match[0]);
   };
-  refuse(/\.\s*(modify|process|trash|rename|mkdir|rmdir|createBinary|createFolder|createNewMarkdownFile|writeBinary)\w*\s*\(/g);
+  refuse(
+    /\.\s*(modify|process|trash|rename|mkdir|rmdir|createBinary|createFolder|createNewMarkdownFile|writeBinary)\w*\s*\(/g,
+  );
   refuse(/\btrash\w*\s*\(/g);
   refuse(/\b(adapter|fileManager)\b/g);
   for (const match of code.matchAll(/\bvault\s*\??\.\s*(\w+)/g)) {
