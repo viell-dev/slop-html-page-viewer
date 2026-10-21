@@ -54,6 +54,8 @@ export default defineConfig(
       "obsidianmd/prefer-instanceof": "off",
       "obsidianmd/prefer-window-timers": "off",
       "obsidianmd/rule-custom-message": "off",
+      // Obsidian's requestUrl exists only inside Obsidian.
+      "no-restricted-globals": "off",
     },
   },
   {

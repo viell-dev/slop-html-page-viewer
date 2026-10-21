@@ -1,15 +1,24 @@
 name: Release
 # Publishes a version of the plugin as a GitHub release, for installing by
 # hand; the fork is not listed in Obsidian's community plugin directory. Run it
-# on main after the pull request that sets the version has merged:
-#   gh workflow run release.yml -f version=0.2.0-rc.1
-# A version with a prerelease part, such as -rc.1, becomes a prerelease.
+# on main after the pull request that sets the version has merged, and its CI
+# on main has passed:
+#   gh workflow run release.yml -f version=0.6.0
+# With -f dry_run=true it checks, builds, packages, and lists what publishing
+# would change, with a read-only token, on any branch. A run that stopped after
+# claiming the tag resumes from the tag itself:
+#   gh workflow run release.yml --ref 0.6.0 -f version=0.6.0
+# RELEASING.md describes the procedure and how to recover when a step fails.
 on:
   workflow_dispatch:
     inputs:
       version:
         description: Exact version in manifest.json (without a v prefix)
         required: true
+      dry_run:
+        description: Check, build, and plan only; publish nothing
+        type: boolean
+        default: false
 permissions:
   contents: read
 # One group per version, so that a pending release of one version is never
@@ -18,9 +27,63 @@ concurrency:
   group: release-${{ inputs.version }}
   cancel-in-progress: false
 jobs:
-  release:
-    name: release
-    if: github.ref == 'refs/heads/main'
+  # Everything that decides whether to publish, with a token that cannot.
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: read
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Refuse a release from another branch
+        if: ${{ !inputs.dry_run && github.ref != 'refs/heads/main' && github.ref != format('refs/tags/{0}', inputs.version) }}
+        run: |
+          echo "Releases are published from main, or resumed from their tag; $GITHUB_REF can only be dry-run." >&2
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Check the version
+        run: node scripts/release.ts check "$VERSION"
+      # The commit's own CI, on Linux, Windows, and in Obsidian, must have
+      # passed: the checks that the ruleset for main requires.
+      - name: Check the commit's CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release.ts verify-ci "$GITHUB_SHA"
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npm run build
+      - name: Package
+        run: node scripts/release.ts package "$VERSION" --out release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ inputs.version }}
+          path: release
+          if-no-files-found: error
+          retention-days: 90
+          # A rerun of the whole workflow builds the same bytes again.
+          overwrite: true
+      # The same steps as publishing, against GitHub's current state, changing
+      # nothing. This token cannot see draft releases, so a stopped run's
+      # draft shows here as missing; the publish job then resumes it.
+      - name: Plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release.ts publish "$VERSION" --sha "$GITHUB_SHA" --assets release --dry-run
+
+  publish:
+    name: publish
+    needs: prepare
+    if: ${{ !inputs.dry_run && (github.ref == 'refs/heads/main' || github.ref == format('refs/tags/{0}', inputs.version)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -34,80 +97,18 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-          cache: npm
-      - name: Check the version
-        run: |
-          node -e '
-            const fs = require("node:fs");
-            const version = process.env.VERSION;
-            const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
-            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
-            const problems = [];
-            // SemVer 2.0.0 without build metadata, which a tag should not carry.
-            const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
-            if (!semver.test(version)) problems.push(`${version} is not a SemVer version`);
-            if (manifest.version !== version) problems.push(`manifest.json has ${manifest.version}`);
-            if (pkg.version !== version) problems.push(`package.json has ${pkg.version}`);
-            if (versions[version] !== manifest.minAppVersion) problems.push("versions.json lacks it");
-            if (!fs.existsSync(`.github/release-notes/${version}.md`)) problems.push("no release notes");
-            if (problems.length > 0) { console.error(problems.join("\n")); process.exit(1); }
-          '
-      - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npm test
-      - run: npm run build
-      - name: Package
-        run: |
-          mkdir -p "release/viell-html-page-viewer"
-          cp main.js manifest.json styles.css "release/viell-html-page-viewer/"
-          cd release
-          # Fixed times make the zip the same on every run, so that a retry of
-          # a partly published release matches the checksums already there.
-          touch -d "1980-01-01 00:00:00 UTC" viell-html-page-viewer viell-html-page-viewer/*
-          TZ=UTC zip -r -X "viell-html-page-viewer-$VERSION.zip" viell-html-page-viewer
-          cp viell-html-page-viewer/main.js viell-html-page-viewer/manifest.json viell-html-page-viewer/styles.css .
-          sha256sum "viell-html-page-viewer-$VERSION.zip" main.js manifest.json styles.css > SHA256SUMS
-          cat SHA256SUMS
+      # The assets that prepare built and checked, never a new build.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ inputs.version }}
+          path: release
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          # The checksums go last, so that they are only there once the rest is.
-          assets="release/viell-html-page-viewer-$VERSION.zip release/main.js release/manifest.json release/styles.css release/SHA256SUMS"
-          # Claim the version's tag at this commit first. If it exists already,
-          # it must point here; any other failure stops the release.
-          if ! gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$VERSION" -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
-            if ! ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq '.object.type + " " + .object.sha'); then
-              echo "Could neither create nor read the tag $VERSION." >&2
-              exit 1
-            fi
-            type=${ref%% *}
-            tag=${ref#* }
-            if [ "$type" = "tag" ]; then
-              tag=$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag" --jq .object.sha)
-            fi
-            if [ "$tag" != "$GITHUB_SHA" ]; then
-              echo "The tag $VERSION points to $tag, not to $GITHUB_SHA; refusing to publish." >&2
-              exit 1
-            fi
-          fi
-          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            # Resume a release whose upload stopped part way: add what it lacks.
-            existing=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
-            for asset in $assets; do
-              if ! printf '%s\n' "$existing" | grep -qxF "$(basename "$asset")"; then
-                gh release upload "$VERSION" "$asset" --repo "$GITHUB_REPOSITORY"
-              fi
-            done
-          else
-            prerelease=""
-            case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
-            # shellcheck disable=SC2086 # The asset paths have no spaces.
-            gh release create "$VERSION" $prerelease \
-              --repo "$GITHUB_REPOSITORY" \
-              --verify-tag \
-              --title "$VERSION" \
-              --notes-file ".github/release-notes/$VERSION.md" \
-              $assets
-          fi
+        run: node scripts/release.ts publish "$VERSION" --sha "$GITHUB_SHA" --assets release
+      # The files are downloaded as a user downloads them, without a token;
+      # the token only reads the release and the tag.
+      - name: Verify the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release.ts verify-published "$VERSION" --sha "$GITHUB_SHA" --assets release

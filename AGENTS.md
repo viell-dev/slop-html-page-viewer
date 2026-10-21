@@ -94,16 +94,11 @@ one as thoroughly as anything else before publishing it. Publish full versions. 
 is only for a change that needs real use before its release, and no test can stand in for that use.
 Choose the version by semantic versioning: a minor version for new features, a patch for fixes.
 
-1. In a fork-only pull request, set the version in `manifest.json`, `package.json` and its lockfile,
-   and `versions.json`. Add `.github/release-notes/<version>.md`, written for someone installing
-   the plugin, and move the **Unreleased** entries in `CHANGELOG.md` to a section for the version.
-2. After it merges, run `gh workflow run release.yml -f version=<version>` on `main`. The workflow
-   checks the version, tests and builds, and publishes the zip, the three plugin files, and
-   `SHA256SUMS`; a version with a prerelease part, such as `-rc.1`, becomes a prerelease.
-3. Check the release's assets against the checksums.
-
-Version tags are immutable (`.github/rulesets/version-tags.json`). Never change the owner's vault;
-the owner installs releases there.
+[RELEASING.md](./RELEASING.md) is the procedure: the release pull request, a dry run, the Release
+workflow, and what to do when a step fails. Follow it, and record the workflow's run, with its
+`verify-published` result, in the release pull request. Version tags never move, and published
+releases are immutable; a release that went wrong is followed by a new version. Never change the
+owner's vault; the owner installs releases there.
 
 ## Issues and labels
 
@@ -162,13 +157,19 @@ renaming a job needs a ruleset update. The tests in Obsidian are required becaus
 test of what users see. Zero required approvals is deliberate for a single-account, agent-maintained
 repository; pull requests, passing checks, and resolved review threads remain mandatory.
 
-Other repository settings, each recorded here with its reason when it changes:
+`.github/settings.json` records the other settings that `npm run check:github` compares with
+GitHub, together with the labels, the rulesets, and each release's text; run it after changing
+one, and during maintenance. It needs the GitHub CLI signed in as an administrator of the
+repository. Each setting's reason is recorded here when it changes:
 
 - GitHub Actions may run only actions that GitHub owns, pinned by full commit SHA, with read-only
   default permissions.
 - Dependabot alerts and security updates, secret scanning with push protection, and private
   vulnerability reporting are on. Dependabot's version updates follow `.github/dependabot.yml`.
 - Issues are on; wiki, projects, and discussions are off.
+- Releases published from 2026-10-21 on are immutable: their files and tag cannot change, so
+  that what users downloaded stays what was verified. The Release workflow uploads to a draft and
+  checks it before publishing, as immutable releases need.
 - #2, the upstream overview, is pinned.
 
 Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).

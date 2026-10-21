@@ -5,8 +5,9 @@ maintained by AI agents as the [README](README.md#status) says, and it serves it
 A change to HTML Page Viewer that its other users would want may belong
 [upstream](https://github.com/viggomeesters/obsidian-html-page-viewer) as well. The owner follows
 the fork through issue and pull request descriptions rather than code, so write them for a reader
-who has not seen the code. Agents maintaining the repository also follow [AGENTS.md](AGENTS.md).
-Everyone follows the [code of conduct](CODE_OF_CONDUCT.md).
+who has not seen the code. Agents maintaining the repository also follow [AGENTS.md](AGENTS.md),
+and publish releases as [RELEASING.md](RELEASING.md) describes. Everyone follows the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 If an agent wrote your issue or pull request, open it with a short note, such as a `> [!NOTE]`
 callout, that says so, names the model and the tool that ran it, and says whether you reviewed it.
