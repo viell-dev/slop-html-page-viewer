@@ -122,8 +122,10 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 - `src/main.ts` holds the plugin class, which registers the view for the extensions the settings
   list and keeps each tab's toolbar choices (`tabChoices`, #39) while the tab shows other views;
   `HtmlPageViewerView`, a `TextFileView` that renders the toolbar and either the sandboxed frame or
-  the source view; `sandboxValue`, the one place that computes the frame's sandbox; and the per-line
-  source highlighter. Scripts are never among the kept choices: they start off for every file.
+  the source view; `sandboxValue`, the one place that computes the frame's sandbox; and the source
+  highlighter, whose `tokenizeHtml` reads the whole file as HTML's tokenizer does, into tokens that
+  together are exactly the file's text, which `renderSource` splits into lines (#54). Scripts are
+  never among the kept choices: they start off for every file.
 - `src/document.ts` prepares the copy of the page that the frame shows through `srcdoc`: a `<base>`
   at the file's resource URL, a Content Security Policy that keeps Obsidian's file URLs inside the
   vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute;
