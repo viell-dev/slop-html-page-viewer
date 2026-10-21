@@ -48,7 +48,7 @@ describe("Finding text in Obsidian", function () {
     expect(await highlighted("html-page-viewer-match", true)).toBe(2);
     expect(await highlighted("html-page-viewer-current", true)).toBe(1);
     await saveScreenshot("find-in-page");
-    expect(await framePixels(CURRENT, 8)).toBeGreaterThan(20);
+    expect(await framePixels(CURRENT)).toBeGreaterThan(20);
 
     await browser.keys("Enter");
     expect(await findCount()).toBe("2 of 2");
