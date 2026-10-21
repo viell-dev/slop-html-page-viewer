@@ -126,6 +126,10 @@
   padding: 2px 8px;
 }
 
+.html-page-viewer__copy-limit {
+  color: var(--text-warning);
+}
+
 .html-page-viewer__frame-wrap {
   background: var(--background-primary);
   border: 1px solid var(--html-page-viewer-border);

@@ -27,13 +27,14 @@ and anyone may use it under the license.
   macOS) or a middle click opens a new tab. Hovering a link shows where it leads, and hovering an
   image shows its alt text, unless the page gives them titles of its own.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
-  for the open page.
+  for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
+  scripts into it, so that they load with scripts on too.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
   after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
-  default; **Wrap long lines in the source view**, on by default; and **File extensions**,
-  `html, htm` by default.
+  default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
+  on by default; and **File extensions**, `html, htm` by default.
 - Never writes to the files it opens.
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).
@@ -44,9 +45,13 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   allows a page only inline styles, so the viewer copies each linked stylesheet from the vault into
   the page it shows; it does not download stylesheets from the web. A local stylesheet applies only
   from a file whose name ends in `.css`.
-- **With scripts on, local files do not load.** Scripts run without access to Obsidian, and Obsidian
-  does not serve vault files to such a page. Copied stylesheets still apply. [Issue
-  #11](https://github.com/viell-dev/slop-html-page-viewer/issues/11) plans another option.
+- **With scripts on, local files load only when they are copied into the page.** Scripts run
+  without access to Obsidian, and Obsidian does not serve vault files to such a page. Copied
+  stylesheets still apply, and the **Local files with scripts on** setting copies the page's images,
+  media, text tracks, fonts, and scripts into it as well: up to 32 MB for a page, scripts and fonts
+  first, counting a file again for each place that uses it, and no file over 8 MB. Such a page takes
+  about a second longer to open for every 8 MB. Files that a script loads itself, such as with
+  `fetch`, modules that a module script imports, and pages in frames still do not load.
 - **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
   them, so a link opens in the frame itself.
 - **A link to a part of another page** opens that page at its top.
@@ -92,13 +97,15 @@ granted together:
 - **Scripts off:** the sandbox grants only `allow-same-origin`, so that the page can load the
   vault's files. It cannot run scripts, submit forms, open popups, or navigate Obsidian.
 - **Scripts on:** the sandbox grants only `allow-scripts`. The page cannot reach Obsidian or the
-  vault's files, apart from the `.css` stylesheets copied into it.
+  vault's files, apart from those copied into it: its `.css` stylesheets, and, with **Local files
+  with scripts on**, the images, media, text tracks, fonts, and scripts it names.
 
 The copy carries a policy that lets Obsidian's file URLs load only from inside the vault. The plugin
-itself makes no network requests, does not use the clipboard, and only reads vault files: the page
-and the `.css` files it links as stylesheets. The one file it writes is its own settings. A rendered
-page can still load the images, fonts, or scripts on the web that it refers to, as any browser
-would. [SECURITY.md](SECURITY.md) has the details and how to report a vulnerability.
+itself makes no network requests, does not use the clipboard, and only reads vault files: the page,
+the `.css` files it links as stylesheets, and the files it copies into a page with scripts on. The
+one file it writes is its own settings. A rendered page can still load the images, fonts, or
+scripts on the web that it refers to, as any browser would. [SECURITY.md](SECURITY.md) has the
+details and how to report a vulnerability.
 
 ## Status
 

@@ -1,7 +1,21 @@
 import { browser, expect } from "@wdio/globals";
-import { activeViewType, clickToolbarButton, frameSandbox, openInActiveTab, VIEW_TYPE } from "../support/viewer.ts";
+import type { Color } from "../support/pixels.ts";
+import {
+  activeViewType,
+  clickToolbarButton,
+  framePixels,
+  frameSandbox,
+  openInActiveTab,
+  VIEW_TYPE,
+  waitForPage,
+} from "../support/viewer.ts";
 
 const PLUGIN_ID = "viell-html-page-viewer";
+
+// The saved article's image, and the square that the mirrored page's script draws.
+const GREEN: Color = [46, 125, 50];
+const PURPLE: Color = [106, 27, 154];
+const SQUARE_PIXELS = 64 * 64;
 
 // Obsidian 1.5 shows its settings in a dialog in the main window; 1.14 opens
 // them in a window of their own, with its own document. The helpers reach the
@@ -111,6 +125,7 @@ describe("The settings in Obsidian", function () {
     expect(await settingNames()).toEqual([
       "Theme in new tabs",
       "Scripts when a page opens",
+      "Local files with scripts on",
       "Wrap long lines in the source view",
       "File extensions",
     ]);
@@ -197,6 +212,46 @@ describe("The settings in Obsidian", function () {
     }
     await openInActiveTab("Saved/Example article.html");
     expect(await frameSandbox()).toBe("allow-same-origin");
+  });
+
+  it("copy a page's local images and scripts into it with scripts on once that setting is on (#11)", async function () {
+    /** Waits until the active tab's frame shows at least count pixels of color, and returns how many. */
+    const shows = async (color: Color, count: number): Promise<number> => {
+      let seen = 0;
+      await browser
+        .waitUntil(async () => (seen = await framePixels(color)) >= count, { timeout: 10_000 })
+        .catch(() => undefined);
+      return seen;
+    };
+    await openInActiveTab("Saved/Example article.html");
+    await clickToolbarButton("Scripts OFF");
+    expect(await frameSandbox()).toBe("allow-scripts");
+    await waitForPage();
+    expect(await framePixels(GREEN)).toBe(0);
+
+    await openSettingsTab();
+    expect(await clickToggle("Local files with scripts on")).toBe(true);
+    await closeSettings();
+    try {
+      expect((await savedSettings()).copyLocalFiles).toBe(true);
+      // The open page, with scripts on, shows its image at once.
+      expect(await shows(GREEN, SQUARE_PIXELS * 0.9)).toBeGreaterThanOrEqual(SQUARE_PIXELS * 0.9);
+      expect(await frameSandbox()).toBe("allow-scripts");
+
+      await openInActiveTab("Mirror/script.html");
+      await waitForPage();
+      expect(await framePixels(PURPLE)).toBe(0);
+      await clickToolbarButton("Scripts OFF");
+      expect(await shows(PURPLE, SQUARE_PIXELS * 0.9)).toBeGreaterThanOrEqual(SQUARE_PIXELS * 0.9);
+    } finally {
+      await openSettingsTab();
+      expect(await clickToggle("Local files with scripts on")).toBe(false);
+      await closeSettings();
+    }
+    // Without the setting, the page with scripts on shows none of its files again.
+    await waitForPage();
+    expect(await framePixels(PURPLE)).toBe(0);
+    await clickToolbarButton("Scripts ON");
   });
 
   it("start a new tab with the theme off once that setting is off", async function () {
