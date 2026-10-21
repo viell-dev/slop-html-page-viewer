@@ -205,6 +205,11 @@
   .html-page-viewer__split {
     flex-direction: column;
   }
+
+  /* The page's frame has a minimum height of its own. */
+  .html-page-viewer__split > .html-page-viewer__source {
+    min-height: 160px;
+  }
 }
 
 .html-page-viewer__source pre {

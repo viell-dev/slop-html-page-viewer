@@ -20,7 +20,8 @@ import {
   lineAtTop,
   lineForPageTop,
   pageTopForLine,
-  type Point,
+  remeasured,
+  ScrollFollower,
   type StartTag,
   syncPoints,
   topOfLine,
@@ -684,9 +685,14 @@ class HtmlPageViewerView extends TextFileView {
           openExternal: (url) => window.open(url),
           refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
         });
-        // Search the page as soon as its text is there, before its images load.
-        if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", () => this.runFind());
-        else this.runFind();
+        // Search the page, and follow its scrolling in the split view, as soon
+        // as its text is there, before its images load.
+        const parsed = (): void => {
+          this.runFind();
+          if (this.mode === "split") this.syncScrolling(iframe, doc);
+        };
+        if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", parsed);
+        else parsed();
         // Keys pressed in the page go to its own document, not to Obsidian.
         doc.addEventListener("keydown", (event) => {
           if (isFindKey(event)) {
@@ -698,9 +704,6 @@ class HtmlPageViewerView extends TextFileView {
       return true;
     };
     iframe.addEventListener("load", watch);
-    iframe.addEventListener("load", () => {
-      if (this.iframe === iframe && this.mode === "split") this.syncScrolling(iframe);
-    });
     iframe.srcdoc = page;
     if (ownStyles && this.themeButton) {
       this.themeButton.disabled = true;
@@ -725,79 +728,81 @@ class HtmlPageViewerView extends TextFileView {
 
   /**
    * Keeps the split view's source and page scrolling in step, while the view
-   * can reach the page. Whichever side is scrolled leads; the other follows,
-   * once per frame, and its own scroll event is then passed over.
+   * can reach the page, from as soon as its text is there.
    */
-  private syncScrolling(iframe: HTMLIFrameElement): void {
-    const doc = iframe.contentDocument;
-    const win = doc?.defaultView;
-    const source = this.contentEl.querySelector<HTMLElement>(".html-page-viewer__source");
+  private syncScrolling(iframe: HTMLIFrameElement, doc: Document): void {
+    const win = doc.defaultView;
+    const source = this.contentEl.querySelector<HTMLElement>(".html-page-viewer__split .html-page-viewer__source");
     const main = this.contentEl.ownerDocument.defaultView;
-    if (!doc || doc.URL !== "about:srcdoc" || !doc.body || !win || !source || !main?.requestAnimationFrame) return;
+    if (!doc.body || !win || !source || !main?.requestAnimationFrame) return;
 
     const anchors = anchorElements(doc.body, startTags(this.data));
+    const root = doc.documentElement;
+    const lines = this.data.split("\n").length;
+    const now = (): number => main.performance.now();
     // Measured again when a side's height changes, as when images load or lines wrap.
-    let points: Point[] = [];
-    let pageHeight = -1;
-    const pagePoints = (): Point[] => {
-      if (doc.documentElement.scrollHeight !== pageHeight) {
-        pageHeight = doc.documentElement.scrollHeight;
-        points = syncPoints(anchors, (element) => {
-          const box = element.getBoundingClientRect();
-          return box.width === 0 && box.height === 0 ? null : box.top + win.scrollY;
-        });
+    const points = remeasured(
+      () =>
+        syncPoints(
+          anchors,
+          (element) => {
+            const box = element.getBoundingClientRect();
+            if (box.width === 0 && box.height === 0) return null;
+            // A fixed or sticky element is where the window is, not where it is in the page.
+            const position = win.getComputedStyle(element).position;
+            return position === "fixed" || position === "sticky" ? null : box.top + win.scrollY;
+          },
+          { lines, height: root.scrollHeight },
+        ),
+      () => root.scrollHeight,
+      now,
+    );
+    const lineTops = remeasured(
+      () => [...source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")].map((line) => line.offsetTop),
+      () => source.scrollHeight,
+      now,
+    );
+    // Instantly, also on a page whose own style scrolls smoothly, which would
+    // move it in steps that each report a scroll. A Chromium that does not
+    // know "instant" throws; then the page's style is set aside for the move.
+    const scroll = (target: Element | Window, top: number): void => {
+      try {
+        target.scrollTo({ top, behavior: "instant" as ScrollBehavior });
+      } catch {
+        const saved = root.style.getPropertyValue("scroll-behavior");
+        root.style.setProperty("scroll-behavior", "auto");
+        target.scrollTo({ top });
+        if (saved) root.style.setProperty("scroll-behavior", saved);
+        else root.style.removeProperty("scroll-behavior");
       }
-      return points;
     };
-    let lineTops: number[] = [];
-    let sourceHeight = -1;
-    const sourceTops = (): number[] => {
-      if (source.scrollHeight !== sourceHeight) {
-        sourceHeight = source.scrollHeight;
-        lineTops = [...source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")].map((line) => line.offsetTop);
-      }
-      return lineTops;
-    };
-
-    // Where this side last moved the other, so that the other's scroll event is passed over.
-    let pageSetTo: number | null = null;
-    let sourceSetTo: number | null = null;
-    let pending = 0;
-    const follow = (lead: "source" | "page"): void => {
-      if (pending !== 0) return;
-      pending = main.requestAnimationFrame(() => {
-        pending = 0;
-        if (this.iframe !== iframe) return;
-        if (lead === "source") {
-          const top = pageTopForLine(pagePoints(), lineAtTop(sourceTops(), source.scrollTop));
-          if (top === null) return;
-          // Where the page can scroll to, so that its scroll event says where this put it.
-          pageSetTo = Math.round(Math.min(top, Math.max(0, doc.documentElement.scrollHeight - win.innerHeight)));
-          win.scrollTo(win.scrollX, pageSetTo);
-        } else {
-          const line = lineForPageTop(pagePoints(), win.scrollY);
-          if (line === null) return;
-          sourceSetTo = Math.round(Math.min(topOfLine(sourceTops(), line), source.scrollHeight - source.clientHeight));
-          source.scrollTop = sourceSetTo;
-        }
-      });
-    };
-    source.addEventListener("scroll", () => {
-      if (sourceSetTo !== null && Math.abs(source.scrollTop - sourceSetTo) <= 1) {
-        sourceSetTo = null;
-        return;
-      }
-      sourceSetTo = null;
-      follow("source");
-    });
-    win.addEventListener("scroll", () => {
-      if (pageSetTo !== null && Math.abs(win.scrollY - pageSetTo) <= 1) {
-        pageSetTo = null;
-        return;
-      }
-      pageSetTo = null;
-      follow("page");
-    });
+    const follower = new ScrollFollower(
+      {
+        source: {
+          position: () => source.scrollTop,
+          furthest: () => source.scrollHeight - source.clientHeight,
+          scrollTo: (top) => scroll(source, top),
+        },
+        page: {
+          position: () => win.scrollY,
+          furthest: () => root.scrollHeight - root.clientHeight,
+          scrollTo: (top) => scroll(win, top),
+        },
+      },
+      {
+        source: (top) => pageTopForLine(points(), lineAtTop(lineTops(), top)),
+        page: (top) => {
+          const line = lineForPageTop(points(), top);
+          return line === null ? null : topOfLine(lineTops(), line);
+        },
+      },
+      (run) =>
+        main.requestAnimationFrame(() => {
+          if (this.iframe === iframe) run();
+        }),
+    );
+    source.addEventListener("scroll", () => follower.scrolled("source"));
+    win.addEventListener("scroll", () => follower.scrolled("page"));
   }
 
   /**

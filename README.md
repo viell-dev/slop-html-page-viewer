@@ -31,7 +31,7 @@ and anyone may use it under the license.
   scripts into it, so that they load with scripts on too.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Shows the source and the page side by side in its **Split** view, one above the other in a narrow
-  pane. With scripts off, the two sides scroll in step.
+  pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole.
 - Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
   Ctrl+F (Cmd+F on macOS) while the viewer has focus, or the **Find in page** command opens a find
   bar, which highlights every match, up to 10,000, and moves between them with Enter and

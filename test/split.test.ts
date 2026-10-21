@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import "./support/dom";
 import {
+  alignSequences,
   anchorElements,
   lineAtTop,
   lineForPageTop,
   pageTopForLine,
+  remeasured,
+  ScrollFollower,
   type StartTag,
   syncPoints,
   topOfLine,
@@ -70,6 +73,54 @@ describe("pairing a page's elements with their source lines", () => {
     );
   });
 
+  /** The page's paired elements, as names and lines, for HTML one element to a line. */
+  function paired(lines: string[]): [string, number][] {
+    const html = lines.join("\n");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return anchorElements(doc.body, startTags(html)).map(({ element, line }) => [element.localName, line]);
+  }
+
+  it("aligns past the copies that misnested formatting makes", () => {
+    const lines = ["<body>", "<b><p>one</b>two</p>", "<h2>three</h2>", "<p>four</p>", "<p>five</p>", "<b>six</b>"];
+    assert.deepEqual(paired(lines), [
+      ["b", 2],
+      ["h2", 3],
+      ["p", 4],
+      ["p", 5],
+      ["b", 6],
+    ]);
+  });
+
+  it("aligns past a paragraph that a stray end tag makes, and past tags the parser drops", () => {
+    const lines = [
+      "<body>",
+      "<div>a</p></div>",
+      "<p>b</p>",
+      `<select>${"<div>dropped</div>".repeat(20)}</select>`,
+      "<h2>c</h2>",
+      "<p>d</p>",
+      "<image src=x.png>",
+    ];
+    assert.deepEqual(paired(lines), [
+      ["div", 2],
+      ["p", 3],
+      ["select", 4],
+      ["h2", 5],
+      ["p", 6],
+      ["img", 7],
+    ]);
+  });
+
+  it("finds the longest agreement of two sequences, or gives up beyond its limit", () => {
+    assert.deepEqual(alignSequences(["a", "x", "b", "c"], ["a", "b", "y", "c"], 10), [
+      [0, 0],
+      [2, 1],
+      [3, 3],
+    ]);
+    assert.deepEqual(alignSequences([], ["a"], 10), []);
+    assert.equal(alignSequences(["a", "b", "c"], ["x", "y", "z"], 4), null);
+  });
+
   it("starts at the first tag without a body tag, and matches SVG's names in any case", () => {
     const tags = [
       { name: "p", line: 1 },
@@ -116,28 +167,127 @@ describe("keeping the two sides in step", () => {
     assert.equal(topOfLine(lineTops, 99), 120);
   });
 
-  it("keeps only points in order on both sides", () => {
-    const doc = new DOMParser().parseFromString("<p>a</p><p>b</p><p>c</p><p>d</p>", "text/html");
-    const [a, b, c, d] = [...doc.querySelectorAll("p")];
-    const tops = new Map<Element, number | null>([
-      [a, 0],
-      [b, null],
-      [c, 400],
-      [d, 100],
-    ]);
-    const kept = syncPoints(
-      [
-        { element: a, line: 1 },
-        { element: b, line: 2 },
-        { element: c, line: 3 },
-        { element: d, line: 4 },
-      ],
-      (element) => tops.get(element) ?? null,
-    );
-    assert.deepEqual(kept, [
+  function pointsFor(tops: (number | null)[], ends?: { lines: number; height: number }) {
+    const doc = new DOMParser().parseFromString("<p></p>".repeat(tops.length), "text/html");
+    const elements: Element[] = [...doc.querySelectorAll("p")];
+    const anchors = elements.map((element, index) => ({ element, line: index + 1 }));
+    return syncPoints(anchors, (element) => tops[elements.indexOf(element)], ends);
+  }
+
+  it("leaves out an element shown out of order, and keeps the ones after it", () => {
+    // The second element is positioned far down the page, as a fixed header is when measured scrolled.
+    assert.deepEqual(pointsFor([0, 3000, 100, null, 200, 4000]), [
       { line: 1, top: 0 },
-      { line: 3, top: 400 },
+      { line: 3, top: 100 },
+      { line: 5, top: 200 },
+      { line: 6, top: 4000 },
     ]);
+  });
+
+  it("adds both sides' ends as points", () => {
+    assert.deepEqual(pointsFor([null, 50, 80], { lines: 10, height: 900 }), [
+      { line: 1, top: 0 },
+      { line: 2, top: 50 },
+      { line: 3, top: 80 },
+      { line: 10, top: 900 },
+    ]);
+    assert.deepEqual(pointsFor([], { lines: 4, height: 300 }), [
+      { line: 1, top: 0 },
+      { line: 4, top: 300 },
+    ]);
+  });
+});
+
+describe("following a scrolled side", () => {
+  /** A side that scrolls at once, or, like a page that snaps, to the nearest multiple of `snap`. */
+  function side(furthest: number, snap = 1) {
+    let position = 0;
+    const scrolls: number[] = [];
+    return {
+      scrolls,
+      position: () => position,
+      furthest: () => furthest,
+      scrollTo: (to: number) => {
+        position = Math.round(to / snap) * snap;
+        scrolls.push(position);
+      },
+      /** The user scrolls it. */
+      set: (to: number) => {
+        position = to;
+      },
+    };
+  }
+
+  function follower(source = side(1000), page = side(2000)) {
+    const frames: (() => void)[] = [];
+    const following = new ScrollFollower(
+      { source, page },
+      { source: (top) => top * 2, page: (top) => top / 2 },
+      (run) => frames.push(run),
+    );
+    const frame = (): void => {
+      for (const run of frames.splice(0)) run();
+    };
+    return { source, page, following, frame };
+  }
+
+  it("moves the other side once a frame, and passes over the scroll that this causes", () => {
+    const { source, page, following, frame } = follower();
+    source.set(100);
+    following.scrolled("source");
+    source.set(150);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [300], "once for the frame, from the latest position");
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [], "the page's own report of it is passed over");
+
+    page.set(600);
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [300]);
+  });
+
+  it("keeps the other side within what it can scroll to, and leaves it when it is there", () => {
+    const { source, page, following, frame } = follower(side(1000), side(500));
+    source.set(400);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [500]);
+    following.scrolled("page");
+    source.set(450);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [500], "already as far as it goes");
+    page.set(100);
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [50], "a user's scroll after that is followed");
+  });
+
+  it("follows a user's scroll that comes in the same report as the one it caused", () => {
+    const { source, page, following, frame } = follower();
+    source.set(100);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [200]);
+    // The user scrolls the page before it reports the move to 200; one report says where it is now.
+    page.set(700);
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [350]);
+  });
+
+  it("passes over one report of a page that does not land where it was sent", () => {
+    const { source, page, following, frame } = follower(side(1000), side(2000, 64));
+    source.set(110);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [192]);
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [], "the snapped position is not taken for a user's scroll");
   });
 });
 
@@ -191,5 +341,20 @@ describe("the split view", () => {
     harness.open(view, "Notes.html", PAGE);
     button(view, "Split").click();
     assert.match(view.contentEl.querySelector(".html-page-viewer__security")?.textContent ?? "", /scroll apart while scripts are on/);
+  });
+});
+describe("measuring again", () => {
+  it("measures again when the size changes, at most once in a while", () => {
+    let size = 100;
+    let time = 0;
+    let measures = 0;
+    const value = remeasured(() => (measures += 1), () => size, () => time, 250);
+    assert.equal(value(), 1);
+    size = 200;
+    time = 100;
+    assert.equal(value(), 1, "not yet");
+    time = 300;
+    assert.equal(value(), 2);
+    assert.equal(value(), 2, "not while the size stays");
   });
 });

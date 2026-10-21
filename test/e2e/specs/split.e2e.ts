@@ -67,6 +67,44 @@ describe("The split view in Obsidian", function () {
     expect(narrow.source.bottom).toBeLessThanOrEqual(narrow.page.top);
   });
 
+  it("keeps in step with a page that scrolls smoothly under a fixed header", async function () {
+    // Paragraph N is on line 10 + N of this page's source.
+    await openInActiveTab("Saved/Smooth page.html");
+    await clickToolbarButton("Split");
+    await waitForPage();
+
+    await browser.execute((active) => {
+      const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__split .html-page-viewer__source`);
+      const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[19];
+      if (!source || !line) throw new Error("No line 20");
+      source.scrollTop = line.offsetTop;
+    }, ACTIVE);
+    await browser.waitUntil(async () => Math.abs((await topParagraph()) - 10) <= 1, {
+      timeout: 5000,
+      timeoutMsg: "the page did not follow the source to paragraph 10",
+    });
+    // The page's own smooth scrolling must not pull the source back.
+    await browser.pause(800);
+    expect(Math.abs((await topLine()) - 20)).toBeLessThanOrEqual(1);
+    expect(Math.abs((await topParagraph()) - 10)).toBeLessThanOrEqual(1);
+
+    await browser.execute((active) => {
+      const frame = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`);
+      const win = frame?.contentWindow;
+      const root = frame?.contentDocument?.documentElement;
+      const paragraph = [...(frame?.contentDocument?.querySelectorAll("p") ?? [])].find((p) => p.textContent?.startsWith("Paragraph 15 "));
+      if (!win || !root || !paragraph) throw new Error("No paragraph 15");
+      // A user's scroll, which the page's style does not animate.
+      root.style.scrollBehavior = "auto";
+      win.scrollTo(0, paragraph.getBoundingClientRect().top + win.scrollY);
+      root.style.scrollBehavior = "";
+    }, ACTIVE);
+    await browser.waitUntil(async () => Math.abs((await topLine()) - 25) <= 1, {
+      timeout: 5000,
+      timeoutMsg: "the source did not follow the page to line 25",
+    });
+  });
+
   it("scrolls the page with the source, and the source with the page", async function () {
     await openInActiveTab(PAGE);
     await clickToolbarButton("Split");
