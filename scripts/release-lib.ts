@@ -277,11 +277,18 @@ export function assetProblems(version: string, assets: Files, expected?: Files):
   const wanted = assetNames(version).sort();
   if (names.join("\n") !== wanted.join("\n"))
     return [`The assets are ${names.join(", ") || "none"}, not ${wanted.join(", ")}.`];
-  const sums = parseChecksums(new TextDecoder().decode(assets.get(CHECKSUMS)));
+  let sums = new Map<string, string>();
+  try {
+    sums = parseChecksums(new TextDecoder().decode(assets.get(CHECKSUMS)));
+  } catch (error) {
+    problems.push(`${CHECKSUMS} is malformed: ${(error as Error).message}`);
+  }
   const summed = [...sums.keys()].sort();
   const others = wanted.filter((name) => name !== CHECKSUMS).sort();
   if (summed.join("\n") !== others.join("\n"))
-    problems.push(`${CHECKSUMS} lists ${summed.join(", ")}, not ${others.join(", ")}.`);
+    problems.push(
+      `${CHECKSUMS} lists ${summed.join(", ") || "nothing"}, not ${others.join(", ")}.`,
+    );
   for (const [name, hash] of sums) {
     const bytes = assets.get(name);
     if (bytes !== undefined && sha256(bytes) !== hash)
@@ -348,6 +355,10 @@ export interface GitHub {
   tagCommit(tag: string): Promise<string | null>;
   /** The release for a tag, a draft too where the token can see drafts. */
   findRelease(tag: string): Promise<Release | null>;
+  /** A release by its id, a draft too, or null. */
+  getRelease(id: number): Promise<Release | null>;
+  /** The tag of the release that GitHub marks as the latest, or null. */
+  latestTag(): Promise<string | null>;
   /** The published, non-draft releases' tags. */
   publishedTags(): Promise<{ tag: string; prerelease: boolean }[]>;
   /** An asset's bytes, through the API, which also reaches a draft's. */
@@ -369,6 +380,26 @@ export interface Candidate {
   assets: Files;
   notes: string;
 }
+
+/**
+ * Whether a release should be the latest: a full release that no other
+ * published full release is newer than.
+ */
+export function shouldBeLatest(
+  version: string,
+  published: { tag: string; prerelease: boolean }[],
+): boolean {
+  return (
+    !isPrerelease(version) &&
+    published.every(
+      ({ tag, prerelease }) =>
+        tag === version || prerelease || !isVersion(tag) || compareVersions(tag, version) < 0,
+    )
+  );
+}
+
+/** Text compared as written, whatever its line ends. */
+const plain = (text: string): string => text.replace(/\r\n/g, "\n").trim();
 
 /** Whether an uploaded asset is exactly these bytes, by GitHub's digest, or by downloading it. */
 async function holds(github: GitHub, asset: ReleaseAsset, bytes: Uint8Array): Promise<boolean> {
@@ -398,7 +429,7 @@ async function claimTag(
   }
   if (commit !== sha)
     throw new Refusal(
-      `The tag ${version} points to ${commit}, not to ${sha}. Version tags never move: release this commit under a new version.`,
+      `The tag ${version} points to ${commit}, not to ${sha}. Version tags never move: to resume a stopped release, run it from its tag; otherwise, release this commit under a new version.`,
     );
   log(`The tag ${version} already points to ${sha}.`);
 }
@@ -452,7 +483,7 @@ export async function publish(
     });
     log(`Created draft release ${version}.`);
   } else {
-    if (release.body.trim() !== notes.trim() || release.prerelease !== isPrerelease(version))
+    if (plain(release.body) !== plain(notes) || release.prerelease !== isPrerelease(version))
       throw new Refusal(
         `The draft release ${version} has other notes or another prerelease setting. Delete the draft, which was never published, and run again.`,
       );
@@ -460,7 +491,7 @@ export async function publish(
       const bytes = assets.get(asset.name);
       if (bytes === undefined || !(await holds(github, asset, bytes)))
         throw new Refusal(
-          `The draft release ${version} holds ${asset.name}, which is not this candidate's. Delete the draft, which was never published, and run again.`,
+          `The draft release ${version} holds ${asset.name}, which is not this candidate's, or whose upload did not finish. Delete the draft, which was never published, and run again.`,
         );
     }
     log(`Resuming draft release ${version}.`);
@@ -472,7 +503,7 @@ export async function publish(
     log(`Uploaded ${name}.`);
   }
 
-  const draft = await github.findRelease(version);
+  const draft = await github.getRelease(release.id);
   if (draft === null || !draft.draft) throw new Error(`The draft release ${version} disappeared.`);
   for (const name of order) {
     const asset = draft.assets.find((candidateAsset) => candidateAsset.name === name);
@@ -482,12 +513,7 @@ export async function publish(
   if (draft.assets.length !== order.length)
     throw new Error(`The draft has assets besides ${order.join(", ")}.`);
 
-  const published = await github.publishedTags();
-  const latest =
-    !isPrerelease(version) &&
-    published.every(
-      ({ tag, prerelease }) => prerelease || !isVersion(tag) || compareVersions(tag, version) < 0,
-    );
+  const latest = shouldBeLatest(version, await github.publishedTags());
   await github.publishRelease(draft, latest);
   log(`Published release ${version}${latest ? " as the latest" : ""}.`);
   return "published";
@@ -519,6 +545,15 @@ export class DryRun implements GitHub {
     if (this.release !== undefined && this.release?.tag === tag)
       return structuredClone(this.release);
     return this.real.findRelease(tag);
+  }
+
+  async getRelease(id: number): Promise<Release | null> {
+    if (this.release !== undefined && this.release?.id === id) return structuredClone(this.release);
+    return this.real.getRelease(id);
+  }
+
+  latestTag(): Promise<string | null> {
+    return this.real.latestTag();
   }
 
   publishedTags(): Promise<{ tag: string; prerelease: boolean }[]> {
@@ -586,6 +621,15 @@ export async function verifyPublished(
     problems.push(
       `Release ${version} is ${release.prerelease ? "" : "not "}marked as a prerelease.`,
     );
+  const latest = await github.latestTag();
+  if (shouldBeLatest(version, await github.publishedTags())) {
+    if (latest !== version)
+      problems.push(`Release ${version} should be the latest release, but ${latest ?? "none"} is.`);
+  } else if (latest === version) {
+    problems.push(
+      `Release ${version} is marked as the latest release, but a newer one is published, or it is a prerelease.`,
+    );
+  }
   if (options.sha !== undefined) {
     const commit = await github.tagCommit(version);
     if (commit !== options.sha)

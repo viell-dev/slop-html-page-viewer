@@ -167,7 +167,7 @@ repository. Each setting's reason is recorded here when it changes:
 - Dependabot alerts and security updates, secret scanning with push protection, and private
   vulnerability reporting are on. Dependabot's version updates follow `.github/dependabot.yml`.
 - Issues are on; wiki, projects, and discussions are off.
-- Releases are immutable, from 2026-10-21: a published release's files and tag cannot change, so
+- Releases published from 2026-10-21 on are immutable: their files and tag cannot change, so
   that what users downloaded stays what was verified. The Release workflow uploads to a draft and
   checks it before publishing, as immutable releases need.
 - #2, the upstream overview, is pinned.

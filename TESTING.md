@@ -58,10 +58,11 @@ On 2026-10-21, each of these deliberate breakages failed the check named:
   job, a changelog without the manifest's version, a link to a missing heading, an unregistered
   end-to-end spec, and a skipped test: `consistency.test.ts`.
 - Missing prototype results in a full end-to-end run: `corpus/compare.mjs`.
-- Publishing a commit whose CI has not passed, moving a tag, changing a published release, and
-  publishing a draft whose upload arrived damaged: `release.test.ts`. Against GitHub's real state,
-  a dry run of 0.5.0 from a later commit refused because the tag points elsewhere, and one with a
-  zip packaged differently refused to change the published release.
+- Publishing a commit whose CI has not passed, moving a tag, changing a published release,
+  publishing a draft whose upload arrived damaged, and a wrong latest-release mark:
+  `release.test.ts`. Against GitHub's real state, a dry run of 0.5.0 from a later commit refused
+  because the tag points elsewhere, and one with a zip packaged differently refused to change the
+  published release.
 
 ## Limits
 

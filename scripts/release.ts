@@ -32,6 +32,7 @@ import {
   Refusal,
   type Release,
   type ReleaseAsset,
+  type RequiredCheck,
   requiredChecks,
   verifyPublished,
   versionProblems,
@@ -58,7 +59,13 @@ async function request(
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(options.body);
   }
-  return fetch(url, { method: options.method ?? "GET", headers, body });
+  // A request that hangs fails, and a rerun resumes.
+  return fetch(url, {
+    method: options.method ?? "GET",
+    headers,
+    body,
+    signal: AbortSignal.timeout(120_000),
+  });
 }
 
 async function json<T>(url: string, options?: Parameters<typeof request>[1]): Promise<T> {
@@ -130,6 +137,20 @@ class RestGitHub implements GitHub {
     return found === undefined ? null : toRelease(found);
   }
 
+  async getRelease(id: number): Promise<Release | null> {
+    const response = await request(`${API}/releases/${id}`);
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Reading release ${id}: ${response.status}`);
+    return toRelease((await response.json()) as ApiRelease);
+  }
+
+  async latestTag(): Promise<string | null> {
+    const response = await request(`${API}/releases/latest`);
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Reading the latest release: ${response.status}`);
+    return ((await response.json()) as ApiRelease).tag_name;
+  }
+
   async publishedTags(): Promise<{ tag: string; prerelease: boolean }[]> {
     return (await this.releases())
       .filter((release) => !release.draft)
@@ -188,9 +209,15 @@ class RestGitHub implements GitHub {
  */
 async function downloadPublic(url: string): Promise<Uint8Array> {
   for (let attempt = 1; ; attempt++) {
-    const response = await fetch(url);
-    if (response.ok) return new Uint8Array(await response.arrayBuffer());
-    if (attempt === 5) throw new Error(`Downloading ${url}: ${response.status}`);
+    let failure: string;
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+      if (response.ok) return new Uint8Array(await response.arrayBuffer());
+      failure = String(response.status);
+    } catch (error) {
+      failure = (error as Error).message;
+    }
+    if (attempt === 5) throw new Error(`Downloading ${url}: ${failure}`);
     await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
   }
 }
@@ -281,7 +308,24 @@ async function main(): Promise<void> {
       return;
     }
     case "verify-ci": {
-      const required = requiredChecks(readJson(path.join(".github", "rulesets", "main.json")));
+      // The checks that GitHub enforces on main now, which must also be the
+      // recorded ones: a change to the record alone cannot weaken this gate.
+      const live = requiredChecks({
+        rules: await json<
+          { type: string; parameters?: { required_status_checks?: RequiredCheck[] } }[]
+        >(`${API}/rules/branches/main`),
+      });
+      const recorded = requiredChecks(readJson(path.join(".github", "rulesets", "main.json")));
+      const names = (checks: RequiredCheck[]) =>
+        checks
+          .map((check) => `${check.context}@${check.integration_id}`)
+          .sort()
+          .join(", ");
+      if (names(live) !== names(recorded))
+        fail([
+          `GitHub requires ${names(live) || "no checks"} on main, but .github/rulesets/main.json records ${names(recorded) || "none"}; run npm run check:github.`,
+        ]);
+      const required = live;
       const problems = checkProblems(required, await checkRuns(target));
       if (problems.length > 0)
         fail([`The checks of ${target} do not allow a release:`, ...problems]);

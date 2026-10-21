@@ -37,7 +37,6 @@ jobs:
       checks: read
     env:
       VERSION: ${{ inputs.version }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Refuse a release from another branch
         if: ${{ !inputs.dry_run && github.ref != 'refs/heads/main' && github.ref != format('refs/tags/{0}', inputs.version) }}
@@ -56,6 +55,8 @@ jobs:
       # The commit's own CI, on Linux, Windows, and in Obsidian, must have
       # passed: the checks that the ruleset for main requires.
       - name: Check the commit's CI
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/release.ts verify-ci "$GITHUB_SHA"
       - run: npm ci
       - run: npx tsc --noEmit
@@ -69,10 +70,14 @@ jobs:
           path: release
           if-no-files-found: error
           retention-days: 90
+          # A rerun of the whole workflow builds the same bytes again.
+          overwrite: true
       # The same steps as publishing, against GitHub's current state, changing
       # nothing. This token cannot see draft releases, so a stopped run's
       # draft shows here as missing; the publish job then resumes it.
       - name: Plan
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node scripts/release.ts publish "$VERSION" --sha "$GITHUB_SHA" --assets release --dry-run
 
   publish:

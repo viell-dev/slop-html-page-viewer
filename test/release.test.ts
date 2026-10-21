@@ -59,6 +59,10 @@ class FakeGitHub implements GitHub {
   failOn: ((change: string) => boolean) | null = null;
   /** Corrupts what an upload stores, as a damaged transfer would. */
   corrupt: string | null = null;
+  /** Leaves out GitHub's digests, as for files uploaded before GitHub computed them. */
+  noDigests = false;
+  /** The tag of the release that GitHub marks as the latest. */
+  latest: string | null = null;
   private nextId = 1;
 
   private change(description: string): void {
@@ -76,6 +80,15 @@ class FakeGitHub implements GitHub {
   async findRelease(tag: string): Promise<Release | null> {
     const release = this.releases.find((candidate) => candidate.tag === tag);
     return release === undefined ? null : structuredClone(release);
+  }
+
+  async getRelease(id: number): Promise<Release | null> {
+    const release = this.releases.find((candidate) => candidate.id === id);
+    return release === undefined ? null : structuredClone(release);
+  }
+
+  async latestTag(): Promise<string | null> {
+    return this.latest;
   }
 
   async publishedTags(): Promise<{ tag: string; prerelease: boolean }[]> {
@@ -124,7 +137,7 @@ class FakeGitHub implements GitHub {
       id,
       name,
       size: kept.length,
-      digest: `sha256:${sha256(kept)}`,
+      digest: this.noDigests ? null : `sha256:${sha256(kept)}`,
       url: `https://example.com/${id}`,
     });
   }
@@ -132,6 +145,7 @@ class FakeGitHub implements GitHub {
   async publishRelease(release: Release, latest: boolean): Promise<void> {
     this.change(`publish ${release.tag}${latest ? " latest" : ""}`);
     this.releases.find((candidate) => candidate.id === release.id)!.draft = false;
+    if (latest) this.latest = release.tag;
   }
 
   /** A release as an earlier run published it. */
@@ -152,12 +166,13 @@ class FakeGitHub implements GitHub {
         id,
         name,
         size: bytes.length,
-        digest: `sha256:${sha256(bytes)}`,
+        digest: this.noDigests ? null : `sha256:${sha256(bytes)}`,
         url: `https://example.com/${id}`,
       });
     }
     this.releases.push(release);
     this.tags.set(version, OTHER);
+    if (!prerelease) this.latest = version;
   }
 }
 
@@ -459,6 +474,66 @@ describe("publishing", () => {
       ["publish 1.9.1", "publish 2.1.0-rc.1", "publish 2.1.0 latest"],
     );
     assert.equal((await github.findRelease("2.1.0-rc.1"))?.prerelease, true);
+  });
+});
+
+describe("publishing, further cases", () => {
+  it("works without GitHub's digests, by downloading the files to compare them", async () => {
+    const github = new FakeGitHub();
+    github.noDigests = true;
+    github.failOn = (change) => change === "upload styles.css";
+    await assert.rejects(publish(github, candidate("1.2.0", "earlier();")));
+    await assert.rejects(
+      publish(github, candidate()),
+      (error) => error instanceof Refusal && /holds .*not this candidate's/.test(error.message),
+    );
+    const fresh = new FakeGitHub();
+    fresh.noDigests = true;
+    assert.equal(await publish(fresh, candidate()), "published");
+    assert.equal(await publish(fresh, candidate()), "already published");
+    assert.deepEqual(
+      await verifyPublished(fresh, (url) => fresh.download(url), "1.2.0", { sha: SHA }),
+      [],
+    );
+  });
+
+  it("resumes a draft whose notes gained Windows line ends, and refuses one with other notes", async () => {
+    const github = new FakeGitHub();
+    github.failOn = (change) => change === "upload styles.css";
+    await assert.rejects(publish(github, candidate()));
+    github.releases[0].body = github.releases[0].body.replace(/\n/g, "\r\n");
+    assert.equal(await publish(github, candidate()), "published");
+
+    const edited = new FakeGitHub();
+    edited.failOn = (change) => change === "upload styles.css";
+    await assert.rejects(publish(edited, candidate()));
+    edited.releases[0].body = "Other notes.";
+    await assert.rejects(
+      publish(edited, candidate()),
+      (error) => error instanceof Refusal && /other notes/.test(error.message),
+    );
+  });
+
+  it("reports a malformed checksums file instead of failing on it", () => {
+    const assets = packageRelease("1.2.0", plugin("1.2.0"));
+    const sums = new TextDecoder().decode(assets.get(CHECKSUMS));
+    assets.set(CHECKSUMS, text(sums.replace(/\n/g, "\r\n")));
+    assert.match(assetProblems("1.2.0", assets).join(" "), /SHA256SUMS is malformed/);
+  });
+});
+
+describe("the latest release", () => {
+  it("is checked after publishing: the newest full release, and no other", async () => {
+    const github = new FakeGitHub();
+    await publish(github, candidate("1.9.1"));
+    await publish(github, candidate("2.1.0"));
+    const verify = (version: string) =>
+      verifyPublished(github, (url) => github.download(url), version);
+    assert.deepEqual(await verify("2.1.0"), []);
+    assert.deepEqual(await verify("1.9.1"), []);
+    github.latest = "1.9.1";
+    assert.match((await verify("2.1.0")).join(" "), /should be the latest release, but 1\.9\.1 is/);
+    assert.match((await verify("1.9.1")).join(" "), /is marked as the latest release/);
   });
 });
 

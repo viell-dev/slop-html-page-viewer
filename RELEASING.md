@@ -9,9 +9,9 @@ The Release workflow (`.github/workflows/release.yml`) publishes them, running t
 Three rules hold throughout, and the repository enforces them:
 
 - **Version tags never move.** A ruleset forbids updating or deleting them.
-- **A published release's files never change.** The repository's releases are immutable: once
-  published, GitHub refuses changes to a release's files and tag. Its title and notes stay
-  editable.
+- **A published release's files never change.** Releases published since 2026-10-21 are
+  immutable: GitHub refuses changes to their files and tag, while their title and notes stay
+  editable. Earlier releases are not immutable, but the same rule applies to them.
 - **A version is used once.** A release that went wrong is followed by a new version, never
   replaced.
 
@@ -78,25 +78,26 @@ Afterwards, `npm run check:github` confirms that the release's text matches its 
 
 ## When a step fails
 
-Rerunning the workflow for the same version and commit is always safe. It resumes where the
-previous run stopped and refuses to change anything already published. Once the tag exists, resume
-from the tag, which runs the workflow on the tagged commit even after `main` has moved:
+Rerunning the workflow for the same version and commit is always safe, with **Re-run failed jobs**
+or a new run. It resumes where the previous run stopped, and refuses to change anything already
+published. Once the tag exists, resume from the tag, which runs the workflow on the tagged commit
+even after `main` has moved:
 
 ```sh
 gh workflow run release.yml --ref <version> -f version=<version>
 ```
 
-| What failed                                                        | What it left                             | What to do                                                                                                                                                                                      |
-| ------------------------------------------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Check the version**                                              | Nothing                                  | Fix the version files, notes, or changelog in a pull request, and run it again.                                                                                                                 |
-| **Check the commit's CI**                                          | Nothing                                  | Wait for CI on the commit to finish, or fix what fails. Never release a commit around its CI.                                                                                                   |
-| The tests, the build, or packaging                                 | Nothing                                  | Fix the cause in a pull request.                                                                                                                                                                |
-| **Plan**: the tag points to another commit                         | Nothing new                              | The version was claimed for another commit. Release this one under the next version.                                                                                                            |
-| **Plan** or **Publish**: the release is published and differs      | Nothing new                              | The published release stays as it is. Release under the next version.                                                                                                                           |
-| **Publish**, before publishing: a lost connection, a cancelled run | The tag, perhaps a draft with some files | Resume from the tag. The draft's files are kept if they are exactly this build's, and the rest are uploaded.                                                                                    |
-| **Publish**: the draft holds a file that is not this build's       | The tag and a draft                      | The draft was never published. Find out why the build differs, delete the draft (`gh release delete <version> --yes`, which keeps the tag), and resume from the tag.                            |
-| **Verify the published release**                                   | A published release                      | Run `node scripts/release.ts verify-published <version> --sha <commit>` again: a download that failed may pass. If a file is wrong, say so in the release's notes, and release a fixed version. |
-| Wrong text in published notes                                      | A published release                      | Fix `.github/release-notes/<version>.md` in a pull request, then run `gh release edit <version> --notes-file .github/release-notes/<version>.md` from `main`. No file or tag changes.           |
+| What failed                                                                                  | What it left                             | What to do                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Check the version**                                                                        | Nothing                                  | Fix the version files, notes, or changelog in a pull request, and run it again.                                                                                                                                                                                                                                                                     |
+| **Check the commit's CI**                                                                    | Nothing                                  | Wait for CI on the commit to finish, or fix what fails. Never release a commit around its CI.                                                                                                                                                                                                                                                       |
+| The tests, the build, or packaging                                                           | Nothing                                  | Fix the cause in a pull request.                                                                                                                                                                                                                                                                                                                    |
+| **Plan**: the tag points to another commit                                                   | Nothing new                              | If this run resumes a stopped release from a moved `main`, resume it from the tag instead. Otherwise, the version was claimed for another commit: release this one under the next version.                                                                                                                                                          |
+| **Plan** or **Publish**: the release is published and differs                                | Nothing new                              | The published release stays as it is. Release under the next version.                                                                                                                                                                                                                                                                               |
+| **Publish**, before publishing: a lost connection, a cancelled run                           | The tag, perhaps a draft with some files | Resume from the tag. The draft's files are kept if they are exactly this build's, and the rest are uploaded.                                                                                                                                                                                                                                        |
+| **Publish**: the draft holds a file that is not this build's, or whose upload did not finish | The tag and a draft                      | The draft was never published. If the build differs, find out why. Delete the draft (`gh release delete <version> --yes`, which keeps the tag), and resume from the tag.                                                                                                                                                                            |
+| **Verify the published release**                                                             | A published release                      | Run `node scripts/release.ts verify-published <version> --sha <commit>` again: a download that failed may pass. If a file is wrong, say so in the release's notes, and release a fixed version. If only the latest-release mark is wrong, `gh release edit <version> --latest` on the release that should have it fixes it; no file or tag changes. |
+| Wrong text in published notes                                                                | A published release                      | Fix `.github/release-notes/<version>.md` in a pull request, then run `gh release edit <version> --notes-file .github/release-notes/<version>.md` from `main`. No file or tag changes.                                                                                                                                                               |
 
 `test/release.test.ts` runs these steps against a stand-in for GitHub. It stops a run after each of
 its changes, reruns it, and checks every refusal. The dry run takes the same steps against
