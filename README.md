@@ -77,6 +77,10 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   so enable only one of them.
 - Scripts are off again for each file that opens in a tab, as upstream's README promises, unless
   the settings start every page with them on.
+- Its source view shows every character of the file and highlights it as HTML reads it, also where
+  a tag or a comment continues over several lines. Upstream's leaves out the space after an attribute
+  without a value, and highlights only the first line of such a tag.
+- It has settings, a find bar, and a split view of the source beside the page.
 - `npm run build` works on Windows. The fix is [offered
   upstream](https://github.com/viggomeesters/obsidian-html-page-viewer/pull/1).
 
