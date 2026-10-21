@@ -1,0 +1,14 @@
+# Built and downloaded files.
+.obsidian-cache/
+dist/
+main.js
+release/
+test-results/
+package-lock.json
+test/e2e/package-lock.json
+# Test data: pages and assets that tests read as they are, and the frozen
+# prototype build.
+test-fixtures/
+test/e2e/corpus/vault/
+test/e2e/prototype/
+test/e2e/vaults/

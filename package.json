@@ -16,17 +16,31 @@
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "node scripts/test.mjs",
     "test:e2e": "sh test/e2e/session.sh",
     "test:e2e:docker": "node scripts/e2e-docker.mjs"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.10.1",
     "esbuild": "^0.25.12",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "^0.4.2",
+    "globals": "^17.13.0",
     "jsdom": "^30.1.2",
     "obsidian": "^1.14.4",
-    "typescript": "^5.9.3"
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2"
+  },
+  "overrides": {
+    "eslint-plugin-obsidianmd": {
+      "obsidian": "$obsidian",
+      "typescript": "$typescript"
+    }
   }
 }
