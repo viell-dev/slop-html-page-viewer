@@ -18,6 +18,9 @@ export interface Anchor {
 /** How far ahead in the source an element's start tag is looked for. */
 const LOOKAHEAD = 16;
 
+/** Tags that, before a page's first content, belong to its head. */
+const HEAD_ONLY = new Set(["html", "head", "title", "meta", "link", "base", "style", "script", "noscript", "template"]);
+
 /**
  * Pairs the elements of a page's body, in document order, with the start tags
  * of the source, in source order. The parser adds elements that the source
@@ -27,10 +30,16 @@ const LOOKAHEAD = 16;
  */
 export function anchorElements(body: Element, tags: readonly StartTag[]): Anchor[] {
   const anchors: Anchor[] = [];
+  // The body's content starts after its tag, or, without one, after the
+  // head's, which would otherwise keep the first elements from their tags.
   const bodyTag = tags.findIndex((tag) => tag.name === "body");
-  let next = bodyTag === -1 ? 0 : bodyTag + 1;
+  let next = bodyTag + 1;
+  if (bodyTag === -1) {
+    next = tags.findIndex((tag) => !HEAD_ONLY.has(tag.name));
+    if (next === -1) next = tags.length;
+  }
   let lastLine = 0;
-  const visit = (element: Element): void => {
+  const visit = (element: ParentNode): void => {
     for (const child of element.children) {
       const name = child.localName.toLowerCase();
       const end = Math.min(tags.length, next + LOOKAHEAD);
@@ -44,7 +53,9 @@ export function anchorElements(body: Element, tags: readonly StartTag[]): Anchor
         next = index + 1;
         break;
       }
-      visit(child);
+      // A template's elements are in its content, not among its children;
+      // they show nowhere, but their tags are in the source.
+      visit(child.localName === "template" ? (child as HTMLTemplateElement).content : child);
     }
   };
   visit(body);

@@ -55,6 +55,21 @@ describe("pairing a page's elements with their source lines", () => {
     ]);
   });
 
+  it("keeps its place after a long head without a body tag, and after a template's contents", () => {
+    const head = Array.from({ length: 20 }, (_, index) => ({ name: "meta", line: index + 1 }));
+    const template = Array.from({ length: 20 }, (_, index) => ({ name: "li", line: 30 + index }));
+    const tags = [...head, { name: "p", line: 21 }, { name: "template", line: 29 }, ...template, { name: "h2", line: 50 }];
+    const html = `${"<meta>".repeat(20)}<p>first</p><template>${"<li>x</li>".repeat(20)}</template><h2>after</h2>`;
+    assert.deepEqual(
+      anchors(html, tags).filter(([name]) => name !== "li"),
+      [
+        ["p", 21],
+        ["template", 29],
+        ["h2", 50],
+      ],
+    );
+  });
+
   it("starts at the first tag without a body tag, and matches SVG's names in any case", () => {
     const tags = [
       { name: "p", line: 1 },
