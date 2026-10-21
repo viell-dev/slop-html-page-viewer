@@ -1,7 +1,7 @@
 {
   "id": "viell-html-page-viewer",
   "name": "HTML Page Viewer (viell)",
-  "version": "0.3.0-rc.1",
+  "version": "0.3.0",
   "minAppVersion": "1.5.0",
   "description": "Personal fork of Viggo Meesters's HTML Page Viewer. Opens .html and .htm files as a sandboxed rendered preview or syntax-highlighted source.",
   "author": "viell",
