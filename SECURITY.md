@@ -26,8 +26,11 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   the **Scripts when a page opens** setting turns them on for every page as it opens. The sandbox
   then grants only `allow-scripts`, so the page runs with an opaque origin and cannot reach Obsidian
   or the vault's files. Its scripts can read the copy itself, with the stylesheets copied into it,
-  which the view takes only from `.css` files. Each file opened in a tab starts as that setting
-  says: with scripts off, unless it is on.
+  which the view takes only from `.css` files. With the **Local files with scripts on** setting,
+  the copy also holds the images, audio, video, text tracks, fonts, and scripts that the page names
+  from the vault, chosen by their file types, so its scripts can read those too; notes and other
+  documents are never copied. Each file opened in a tab starts as the **Scripts when a page opens**
+  setting says: with scripts off, unless it is on.
 - **Never both.** Scripts and same-origin access are never granted together, because a page with
   both could reach Obsidian, and through it the vault and the computer. `sandboxValue` in
   `src/main.ts` is the one place that computes the sandbox, and tests cover it.
@@ -40,10 +43,11 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   never leaves the copy: web links are handed to Obsidian to open outside it, vault files open in
   Obsidian, and links to other local files are refused. With scripts on, the view cannot reach the
   page, and a link navigates the frame, which keeps its sandbox.
-- **What the plugin does.** It reads vault files, the page and the `.css` files that the page links
-  or imports as stylesheets, to prepare the copy. It never writes to vault files, makes no network
-  requests, and does not read or write the clipboard. The one file it writes is its own settings,
-  which Obsidian keeps in the plugin's folder.
+- **What the plugin does.** It reads vault files to prepare the copy: the page, the `.css` files
+  that the page links or imports as stylesheets, and the files it copies into a page with scripts
+  on. It never writes to vault files, makes no network requests, and does not read or write the
+  clipboard. The one file it writes is its own settings, which Obsidian keeps in the plugin's
+  folder.
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with

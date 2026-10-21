@@ -480,7 +480,7 @@ async function copySrcset(srcset: string, baseUrl: string, copier: FileCopier): 
  * refer to into the page as `data:` URLs, for a page with scripts on, which
  * cannot load them otherwise. Other references stay as they are.
  */
-async function copyLocalFiles(doc: Document, baseUrl: string, copier: FileCopier): Promise<void> {
+async function copyReferencedFiles(doc: Document, baseUrl: string, copier: FileCopier): Promise<void> {
   for (const element of doc.querySelectorAll(Object.keys(COPIED_ATTRIBUTES).join(", "))) {
     for (const name of COPIED_ATTRIBUTES[element.localName] ?? []) {
       const value = element.getAttribute(name);
@@ -572,7 +572,7 @@ export async function preparePage(html: string, context: PageContext, options: P
   let copiedFiles: CopiedFiles | undefined;
   if (options.copyFiles) {
     const copier = new FileCopier(options.copyFiles, context.vaultUrl);
-    await copyLocalFiles(doc, baseUrl, copier);
+    await copyReferencedFiles(doc, baseUrl, copier);
     copiedFiles = { copied: copier.copied, tooLarge: copier.tooLarge };
   }
 
