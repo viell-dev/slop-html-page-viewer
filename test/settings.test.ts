@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import "./support/dom";
 import { DEFAULT_SETTINGS, readSettings } from "../src/settings";
-import { button, frame, Harness, sandboxTokens, securityPill } from "./support/harness";
+import { button, frame, Harness, sandboxTokens, securityPill, settle } from "./support/harness";
 import type { PluginSettingTab } from "./support/obsidian";
 
 const PAGE = "<!doctype html><title>Report</title><p>Quarterly figures</p>";
@@ -26,17 +26,24 @@ describe("readSettings", () => {
   it("keeps today's behavior for a vault without saved settings", () => {
     assert.deepEqual(readSettings(null), DEFAULT_SETTINGS);
     assert.deepEqual(readSettings(undefined), DEFAULT_SETTINGS);
-    assert.deepEqual(DEFAULT_SETTINGS, { themeOn: true, scriptsOn: false, wrapSource: true, extensions: ["html", "htm"] });
+    assert.deepEqual(DEFAULT_SETTINGS, {
+      themeOn: true,
+      scriptsOn: false,
+      copyLocalFiles: false,
+      wrapSource: true,
+      extensions: ["html", "htm"],
+    });
   });
 
   it("reads saved values, and takes the default for one that is missing or of the wrong type", () => {
-    assert.deepEqual(readSettings({ themeOn: false, scriptsOn: true, wrapSource: false }), {
+    assert.deepEqual(readSettings({ themeOn: false, scriptsOn: true, copyLocalFiles: true, wrapSource: false }), {
       themeOn: false,
       scriptsOn: true,
+      copyLocalFiles: true,
       wrapSource: false,
       extensions: ["html", "htm"],
     });
-    assert.deepEqual(readSettings({ scriptsOn: "yes", themeOn: 0 }), DEFAULT_SETTINGS);
+    assert.deepEqual(readSettings({ scriptsOn: "yes", themeOn: 0, copyLocalFiles: 1 }), DEFAULT_SETTINGS);
     assert.deepEqual(readSettings({ themeOn: false, extra: 1 }), { ...DEFAULT_SETTINGS, themeOn: false });
     assert.deepEqual(readSettings("not an object"), DEFAULT_SETTINGS);
   });
@@ -90,6 +97,7 @@ describe("settings tab", () => {
     assert.deepEqual(harness.plugin.saves.at(-1), {
       themeOn: false,
       scriptsOn: true,
+      copyLocalFiles: false,
       wrapSource: true,
       extensions: ["html", "htm"],
     });
@@ -103,8 +111,98 @@ describe("settings tab", () => {
 
     tab.display();
     assert.equal(toggle(tab, "Scripts when a page opens").checked, true);
-    assert.equal(tab.containerEl.querySelectorAll(".setting-item").length, 4, "display() replaces what it showed");
+    assert.equal(tab.containerEl.querySelectorAll(".setting-item").length, 5, "display() replaces what it showed");
     tab.containerEl.remove();
+  });
+});
+
+describe("local files with scripts on (#11)", () => {
+  const ARTICLE = `<!doctype html><title>Article</title><img src="figure.png"><script src="app.js"></script>`;
+  const data = (type: string, text: string): string => `data:${type};base64,${btoa(text)}`;
+
+  async function openArticle(harness: Harness): Promise<ReturnType<Harness["newView"]>> {
+    harness.app.files.set("Saved/figure.png", "PNG bytes");
+    harness.app.files.set("Saved/app.js", "window.ran = true;");
+    const view = harness.newView();
+    harness.open(view, "Saved/Article.html", ARTICLE);
+    await settle();
+    return view;
+  }
+
+  function shown(view: ReturnType<Harness["newView"]>): Document {
+    return new DOMParser().parseFromString(frame(view)!.srcdoc, "text/html");
+  }
+
+  it("are copied into a page only while its scripts are on, when the setting says so", async () => {
+    const harness = await Harness.load({ copyLocalFiles: true });
+    const view = await openArticle(harness);
+    assert.equal(shown(view).querySelector("img")?.getAttribute("src"), "figure.png", "with scripts off, the page loads them");
+    assert.deepEqual(harness.app.binaryReads, []);
+
+    button(view, "Scripts OFF").click();
+    await settle();
+    assert.deepEqual(sandboxTokens(frame(view)!), ["allow-scripts"]);
+    assert.equal(shown(view).querySelector("img")?.getAttribute("src"), data("image/png", "PNG bytes"));
+    assert.equal(shown(view).querySelector("script")?.getAttribute("src"), data("text/javascript", "window.ran = true;"));
+    assert.match(view.contentEl.querySelector(".html-page-viewer__security")?.textContent ?? "", /copied into it, where its scripts can read them/);
+  });
+
+  it("are not copied without the setting", async () => {
+    const harness = await Harness.load({ scriptsOn: true });
+    const view = await openArticle(harness);
+    assert.equal(shown(view).querySelector("img")?.getAttribute("src"), "figure.png");
+    assert.deepEqual(harness.app.binaryReads, []);
+    assert.match(view.contentEl.querySelector(".html-page-viewer__security")?.textContent ?? "", /isolated from Obsidian and from this vault's files/);
+  });
+
+  it("follow a change of the setting at once in a page with scripts on", async () => {
+    const harness = await Harness.load({ scriptsOn: true });
+    const view = await openArticle(harness);
+    const [tab] = harness.plugin.settingTabs;
+    document.body.append(tab.containerEl);
+    tab.display();
+    flip(toggle(tab, "Local files with scripts on"));
+    await settle();
+    assert.equal(shown(view).querySelector("img")?.getAttribute("src"), data("image/png", "PNG bytes"));
+    tab.containerEl.remove();
+  });
+
+  it("show a page again only when the setting changes what it shows", async () => {
+    const harness = await Harness.load({ scriptsOn: true });
+    const plugin = harness.plugin as unknown as { updateSettings(change: object): Promise<void> };
+    const view = await openArticle(harness);
+    const first = frame(view);
+    await plugin.updateSettings({ wrapSource: false });
+    assert.equal(frame(view), first, "another setting leaves the page as it is");
+    await plugin.updateSettings({ copyLocalFiles: false });
+    assert.equal(frame(view), first, "so does the same value");
+    button(view, "Scripts ON").click();
+    const off = frame(view);
+    await plugin.updateSettings({ copyLocalFiles: true });
+    assert.equal(frame(view), off, "a page with scripts off loads its files itself");
+  });
+
+  it("are named in the source view's security note when the setting changes", async () => {
+    const harness = await Harness.load({ scriptsOn: true });
+    const plugin = harness.plugin as unknown as { updateSettings(change: object): Promise<void> };
+    const view = await openArticle(harness);
+    button(view, "Source").click();
+    await plugin.updateSettings({ copyLocalFiles: true });
+    assert.match(view.contentEl.querySelector(".html-page-viewer__security")?.textContent ?? "", /copied into it/);
+  });
+
+  it("say when a file is left out over the size limits", async () => {
+    const harness = await Harness.load({ scriptsOn: true, copyLocalFiles: true });
+    harness.app.files.set("Saved/huge.png", "x".repeat(8_000_001));
+    const view = harness.newView();
+    harness.open(view, "Saved/Huge.html", `<img src="huge.png">`);
+    await settle();
+    assert.equal(shown(view).querySelector("img")?.getAttribute("src"), "huge.png");
+    assert.equal(
+      view.contentEl.querySelector(".html-page-viewer__copy-limit")?.textContent,
+      "One local file was left out of the page, over the size limits.",
+    );
+    assert.deepEqual(harness.app.binaryReads, [], "a file over the limit is not read");
   });
 });
 

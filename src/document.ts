@@ -8,6 +8,10 @@
 // with its own references made absolute. A <base> at the page's folder lets
 // every other reference resolve as it would from the file, and a policy of the
 // copy's own keeps Obsidian's resource URLs inside the vault.
+//
+// With scripts on, the page has an opaque origin, which Obsidian serves no
+// vault files to. When the settings ask for it, the page's local images,
+// media, fonts, and scripts are then copied into it as data: URLs (#11).
 
 import { READING_STYLE_ID } from "./reading";
 
@@ -47,12 +51,17 @@ export function withoutQuery(url: string): string {
   return url.replace(/[?#].*$/, "");
 }
 
-/** Returns the vault path of a URL inside the vault, or null for any other URL. */
+/**
+ * Returns the vault path of a URL inside the vault, or null for any other URL.
+ * A URL resolves its own dot segments, so a path that has them once decoded
+ * came from encoded slashes, and names no vault file.
+ */
 export function vaultPath(url: string, vaultUrl: string): string | null {
   const plain = withoutQuery(url);
   if (!plain.startsWith(vaultUrl)) return null;
   try {
     const path = decodeURIComponent(plain.slice(vaultUrl.length));
+    if (path.split("/").some((segment) => segment === "." || segment === "..")) return null;
     return path === "" ? null : path;
   } catch {
     return null;
@@ -177,14 +186,22 @@ const RESOURCE_ATTRIBUTES: Record<string, readonly string[]> = {
   iframe: ["src"],
   image: ["href", "xlink:href"],
   use: ["href", "xlink:href"],
+  script: ["src"],
 };
+
+/**
+ * A URL in a `srcset`, with the comma and the space before it. A URL itself
+ * can contain commas, as a `data:` URL does; a comma that ends it is left for
+ * the next URL, which starts after it.
+ */
+const SRCSET_URL = /(^|,)(\s*)([^\s,][^\s]*?)(?=,?(?:\s|$))/g;
 
 /** Applies `locatedUrl` to each URL of a `srcset`, keeping its descriptors. */
 function locateSrcset(srcset: string, baseUrl: string, context: PageContext): string {
-  return srcset.replace(/(^|,)(\s*)([^\s,][^\s]*?)(,?)(?=\s|$)/g, (whole, comma: string, space: string, url: string, trailing: string) => {
+  return srcset.replace(SRCSET_URL, (whole, comma: string, space: string, url: string) => {
     const absolute = resolve(url, baseUrl);
     const located = absolute === null ? null : locatedUrl(url, absolute, context);
-    return located === null ? whole : `${comma}${space}${located}${trailing}`;
+    return located === null ? whole : `${comma}${space}${located}`;
   });
 }
 
@@ -307,9 +324,265 @@ function isStylesheetLink(element: Element): element is HTMLLinkElement {
   return rel.includes("stylesheet") && !rel.includes("alternate") && element.hasAttribute("href");
 }
 
+/** How the view reads the vault's files to copy them into a page (#11). */
+export interface LocalFiles {
+  /** A vault file's size in bytes, or null if there is no file at the path. */
+  size(path: string): number | null;
+  /** A vault file's bytes, or null if there is no file at the path. */
+  readBinary(path: string): Promise<ArrayBuffer | null>;
+}
+
+/**
+ * The types of the vault files that are copied into a page, by extension:
+ * images, audio, video, text tracks, fonts, and scripts. The page's scripts
+ * can read every file copied into it, so notes and other documents never are.
+ */
+const COPIED_TYPES: Readonly<Record<string, string>> = {
+  apng: "image/apng",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  gif: "image/gif",
+  ico: "image/x-icon",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  png: "image/png",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+  aac: "audio/aac",
+  flac: "audio/flac",
+  m4a: "audio/mp4",
+  mp3: "audio/mpeg",
+  oga: "audio/ogg",
+  ogg: "audio/ogg",
+  opus: "audio/ogg",
+  wav: "audio/wav",
+  m4v: "video/mp4",
+  mp4: "video/mp4",
+  ogv: "video/ogg",
+  webm: "video/webm",
+  vtt: "text/vtt",
+  otf: "font/otf",
+  ttf: "font/ttf",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  js: "text/javascript",
+  mjs: "text/javascript",
+};
+
+/** The largest file copied into a page, and the most that a page gets in all, in bytes. */
+export const COPY_FILE_LIMIT = 8_000_000;
+export const COPY_PAGE_LIMIT = 32_000_000;
+
+/** Attributes holding the URL of a file that is copied into a page, by element. */
+const COPIED_ATTRIBUTES: Record<string, readonly string[]> = {
+  img: ["src", "srcset"],
+  source: ["src", "srcset"],
+  video: ["src", "poster"],
+  audio: ["src"],
+  track: ["src"],
+  input: ["src"],
+  image: ["href", "xlink:href"],
+  script: ["src"],
+};
+
+/** What copying a page's local files did. */
+export interface CopiedFiles {
+  /** How many vault files were copied into the page. */
+  readonly copied: number;
+  /** How many were left out, in some places or all, because of the size limits. */
+  readonly leftOut: number;
+}
+
+/**
+ * The order in which kinds of files get the page's limit: scripts and fonts,
+ * which are small and which the page needs to work and to read as intended,
+ * before images, and audio and video last.
+ */
+function copyRank(type: string): number {
+  if (type === "text/javascript") return 0;
+  if (type.startsWith("font/")) return 1;
+  if (type === "text/vtt") return 2;
+  if (type.startsWith("image/")) return 3;
+  return 4;
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  // String.fromCharCode takes its arguments on the stack, so in chunks.
+  for (let start = 0; start < bytes.length; start += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(start, start + 0x8000));
+  }
+  return btoa(binary);
+}
+
+/** A reference's absolute URL in, and the URL to put in its place out, or null to leave it. */
+type Visit = (url: string) => Promise<string | null>;
+
+/**
+ * Turns references to vault files into `data:` URLs, which a frame with an
+ * opaque origin loads (measured in #11). A first pass notes every reference;
+ * the plan then gives the limits to them by kind and in document order, and
+ * the second pass copies what the plan allows. Each reference counts against
+ * the page's limit, as each holds its own copy, but each file is read once.
+ */
+class FileCopier {
+  private readonly noted: { path: string; size: number; rank: number }[] = [];
+  /** How many references to each file the plan allows, and how many the second pass used. */
+  private readonly allowed = new Map<string, number>();
+  private readonly used = new Map<string, number>();
+  private readonly reads = new Map<string, Promise<string | null>>();
+  private readonly copiedPaths = new Set<string>();
+  private readonly leftOutPaths = new Set<string>();
+
+  constructor(
+    private readonly files: LocalFiles,
+    private readonly vaultUrl: string,
+  ) {}
+
+  /** The vault path and type of a URL's file, if it is one that is copied. */
+  private target(url: string): { path: string; type: string } | null {
+    const path = vaultPath(url, this.vaultUrl);
+    if (path === null) return null;
+    const dot = path.lastIndexOf(".");
+    const type = dot === -1 ? undefined : COPIED_TYPES[path.slice(dot + 1).toLowerCase()];
+    return type === undefined ? null : { path, type };
+  }
+
+  /** The first pass: notes a reference and leaves it as it is. */
+  readonly note: Visit = async (url) => {
+    const target = this.target(url);
+    const size = target === null ? null : this.files.size(target.path);
+    if (target !== null && size !== null) this.noted.push({ path: target.path, size, rank: copyRank(target.type) });
+    return null;
+  };
+
+  /** Decides which noted references are copied, within the limits. */
+  plan(): void {
+    let total = 0;
+    // Sorting is stable, so references of one kind keep document order.
+    for (const { path, size } of [...this.noted].sort((a, b) => a.rank - b.rank)) {
+      if (size > COPY_FILE_LIMIT || total + size > COPY_PAGE_LIMIT) {
+        this.leftOutPaths.add(path);
+        continue;
+      }
+      total += size;
+      this.allowed.set(path, (this.allowed.get(path) ?? 0) + 1);
+    }
+  }
+
+  /** The second pass: the `data:` URL for a reference the plan allows, keeping its fragment. */
+  readonly copy: Visit = async (url) => {
+    const target = this.target(url);
+    if (target === null) return null;
+    const used = this.used.get(target.path) ?? 0;
+    if (used >= (this.allowed.get(target.path) ?? 0)) return null;
+    this.used.set(target.path, used + 1);
+    let data = this.reads.get(target.path);
+    if (data === undefined) {
+      data = this.read(target.path, target.type);
+      this.reads.set(target.path, data);
+    }
+    const copied = await data;
+    if (copied === null) return null;
+    this.copiedPaths.add(target.path);
+    const hash = url.indexOf("#");
+    return hash === -1 ? copied : copied + url.slice(hash);
+  };
+
+  private async read(path: string, type: string): Promise<string | null> {
+    const bytes = await this.files.readBinary(path);
+    return bytes === null ? null : `data:${type};base64,${base64(new Uint8Array(bytes))}`;
+  }
+
+  get result(): CopiedFiles {
+    return { copied: this.copiedPaths.size, leftOut: this.leftOutPaths.size };
+  }
+}
+
+/** Visits the `url()`s in CSS, putting what `visit` returns in their place. */
+async function visitCssUrls(css: string, baseUrl: string, visit: Visit): Promise<string> {
+  let result = "";
+  let cursor = 0;
+  for (const match of css.matchAll(URL_TOKEN)) {
+    const [token, double, single, bare] = match;
+    const reference = unescapeCss(double ?? single ?? bare ?? "");
+    const absolute = reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
+    const replaced = absolute === null ? null : await visit(absolute);
+    result += css.slice(cursor, match.index) + (replaced === null ? token : `url(${cssString(replaced)})`);
+    cursor = match.index + token.length;
+  }
+  return result + css.slice(cursor);
+}
+
+/** Visits each URL of a `srcset`, keeping its descriptors. */
+async function visitSrcset(srcset: string, baseUrl: string, visit: Visit): Promise<string> {
+  let result = "";
+  let cursor = 0;
+  for (const match of srcset.matchAll(SRCSET_URL)) {
+    const [whole, comma, space, url] = match;
+    const absolute = resolve(url, baseUrl);
+    const replaced = absolute === null ? null : await visit(absolute);
+    result += srcset.slice(cursor, match.index) + (replaced === null ? whole : `${comma}${space}${replaced}`);
+    cursor = match.index + whole.length;
+  }
+  return result + srcset.slice(cursor);
+}
+
+/**
+ * Visits the references to files that a page's images, media, fonts, and
+ * scripts load, in document order: their attributes, then `<style>` elements
+ * and `style` attributes. A reference that `visit` gives a URL for gets it.
+ */
+async function visitFileReferences(doc: Document, baseUrl: string, visit: Visit): Promise<void> {
+  for (const element of doc.querySelectorAll(Object.keys(COPIED_ATTRIBUTES).join(", "))) {
+    for (const name of COPIED_ATTRIBUTES[element.localName] ?? []) {
+      const value = element.getAttribute(name);
+      if (value === null || value.trim() === "") continue;
+      if (name === "srcset") {
+        const replaced = await visitSrcset(value, baseUrl, visit);
+        if (replaced !== value) element.setAttribute(name, replaced);
+        continue;
+      }
+      const absolute = resolve(value.trim(), baseUrl);
+      const replaced = absolute === null ? null : await visit(absolute);
+      if (replaced !== null) element.setAttribute(name, replaced);
+    }
+  }
+  for (const style of doc.querySelectorAll("style")) {
+    const css = style.textContent ?? "";
+    if (!/url\(/i.test(css)) continue;
+    const replaced = await visitCssUrls(css, baseUrl, visit);
+    if (replaced !== css) style.textContent = replaced;
+  }
+  for (const element of doc.querySelectorAll("[style]")) {
+    const css = element.getAttribute("style") ?? "";
+    if (!/url\(/i.test(css)) continue;
+    const replaced = await visitCssUrls(css, baseUrl, visit);
+    if (replaced !== css) element.setAttribute("style", replaced);
+  }
+}
+
+/**
+ * Copies the vault files that a page's images, media, fonts, and scripts
+ * refer to into the page as `data:` URLs, for a page with scripts on, which
+ * cannot load them otherwise. Other references stay as they are.
+ */
+async function copyReferencedFiles(doc: Document, baseUrl: string, files: LocalFiles, vaultUrl: string): Promise<CopiedFiles> {
+  const copier = new FileCopier(files, vaultUrl);
+  await visitFileReferences(doc, baseUrl, copier.note);
+  copier.plan();
+  await visitFileReferences(doc, baseUrl, copier.copy);
+  return copier.result;
+}
+
 export interface PageOptions {
   /** A stylesheet for pages without styles of their own (see reading.ts). */
   readonly readingStyle?: string;
+  /**
+   * Copies the page's local images, media, fonts, and scripts into it, for a
+   * page with scripts on (#11).
+   */
+  readonly copyFiles?: LocalFiles;
 }
 
 export interface PreparedPage {
@@ -317,6 +590,8 @@ export interface PreparedPage {
   readonly html: string;
   /** Whether the page has styles of its own, which the reading style leaves alone. */
   readonly ownStyles: boolean;
+  /** What copying the page's local files did, when the options asked for it. */
+  readonly copiedFiles?: CopiedFiles;
 }
 
 /** Whether a page has a stylesheet of its own: a <style> or a stylesheet link. */
@@ -364,6 +639,11 @@ export async function preparePage(html: string, context: PageContext, options: P
     }
   }
 
+  // After locating and copying, so that the references are final.
+  const copiedFiles = options.copyFiles
+    ? await copyReferencedFiles(doc, baseUrl, options.copyFiles, context.vaultUrl)
+    : undefined;
+
   // A refresh would navigate the frame away from the copy, past the policy
   // below, which governs what the page loads but not where it navigates.
   for (const refresh of doc.querySelectorAll("meta[http-equiv]")) {
@@ -385,5 +665,5 @@ export async function preparePage(html: string, context: PageContext, options: P
   }
 
   const doctype = doc.doctype ? `${new XMLSerializer().serializeToString(doc.doctype)}\n` : "";
-  return { html: doctype + doc.documentElement.outerHTML, ownStyles };
+  return { html: doctype + doc.documentElement.outerHTML, ownStyles, copiedFiles };
 }

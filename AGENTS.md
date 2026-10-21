@@ -122,13 +122,21 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 - `src/main.ts` holds the plugin class, which registers the view for the extensions the settings
   list and keeps each tab's toolbar choices (`tabChoices`, #39) while the tab shows other views;
   `HtmlPageViewerView`, a `TextFileView` that renders the toolbar and either the sandboxed frame or
-  the source view; `sandboxValue`, the one place that computes the frame's sandbox; and the per-line
-  source highlighter. Scripts are never among the kept choices: they start off for every file.
+  the source view; `sandboxValue`, the one place that computes the frame's sandbox; and the source
+  highlighter, whose `tokenizeHtml` reads the whole file as HTML's tokenizer does, into tokens that
+  together are exactly the file's text, which `renderSource` splits into lines (#54). Scripts are
+  never among the kept choices: they start off for every file.
 - `src/document.ts` prepares the copy of the page that the frame shows through `srcdoc`: a `<base>`
   at the file's resource URL, a Content Security Policy that keeps Obsidian's file URLs inside the
   vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute;
   only `.css` files are read as stylesheets (`isStylesheetFile`), because with scripts on the page's
-  scripts can read the copy. A reference whose vault path does not exist is pointed at the file that
+  scripts can read the copy. With scripts on and the `copyLocalFiles` setting, `copyReferencedFiles`
+  copies the vault images, media, text tracks, fonts, and scripts that the page names
+  (`COPIED_TYPES`) into it as `data:` URLs, within `COPY_FILE_LIMIT` and `COPY_PAGE_LIMIT` (#11), in
+  two passes: `FileCopier` notes every reference, gives the page's limit to scripts, fonts, and text
+  tracks before images and media, counting each reference, and copies what that allows; measured in
+  Obsidian, a frame with an opaque origin loads `data:` URLs, but not the `blob:` URLs that
+  Obsidian's window creates. A reference whose vault path does not exist is pointed at the file that
   Obsidian's link resolution (`getFirstLinkpathDest`) finds for it (`locatedUrl`); clicked links
   fall back the same way in `openVaultPath`. References that resolve stay as written. Links and
   images without a `title` get one (`addTooltips`, #42): a link's vault path or address, as a click
@@ -158,9 +166,10 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
 - `src/settings.ts` holds the settings (#38), how they are read from the plugin's saved data
   (`readSettings`, where a missing or mistyped value takes its default), and the settings tab. The
   Theme and Scripts settings choose how those buttons start, and open tabs keep their state; source
-  wrapping (#40) applies at once, through the workspace event `html-page-viewer:settings-change`.
-  Obsidian 1.14 shows its settings in a window of its own, so tests reach a settings tab through
-  `app.setting.activeTab`, not the main window's document.
+  wrapping (#40) and the copying of local files into pages with scripts on (#11) apply at once,
+  through the workspace event `html-page-viewer:settings-change`. Obsidian 1.14 shows its settings
+  in a window of its own, so tests reach a settings tab through `app.setting.activeTab`, not the
+  main window's document.
 - `src/extensions.ts` normalizes the listed extensions and holds them in Obsidian's view registry
   (#41), which Obsidian 1.5 and later have but do not declare: `ExtensionRegistration` registers
   and gives up each extension on its own, never takes one another view has, and gives up only those

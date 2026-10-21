@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 import "./support/dom";
 import {
   absoluteUrls,
+  COPY_FILE_LIMIT,
+  COPY_PAGE_LIMIT,
   inlineStylesheet,
+  type LocalFiles,
   type PageContext,
   type PageOptions,
   pagePolicy,
@@ -45,6 +48,8 @@ describe("vaultPath", () => {
     assert.equal(vaultPath("https://example.com/style.css", VAULT), null);
     assert.equal(vaultPath(VAULT, VAULT), null);
     assert.equal(vaultPath(`${VAULT}bad%E0%A4%A.css`, VAULT), null);
+    assert.equal(vaultPath(`${VAULT}Saved/..%2F..%2Fsecret.png`, VAULT), null);
+    assert.equal(vaultPath(`${VAULT}Saved/.%2Fa.png`, VAULT), null);
   });
 });
 
@@ -282,6 +287,7 @@ describe("preparePage", () => {
       "Assets/sprites/025.png": "",
       "Theme/site.css": "body { background: url(bg.png) }",
       "Theme/bg.png": "",
+      "Shared/app.js": "",
     };
 
     function locating(): PageContext & { reads: string[] } {
@@ -321,6 +327,16 @@ describe("preparePage", () => {
     it("locates a stylesheet by name, and its own references from its real location", async () => {
       const page = parse(await prepare(`<link rel="stylesheet" href="site.css">`, locating()));
       assert.equal(page.querySelector("style")?.textContent, `body { background: url("${url("Theme/bg.png")}") }`);
+    });
+
+    it("locates every URL of a srcset, also after one without a descriptor, and scripts", async () => {
+      const html = `<img srcset="card.png, sprites/025.png 2x"><script src="app.js"></script>`;
+      const page = parse(await prepare(html, locating()));
+      assert.equal(
+        page.querySelector("img")?.getAttribute("srcset"),
+        `${url("Shared/card.png")}, ${url("Assets/sprites/025.png")} 2x`,
+      );
+      assert.equal(page.querySelector("script")?.getAttribute("src"), url("Shared/app.js"));
     });
 
     it("never copies a note that a stylesheet link finds by name", async () => {
@@ -398,5 +414,186 @@ describe("tooltips", () => {
   it("resolves links against the page's own base, as the frame does", async () => {
     const html = `<base href="https://example.com/docs/"><a href="guide.html">guide</a>`;
     assert.deepEqual(await titles(html, "a"), ["https://example.com/docs/guide.html"]);
+  });
+});
+describe("copying local files (#11)", () => {
+  function localFiles(
+    files: Record<string, string>,
+    sizes: Record<string, number> = {},
+  ): LocalFiles & { reads: string[]; asked: string[] } {
+    const reads: string[] = [];
+    const asked: string[] = [];
+    return {
+      reads,
+      asked,
+      size: (path) => {
+        asked.push(path);
+        return sizes[path] ?? (path in files ? new TextEncoder().encode(files[path]).length : null);
+      },
+      async readBinary(path) {
+        reads.push(path);
+        return path in files ? (new TextEncoder().encode(files[path]).buffer as ArrayBuffer) : null;
+      },
+    };
+  }
+
+  const data = (type: string, text: string): string => `data:${type};base64,${btoa(text)}`;
+
+  async function copied(html: string, files: Record<string, string>, stylesheets: Record<string, string> = {}) {
+    const copy = localFiles(files);
+    const prepared = await preparePage(html, context(stylesheets), { copyFiles: copy });
+    return { page: parse(prepared.html), copy, prepared };
+  }
+
+  it("copies images, media, text tracks, and scripts as data: URLs of their types", async () => {
+    const files = {
+      "Saved/a.png": "A",
+      "Saved/b.webp": "B",
+      "Saved/clip.mp4": "M",
+      "Saved/poster.jpg": "P",
+      "Saved/song.mp3": "S",
+      "Saved/subs.vtt": "V",
+      "Saved/icons.svg": "<svg/>",
+      "Saved/app.mjs": "export {}",
+    };
+    const html = [
+      `<img src="a.png" srcset="a.png 1x, b.webp 2x, data:image/gif;base64,R0lG 3x">`,
+      `<video src="clip.mp4" poster="poster.jpg"><track src="subs.vtt"></video>`,
+      `<audio><source src="song.mp3"></audio>`,
+      `<svg><image href="icons.svg#home"></image></svg>`,
+      `<script type="module" src="app.mjs"></script>`,
+    ].join("");
+    const { page, prepared } = await copied(html, files);
+    const img = page.querySelector("img");
+    assert.equal(img?.getAttribute("src"), data("image/png", "A"));
+    assert.equal(
+      img?.getAttribute("srcset"),
+      `${data("image/png", "A")} 1x, ${data("image/webp", "B")} 2x, data:image/gif;base64,R0lG 3x`,
+    );
+    assert.equal(page.querySelector("video")?.getAttribute("src"), data("video/mp4", "M"));
+    assert.equal(page.querySelector("video")?.getAttribute("poster"), data("image/jpeg", "P"));
+    assert.equal(page.querySelector("track")?.getAttribute("src"), data("text/vtt", "V"));
+    assert.equal(page.querySelector("source")?.getAttribute("src"), data("audio/mpeg", "S"));
+    assert.equal(page.querySelector("image")?.getAttribute("href"), `${data("image/svg+xml", "<svg/>")}#home`);
+    const script = page.querySelector("script");
+    assert.equal(script?.getAttribute("src"), data("text/javascript", "export {}"));
+    assert.equal(script?.getAttribute("type"), "module");
+    assert.deepEqual(prepared.copiedFiles, { copied: 8, leftOut: 0 });
+  });
+
+  it("copies the images and fonts that CSS refers to, in copied stylesheets too", async () => {
+    const files = { "Saved/bg.png": "G", "Saved/fonts/x.woff2": "F" };
+    const html = [
+      `<link rel="stylesheet" href="site.css">`,
+      `<style>body { background: url("bg.png") }</style>`,
+      `<p style="background: url(bg.png)">x</p>`,
+    ].join("");
+    const { page, copy } = await copied(html, files, { "Saved/site.css": "@font-face { src: url(fonts/x.woff2) }" });
+    const styles = [...page.querySelectorAll("style")].map((style) => style.textContent);
+    assert.ok(styles.includes(`@font-face { src: url("${data("font/woff2", "F")}") }`));
+    assert.ok(styles.includes(`body { background: url("${data("image/png", "G")}") }`));
+    assert.equal(page.querySelector("p")?.getAttribute("style"), `background: url("${data("image/png", "G")}")`);
+    assert.deepEqual(copy.reads.sort(), ["Saved/bg.png", "Saved/fonts/x.woff2"], "each file is read once");
+  });
+
+  it("copies no other kind of file, and nothing that is not a vault file", async () => {
+    const files = { "Saved/notes.md": "Private text", "Saved/data.json": "{}", "Saved/a.png": "A", "Saved/other.html": "<p>" };
+    const html = [
+      `<img src="notes.md"><img src="data.json"><script src="notes.md"></script>`,
+      `<a href="a.png">link</a><iframe src="other.html"></iframe>`,
+      `<img src="https://example.com/a.png"><img src="../../../../outside.png"><img src="missing.png">`,
+    ].join("");
+    const { page, copy, prepared } = await copied(html, files);
+    assert.doesNotMatch(prepared.html, /;base64,/);
+    assert.equal(page.querySelector("a")?.getAttribute("href"), "a.png");
+    assert.deepEqual(copy.reads, []);
+    assert.deepEqual(prepared.copiedFiles, { copied: 0, leftOut: 0 });
+  });
+
+  it("leaves out files over the limits, and says how many", async () => {
+    // Within the page's limit, four files of 7 MB fit, a fifth does not, and a small one still does.
+    const names = ["huge", "a", "b", "c", "d", "e", "small"];
+    const files = Object.fromEntries(names.map((name) => [`Saved/${name}.png`, name]));
+    const sizes: Record<string, number> = { "Saved/huge.png": COPY_FILE_LIMIT + 1, "Saved/small.png": 1 };
+    for (const name of ["a", "b", "c", "d", "e"]) sizes[`Saved/${name}.png`] = 7_000_000;
+    assert.ok(4 * 7_000_000 <= COPY_PAGE_LIMIT && 5 * 7_000_000 > COPY_PAGE_LIMIT && 7_000_000 <= COPY_FILE_LIMIT);
+    const copy = localFiles(files, sizes);
+    const html = names.map((name) => `<img src="${name}.png">`).join("");
+    const prepared = await preparePage(html, context({}), { copyFiles: copy });
+    const sources = [...parse(prepared.html).images].map((image) => image.getAttribute("src"));
+    const copiedSource = (name: string) => data("image/png", name);
+    assert.deepEqual(sources, ["huge.png", ...["a", "b", "c", "d"].map(copiedSource), "e.png", copiedSource("small")]);
+    assert.deepEqual(prepared.copiedFiles, { copied: 5, leftOut: 2 });
+    assert.deepEqual(copy.reads, ["Saved/a.png", "Saved/b.png", "Saved/c.png", "Saved/d.png", "Saved/small.png"]);
+  });
+
+  it("gives scripts and fonts the page's limit before images", async () => {
+    const files = { "Saved/app.js": "J", "Saved/x.woff2": "F", ...Object.fromEntries(["a", "b", "c", "d", "e"].map((name) => [`Saved/${name}.png`, name])) };
+    const sizes: Record<string, number> = {};
+    for (const name of ["a", "b", "c", "d", "e"]) sizes[`Saved/${name}.png`] = 7_000_000;
+    const copy = localFiles(files, sizes);
+    const html = [
+      ...["a", "b", "c", "d", "e"].map((name) => `<img src="${name}.png">`),
+      `<script src="app.js"></script><style>@font-face { src: url(x.woff2) }</style>`,
+    ].join("");
+    const prepared = await preparePage(html, context({}), { copyFiles: copy });
+    const page = parse(prepared.html);
+    assert.equal(page.querySelector("script")?.getAttribute("src"), data("text/javascript", "J"));
+    assert.match(page.querySelector("style")?.textContent ?? "", /url\("data:font\/woff2;base64,/);
+    assert.deepEqual(
+      [...page.images].map((image) => image.getAttribute("src")?.startsWith("data:")),
+      [true, true, true, true, false],
+    );
+    assert.deepEqual(prepared.copiedFiles, { copied: 6, leftOut: 1 });
+  });
+
+  it("counts each reference against the page's limit, and reads each file once", async () => {
+    const copy = localFiles({ "Saved/sprite.png": "S" }, { "Saved/sprite.png": 7_000_000 });
+    const rules = Array.from({ length: 6 }, (_, index) => `.icon${index} { background: url(sprite.png) }`).join("\n");
+    const prepared = await preparePage(`<style>${rules}</style>`, context({}), { copyFiles: copy });
+    const css = parse(prepared.html).querySelector("style")?.textContent ?? "";
+    // Four copies of 7 MB fit in the page's 32 MB, a fifth does not.
+    assert.equal(css.split("data:image/png;base64,").length - 1, 4);
+    assert.equal(css.split("url(sprite.png)").length - 1, 2);
+    assert.deepEqual(copy.reads, ["Saved/sprite.png"]);
+    assert.deepEqual(prepared.copiedFiles, { copied: 1, leftOut: 1 });
+  });
+
+  it("copies every URL of a srcset, also after one without a descriptor", async () => {
+    const { page } = await copied(`<img srcset="a.png, b.png 2x">`, { "Saved/a.png": "A", "Saved/b.png": "B" });
+    assert.equal(page.querySelector("img")?.getAttribute("srcset"), `${data("image/png", "A")}, ${data("image/png", "B")} 2x`);
+  });
+
+  it("leaves a reference as it is when its file cannot be read", async () => {
+    const copy: LocalFiles = { size: () => 1, readBinary: async () => null };
+    const prepared = await preparePage(`<img src="gone.png">`, context({}), { copyFiles: copy });
+    assert.equal(parse(prepared.html).querySelector("img")?.getAttribute("src"), "gone.png");
+    assert.deepEqual(prepared.copiedFiles, { copied: 0, leftOut: 0 });
+  });
+
+  it("asks only for files of the copied types inside the vault, whatever a reference looks like", async () => {
+    const files = { "Saved/notes.md": "Private text", "Saved/x.png.md": "Private text", "Saved/NOTES.MD": "Private text" };
+    const html = [
+      `<img src="%2e%2e/%2e%2e/%2e%2e/%2e%2e/outside.png"><img src="..%2F..%2Fsecret.png"><img src="..\\..\\top.png">`,
+      `<img src="notes.md#.png"><img src="notes.md?x=.png"><img src="notes.md%23.png"><img src="x.png.md"><img src="NOTES.MD">`,
+      `<img src="app://vault-id/home/user/other.png"><img src="file:///etc/passwd.png"><script src="notes.md"></script>`,
+    ].join("");
+    const { copy, prepared } = await copied(html, files);
+    assert.doesNotMatch(prepared.html, /;base64,/);
+    assert.deepEqual(copy.reads, []);
+    for (const path of copy.asked) {
+      assert.match(path, /^Saved\/[^/]+\.png$/, `asked about ${path}`);
+    }
+
+    const elsewhere = localFiles({ "a.png": "A" });
+    const outside = await preparePage(`<base href="app://vault-id/home/user/"><img src="a.png">`, context({}), { copyFiles: elsewhere });
+    assert.doesNotMatch(outside.html, /;base64,/);
+    assert.deepEqual(elsewhere.asked, [], "nothing outside the vault is asked about");
+  });
+
+  it("copies nothing unless asked", async () => {
+    const prepared = await preparePage(`<img src="a.png">`, context({}));
+    assert.equal(prepared.copiedFiles, undefined);
+    assert.equal(parse(prepared.html).querySelector("img")?.getAttribute("src"), "a.png");
   });
 });
