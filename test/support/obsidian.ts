@@ -18,9 +18,11 @@ export class TFile {
   readonly name: string;
   readonly basename: string;
   readonly extension: string;
+  readonly stat: { readonly size: number };
 
-  constructor(path: string) {
+  constructor(path: string, size = 0) {
     this.path = path;
+    this.stat = { size };
     this.name = path.slice(path.lastIndexOf("/") + 1);
     const dot = this.name.lastIndexOf(".");
     this.basename = dot === -1 ? this.name : this.name.slice(0, dot);
@@ -63,6 +65,8 @@ export function resourcePath(file: TFile): string {
 export class App {
   readonly files = new Map<string, string>();
   readonly reads: string[] = [];
+  /** The files read as bytes, as the view copies them into a page (#11). */
+  readonly binaryReads: string[] = [];
   readonly leaves: WorkspaceLeaf[] = [];
   activeFile: TFile | null = null;
   readError: Error | null = null;
@@ -81,9 +85,16 @@ export class App {
       for (const callback of this.vaultListeners.get(name) ?? []) callback(...data);
     },
     getResourcePath: (file: TFile): string => resourcePath(file),
-    getAbstractFileByPath: (path: string): TFile | null => (this.files.has(path) ? new TFile(path) : null),
+    getAbstractFileByPath: (path: string): TFile | null => {
+      const text = this.files.get(path);
+      return text === undefined ? null : new TFile(path, new TextEncoder().encode(text).length);
+    },
     getRoot: (): null => null,
     cachedRead: async (file: TFile): Promise<string> => this.files.get(file.path) ?? "",
+    readBinary: async (file: TFile): Promise<ArrayBuffer> => {
+      this.binaryReads.push(file.path);
+      return new TextEncoder().encode(this.files.get(file.path) ?? "").buffer as ArrayBuffer;
+    },
     read: async (file: TFile): Promise<string> => {
       this.reads.push(file.path);
       if (this.readError) throw this.readError;

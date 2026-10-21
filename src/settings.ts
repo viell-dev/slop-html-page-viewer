@@ -10,6 +10,8 @@ export interface ViewerSettings {
   readonly themeOn: boolean;
   /** Whether a page runs its scripts when it opens. */
   readonly scriptsOn: boolean;
+  /** Whether a page with scripts on gets its local files copied into it (#11). */
+  readonly copyLocalFiles: boolean;
   /** Whether the source view wraps lines longer than the view. */
   readonly wrapSource: boolean;
   /** The file extensions that open in the viewer, normalized. */
@@ -20,6 +22,7 @@ export interface ViewerSettings {
 export const DEFAULT_SETTINGS: ViewerSettings = {
   themeOn: true,
   scriptsOn: false,
+  copyLocalFiles: false,
   wrapSource: true,
   extensions: DEFAULT_EXTENSIONS,
 };
@@ -31,13 +34,14 @@ export const DEFAULT_SETTINGS: ViewerSettings = {
  */
 export function readSettings(data: unknown): ViewerSettings {
   const saved = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
-  const flag = (key: "themeOn" | "scriptsOn" | "wrapSource"): boolean => {
+  const flag = (key: "themeOn" | "scriptsOn" | "copyLocalFiles" | "wrapSource"): boolean => {
     const value = saved[key];
     return typeof value === "boolean" ? value : DEFAULT_SETTINGS[key];
   };
   return {
     themeOn: flag("themeOn"),
     scriptsOn: flag("scriptsOn"),
+    copyLocalFiles: flag("copyLocalFiles"),
     wrapSource: flag("wrapSource"),
     extensions: Array.isArray(saved.extensions) ? normalizeExtensions(saved.extensions) : DEFAULT_EXTENSIONS,
   };
@@ -79,12 +83,23 @@ export class ViewerSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Scripts when a page opens")
       .setDesc(
-        "Run a page's scripts as soon as it opens. A page with scripts on cannot reach Obsidian, but it cannot show the vault's images and other files either, and its links work as in a browser. The Scripts button changes it for the open page.",
+        "Run a page's scripts as soon as it opens. A page with scripts on cannot reach Obsidian. It shows the vault's images and other files only if the next setting copies them into it, and its links work as in a browser. The Scripts button changes it for the open page.",
       )
       .addToggle((toggle) =>
         toggle
           .setValue(this.host.settings.scriptsOn)
           .onChange((value) => this.host.updateSettings({ scriptsOn: value })),
+      );
+
+    new Setting(containerEl)
+      .setName("Local files with scripts on")
+      .setDesc(
+        "Copy the images, media, fonts, and scripts that a page names from the vault into it while its scripts are on, so that they show and run. The page's scripts can read the files copied into it, and a page with many takes longer to open. Files over 8 MB, and files past 32 MB in all for a page, are left out.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.host.settings.copyLocalFiles)
+          .onChange((value) => this.host.updateSettings({ copyLocalFiles: value })),
       );
 
     new Setting(containerEl)
