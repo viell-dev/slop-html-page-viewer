@@ -13,12 +13,22 @@ import { type PaneChoice, watchLinks } from "./links";
 import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
 import { DEFAULT_SETTINGS, readSettings, type SettingsHost, type ViewerSettings, ViewerSettingTab } from "./settings";
+import {
+  anchorElements,
+  lineAtTop,
+  lineForPageTop,
+  pageTopForLine,
+  type Point,
+  type StartTag,
+  syncPoints,
+  topOfLine,
+} from "./split";
 
 const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
 /** The workspace event that tells open views the settings changed. */
 const SETTINGS_CHANGE = "html-page-viewer:settings-change";
 
-type ViewMode = "rendered" | "source";
+type ViewMode = "rendered" | "source" | "split";
 
 /** The toolbar choices that a tab keeps from one file to the next. */
 interface TabChoices {
@@ -264,6 +274,15 @@ class HtmlPageViewerView extends TextFileView {
       return;
     }
 
+    if (this.mode === "split") {
+      // The source beside the page, or above it in a narrow view (styles.css).
+      const split = container.createDiv({ cls: "html-page-viewer__split" });
+      renderSource(split, this.data);
+      this.updateWrap();
+      this.renderIframe(split);
+      return;
+    }
+
     this.renderIframe(container);
   }
 
@@ -271,9 +290,10 @@ class HtmlPageViewerView extends TextFileView {
     if (!this.scriptsEnabled) {
       return "Sandbox blocks scripts, forms, popups, and top navigation; the page can show files from this vault.";
     }
-    return this.plugin.settings.copyLocalFiles
+    const apart = this.mode === "split" ? " The source and the page scroll apart while scripts are on." : "";
+    return (this.plugin.settings.copyLocalFiles
       ? "Sandbox allows scripts, isolated from Obsidian; the page's local images, media, text tracks, fonts, and scripts are copied into it, where its scripts can read them. Forms, popups, and top navigation remain blocked."
-      : "Sandbox allows scripts, isolated from Obsidian and from this vault's files; forms, popups, and top navigation remain blocked.";
+      : "Sandbox allows scripts, isolated from Obsidian and from this vault's files; forms, popups, and top navigation remain blocked.") + apart;
   }
 
   private renderTitle(parent: HTMLElement): void {
@@ -294,21 +314,20 @@ class HtmlPageViewerView extends TextFileView {
       cls: "html-page-viewer__segmented",
       attr: { "aria-label": "View mode" },
     });
-    const renderedButton = createTextButton(modeGroup, "Rendered");
-    const sourceButton = createTextButton(modeGroup, "Source");
-    renderedButton.toggleClass("is-active", this.mode === "rendered");
-    sourceButton.toggleClass("is-active", this.mode === "source");
-
-    renderedButton.addEventListener("click", () => {
-      this.mode = "rendered";
-      this.rememberChoices();
-      this.render();
-    });
-    sourceButton.addEventListener("click", () => {
-      this.mode = "source";
-      this.rememberChoices();
-      this.render();
-    });
+    const modes: [ViewMode, string][] = [
+      ["rendered", "Rendered"],
+      ["source", "Source"],
+      ["split", "Split"],
+    ];
+    for (const [mode, label] of modes) {
+      const button = createTextButton(modeGroup, label);
+      button.toggleClass("is-active", this.mode === mode);
+      button.addEventListener("click", () => {
+        this.mode = mode;
+        this.rememberChoices();
+        this.render();
+      });
+    }
 
     const refreshButton = createIconButton(toolbar, "refresh-cw", "Refresh preview");
     refreshButton.addEventListener("click", () => {
@@ -451,6 +470,9 @@ class HtmlPageViewerView extends TextFileView {
       return true;
     };
     iframe.addEventListener("load", watch);
+    iframe.addEventListener("load", () => {
+      if (this.iframe === iframe && this.mode === "split") this.syncScrolling(iframe);
+    });
     iframe.srcdoc = page;
     if (ownStyles && this.themeButton) {
       this.themeButton.disabled = true;
@@ -471,6 +493,83 @@ class HtmlPageViewerView extends TextFileView {
       win.setTimeout(poll, 15);
     };
     poll();
+  }
+
+  /**
+   * Keeps the split view's source and page scrolling in step, while the view
+   * can reach the page. Whichever side is scrolled leads; the other follows,
+   * once per frame, and its own scroll event is then passed over.
+   */
+  private syncScrolling(iframe: HTMLIFrameElement): void {
+    const doc = iframe.contentDocument;
+    const win = doc?.defaultView;
+    const source = this.contentEl.querySelector<HTMLElement>(".html-page-viewer__source");
+    const main = this.contentEl.ownerDocument.defaultView;
+    if (!doc || doc.URL !== "about:srcdoc" || !doc.body || !win || !source || !main?.requestAnimationFrame) return;
+
+    const anchors = anchorElements(doc.body, startTags(this.data));
+    // Measured again when a side's height changes, as when images load or lines wrap.
+    let points: Point[] = [];
+    let pageHeight = -1;
+    const pagePoints = (): Point[] => {
+      if (doc.documentElement.scrollHeight !== pageHeight) {
+        pageHeight = doc.documentElement.scrollHeight;
+        points = syncPoints(anchors, (element) => {
+          const box = element.getBoundingClientRect();
+          return box.width === 0 && box.height === 0 ? null : box.top + win.scrollY;
+        });
+      }
+      return points;
+    };
+    let lineTops: number[] = [];
+    let sourceHeight = -1;
+    const sourceTops = (): number[] => {
+      if (source.scrollHeight !== sourceHeight) {
+        sourceHeight = source.scrollHeight;
+        lineTops = [...source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")].map((line) => line.offsetTop);
+      }
+      return lineTops;
+    };
+
+    // Where this side last moved the other, so that the other's scroll event is passed over.
+    let pageSetTo: number | null = null;
+    let sourceSetTo: number | null = null;
+    let pending = 0;
+    const follow = (lead: "source" | "page"): void => {
+      if (pending !== 0) return;
+      pending = main.requestAnimationFrame(() => {
+        pending = 0;
+        if (this.iframe !== iframe) return;
+        if (lead === "source") {
+          const top = pageTopForLine(pagePoints(), lineAtTop(sourceTops(), source.scrollTop));
+          if (top === null) return;
+          // Where the page can scroll to, so that its scroll event says where this put it.
+          pageSetTo = Math.round(Math.min(top, Math.max(0, doc.documentElement.scrollHeight - win.innerHeight)));
+          win.scrollTo(win.scrollX, pageSetTo);
+        } else {
+          const line = lineForPageTop(pagePoints(), win.scrollY);
+          if (line === null) return;
+          sourceSetTo = Math.round(Math.min(topOfLine(sourceTops(), line), source.scrollHeight - source.clientHeight));
+          source.scrollTop = sourceSetTo;
+        }
+      });
+    };
+    source.addEventListener("scroll", () => {
+      if (sourceSetTo !== null && Math.abs(source.scrollTop - sourceSetTo) <= 1) {
+        sourceSetTo = null;
+        return;
+      }
+      sourceSetTo = null;
+      follow("source");
+    });
+    win.addEventListener("scroll", () => {
+      if (pageSetTo !== null && Math.abs(win.scrollY - pageSetTo) <= 1) {
+        pageSetTo = null;
+        return;
+      }
+      pageSetTo = null;
+      follow("page");
+    });
   }
 
   /**
@@ -662,6 +761,20 @@ function tokenizeHtml(html: string): Token[] {
     }
   }
   return tokens;
+}
+
+/** The start tags of HTML, their names lowercased, with the lines they start on, from 1 (#13). */
+export function startTags(html: string): StartTag[] {
+  const tags: StartTag[] = [];
+  let line = 1;
+  let before = "";
+  for (const token of tokenizeHtml(html)) {
+    // A tag's name follows the punctuation that opens it: `<`, or `</` for an end tag.
+    if (token.kind === "tag" && !before.endsWith("</")) tags.push({ name: token.text.toLowerCase(), line });
+    for (let at = token.text.indexOf("\n"); at !== -1; at = token.text.indexOf("\n", at + 1)) line += 1;
+    before = token.text;
+  }
+  return tags;
 }
 
 /** Where the next tag, comment, or declaration starts: a `<` that HTML reads as markup. */
