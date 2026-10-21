@@ -29,6 +29,8 @@ body:
         - Rendered, scripts off
         - Rendered, scripts on
         - Source
+        - Split, scripts off
+        - Split, scripts on
     validations:
       required: true
   - type: textarea

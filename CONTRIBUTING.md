@@ -21,7 +21,7 @@ first, then open one with the bug form's details:
 - the commit you built, the Obsidian version, the operating system, and whether it is desktop or
   mobile;
 - a minimal HTML file that shows the problem, synthetic or public, with any files it refers to;
-- the view (rendered or source) and whether scripts were on;
+- the view (rendered, source, or split) and whether scripts were on;
 - what happened, and what you expected.
 
 Remove private content from every example. Agents should open an issue only when their operator has
