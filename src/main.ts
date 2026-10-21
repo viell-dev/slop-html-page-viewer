@@ -132,6 +132,7 @@ class HtmlPageViewerView extends TextFileView {
   private shownStyle: string | null = null;
   private themeButton: HTMLButtonElement | null = null;
   private security: HTMLElement | null = null;
+  private securityNote: HTMLElement | null = null;
   /** Whether the frame's page has its local files copied into it (#11). */
   private copyingFiles = false;
 
@@ -175,11 +176,15 @@ class HtmlPageViewerView extends TextFileView {
     );
   }
 
-  /** Shows a page with scripts on again when the setting that copies its local files changes. */
+  /**
+   * Follows a change of the setting that copies local files into a page with
+   * scripts on: the security note says what the page can read, in the source
+   * view too, and a page with scripts on is shown again.
+   */
   private updateCopying(): void {
-    if (this.iframe !== null && this.scriptsEnabled && this.plugin.settings.copyLocalFiles !== this.copyingFiles) {
-      this.render();
-    }
+    if (!this.scriptsEnabled) return;
+    if (this.securityNote) this.securityNote.textContent = this.securityText();
+    if (this.iframe !== null && this.plugin.settings.copyLocalFiles !== this.copyingFiles) this.render();
   }
 
   /** Wraps the source view's long lines, or not, as the settings say. */
@@ -250,7 +255,7 @@ class HtmlPageViewerView extends TextFileView {
       cls: "html-page-viewer__security-pill",
       text: this.scriptsEnabled ? "Scripts ON" : "Scripts OFF",
     });
-    security.createSpan({ text: this.securityText() });
+    this.securityNote = security.createSpan({ text: this.securityText() });
     this.security = security;
 
     if (this.mode === "source") {
@@ -267,7 +272,7 @@ class HtmlPageViewerView extends TextFileView {
       return "Sandbox blocks scripts, forms, popups, and top navigation; the page can show files from this vault.";
     }
     return this.plugin.settings.copyLocalFiles
-      ? "Sandbox allows scripts, isolated from Obsidian; the page's local images, media, fonts, and scripts are copied into it, where its scripts can read them. Forms, popups, and top navigation remain blocked."
+      ? "Sandbox allows scripts, isolated from Obsidian; the page's local images, media, text tracks, fonts, and scripts are copied into it, where its scripts can read them. Forms, popups, and top navigation remain blocked."
       : "Sandbox allows scripts, isolated from Obsidian and from this vault's files; forms, popups, and top navigation remain blocked.";
   }
 
@@ -397,7 +402,7 @@ class HtmlPageViewerView extends TextFileView {
     let page: string;
     let ownStyles = false;
     let shownStyle: string | null = null;
-    let tooLarge = 0;
+    let leftOut = 0;
     try {
       const prepared = await preparePage(
         data,
@@ -412,7 +417,7 @@ class HtmlPageViewerView extends TextFileView {
       );
       page = prepared.html;
       ownStyles = prepared.ownStyles;
-      tooLarge = prepared.copiedFiles?.tooLarge ?? 0;
+      leftOut = prepared.copiedFiles?.leftOut ?? 0;
       // preparePage adds the reading style only to pages without styles.
       shownStyle = ownStyles ? null : (readingStyle ?? null);
     } catch (error) {
@@ -421,10 +426,13 @@ class HtmlPageViewerView extends TextFileView {
     }
     if (this.iframe !== iframe) return;
     this.shownStyle = shownStyle;
-    if (tooLarge > 0) {
+    if (leftOut > 0) {
       this.security?.createSpan({
         cls: "html-page-viewer__copy-limit",
-        text: tooLarge === 1 ? "One local file is too large to copy into the page." : `${tooLarge} local files are too large to copy into the page.`,
+        text:
+          leftOut === 1
+            ? "One local file was left out of the page, over the size limits."
+            : `${leftOut} local files were left out of the page, over the size limits.`,
       });
     }
     const watched = new WeakSet<Document>();
@@ -504,7 +512,13 @@ class HtmlPageViewerView extends TextFileView {
       size: (path) => fileAt(path)?.stat.size ?? null,
       readBinary: async (path) => {
         const file = fileAt(path);
-        return file === null ? null : vault.readBinary(file);
+        if (file === null) return null;
+        try {
+          return await vault.readBinary(file);
+        } catch {
+          // The file went away after the view saw it.
+          return null;
+        }
       },
     };
   }

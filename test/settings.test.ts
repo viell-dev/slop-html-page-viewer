@@ -167,7 +167,31 @@ describe("local files with scripts on (#11)", () => {
     tab.containerEl.remove();
   });
 
-  it("say when a file is too large to copy", async () => {
+  it("show a page again only when the setting changes what it shows", async () => {
+    const harness = await Harness.load({ scriptsOn: true });
+    const plugin = harness.plugin as unknown as { updateSettings(change: object): Promise<void> };
+    const view = await openArticle(harness);
+    const first = frame(view);
+    await plugin.updateSettings({ wrapSource: false });
+    assert.equal(frame(view), first, "another setting leaves the page as it is");
+    await plugin.updateSettings({ copyLocalFiles: false });
+    assert.equal(frame(view), first, "so does the same value");
+    button(view, "Scripts ON").click();
+    const off = frame(view);
+    await plugin.updateSettings({ copyLocalFiles: true });
+    assert.equal(frame(view), off, "a page with scripts off loads its files itself");
+  });
+
+  it("are named in the source view's security note when the setting changes", async () => {
+    const harness = await Harness.load({ scriptsOn: true });
+    const plugin = harness.plugin as unknown as { updateSettings(change: object): Promise<void> };
+    const view = await openArticle(harness);
+    button(view, "Source").click();
+    await plugin.updateSettings({ copyLocalFiles: true });
+    assert.match(view.contentEl.querySelector(".html-page-viewer__security")?.textContent ?? "", /copied into it/);
+  });
+
+  it("say when a file is left out over the size limits", async () => {
     const harness = await Harness.load({ scriptsOn: true, copyLocalFiles: true });
     harness.app.files.set("Saved/huge.png", "x".repeat(8_000_001));
     const view = harness.newView();
@@ -176,7 +200,7 @@ describe("local files with scripts on (#11)", () => {
     assert.equal(shown(view).querySelector("img")?.getAttribute("src"), "huge.png");
     assert.equal(
       view.contentEl.querySelector(".html-page-viewer__copy-limit")?.textContent,
-      "One local file is too large to copy into the page.",
+      "One local file was left out of the page, over the size limits.",
     );
     assert.deepEqual(harness.app.binaryReads, [], "a file over the limit is not read");
   });

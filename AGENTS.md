@@ -132,13 +132,15 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   only `.css` files are read as stylesheets (`isStylesheetFile`), because with scripts on the page's
   scripts can read the copy. With scripts on and the `copyLocalFiles` setting, `copyReferencedFiles`
   copies the vault images, media, text tracks, fonts, and scripts that the page names
-  (`COPIED_TYPES`) into it as `data:` URLs, within `COPY_FILE_LIMIT` and `COPY_PAGE_LIMIT` (#11);
-  measured in Obsidian, a frame with an opaque origin loads `data:` URLs, but not the `blob:` URLs
-  that Obsidian's window creates. A reference whose vault path does not exist is pointed at the file
-  that Obsidian's link resolution (`getFirstLinkpathDest`) finds for it (`locatedUrl`); clicked
-  links fall back the same way in `openVaultPath`. References that resolve stay as written. Links
-  and images without a `title` get one (`addTooltips`, #42): a link's vault path or address, as a
-  click would open it, and an image's alt text; `linkTooltip` skips the links that `linkTarget` in
+  (`COPIED_TYPES`) into it as `data:` URLs, within `COPY_FILE_LIMIT` and `COPY_PAGE_LIMIT` (#11), in
+  two passes: `FileCopier` notes every reference, gives the page's limit to scripts, fonts, and text
+  tracks before images and media, counting each reference, and copies what that allows; measured in
+  Obsidian, a frame with an opaque origin loads `data:` URLs, but not the `blob:` URLs that
+  Obsidian's window creates. A reference whose vault path does not exist is pointed at the file that
+  Obsidian's link resolution (`getFirstLinkpathDest`) finds for it (`locatedUrl`); clicked links
+  fall back the same way in `openVaultPath`. References that resolve stay as written. Links and
+  images without a `title` get one (`addTooltips`, #42): a link's vault path or address, as a click
+  would open it, and an image's alt text; `linkTooltip` skips the links that `linkTarget` in
   `src/links.ts` does not open. The measurements behind this design are in #7: in Obsidian, only a
   `srcdoc` frame with Obsidian's origin (`allow-same-origin`) loads vault files, and such a frame
   inherits Obsidian's policy, which allows only inline styles. Recheck them with the end-to-end

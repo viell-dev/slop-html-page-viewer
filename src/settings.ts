@@ -94,7 +94,7 @@ export class ViewerSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Local files with scripts on")
       .setDesc(
-        "Copy the images, media, fonts, and scripts that a page names from the vault into it while its scripts are on, so that they show and run. The page's scripts can read the files copied into it, and a page with many takes longer to open. Files over 8 MB, and files past 32 MB in all for a page, are left out.",
+        "Copy the images, media, text tracks, fonts, and scripts that a page names from the vault into it while its scripts are on, so that they show and run. The page's scripts can read the files copied into it, and a page with many takes longer to open. A page gets up to 32 MB of them, scripts and fonts first, and none over 8 MB.",
       )
       .addToggle((toggle) =>
         toggle
