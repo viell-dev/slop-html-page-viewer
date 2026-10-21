@@ -126,15 +126,17 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   source highlighter. Scripts are never among the kept choices: they start off for every file.
 - `src/document.ts` prepares the copy of the page that the frame shows through `srcdoc`: a `<base>`
   at the file's resource URL, a Content Security Policy that keeps Obsidian's file URLs inside the
-  vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute.
-  A reference whose vault path does not exist is pointed at the file that Obsidian's link resolution
-  (`getFirstLinkpathDest`) finds for it (`locatedUrl`); clicked links fall back the same way in
-  `openVaultPath`. References that resolve stay as written. Links and images without a `title` get
-  one (`addTooltips`, #42): a link's vault path or address, as a click would open it, and an
-  image's alt text; `linkTooltip` skips the links that `linkTarget` in `src/links.ts` does not open.
-  The measurements behind this design are in #7: in Obsidian, only a `srcdoc` frame with Obsidian's
-  origin (`allow-same-origin`) loads vault files, and such a frame inherits Obsidian's policy, which
-  allows only inline styles. Recheck them with the end-to-end suite when Obsidian changes.
+  vault, and each linked vault stylesheet copied into a `<style>` with its references made absolute;
+  only `.css` files are read as stylesheets (`isStylesheetFile`), because with scripts on the page's
+  scripts can read the copy. A reference whose vault path does not exist is pointed at the file that
+  Obsidian's link resolution (`getFirstLinkpathDest`) finds for it (`locatedUrl`); clicked links
+  fall back the same way in `openVaultPath`. References that resolve stay as written. Links and
+  images without a `title` get one (`addTooltips`, #42): a link's vault path or address, as a click
+  would open it, and an image's alt text; `linkTooltip` skips the links that `linkTarget` in
+  `src/links.ts` does not open. The measurements behind this design are in #7: in Obsidian, only a
+  `srcdoc` frame with Obsidian's origin (`allow-same-origin`) loads vault files, and such a frame
+  inherits Obsidian's policy, which allows only inline styles. Recheck them with the end-to-end
+  suite when Obsidian changes.
 - `src/reading.ts` builds the reading style from Obsidian's theme variables, for pages without a
   `<style>` or a stylesheet link, and keeps the text to the theme's line width while Obsidian's
   Readable line length setting (`vault.getConfig("readableLineLength")`) is on. `preparePage` adds
