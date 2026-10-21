@@ -154,7 +154,9 @@ made under the MIT license. Keep discussion respectful and about reproducible be
 - Keep upstream's security rules: the plugin stays read-only, scripts stay off by default, and it
   adds no network or clipboard access. Scripts and same-origin access are never granted to a page
   together. Document any change to the sandbox in the README and [SECURITY.md](SECURITY.md).
-- State how you verified the change, on which platforms, and what you checked in Obsidian.
+- State how you verified the change, on which platforms, what you checked in Obsidian, and what
+  remains unverified.
 - Update every document, fixture, and test that describes what you changed, in the same pull
-  request.
+  request. Add a line to the **Unreleased** section of [CHANGELOG.md](CHANGELOG.md) for a change
+  that users would notice.
 - Keep changes scoped, and state remaining limits.
