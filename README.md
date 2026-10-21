@@ -30,6 +30,11 @@ and anyone may use it under the license.
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
+- Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
+  Ctrl+F (Cmd+F on macOS) while the viewer has focus, or the **Find in page** command opens a find
+  bar, which highlights every match, up to 10,000, and moves between them with Enter and
+  Shift+Enter; Escape closes it. In the page, a match stays within a paragraph or another block, and
+  leaves out text that the page hides.
 - Keeps a tab's **Theme** and **Rendered** or **Source** choice for the next page it shows, also
   after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
@@ -53,7 +58,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   about a second longer to open for every 8 MB. Files that a script loads itself, such as with
   `fetch`, modules that a module script imports, and pages in frames still do not load.
 - **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
-  them, so a link opens in the frame itself.
+  them, so a link opens in the frame itself. For the same reason, the find bar then finds only in
+  the source view.
 - **A link to a part of another page** opens that page at its top.
 - **Files outside the vault never load**, even when a page refers to them, and links to them are
   refused.

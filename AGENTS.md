@@ -156,6 +156,13 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   `watchLinks` on each load of a page it can reach, and its capturing `click` and `auxclick`
   listeners run although the page's scripts are disabled (measured in #9). External links go to
   `window.open`, vault files to `openVaultPath` in `src/main.ts`.
+- `src/find.ts` finds text for the find bar (#13): `sourceRuns` and `pageRuns` collect the text of
+  the source view's lines and of a page's blocks, `findRanges` turns case-insensitive matches into
+  ranges, and `Highlighter` shows them with the CSS Custom Highlight API, sharing the named
+  highlights of a window with other views. The view opens the bar from its toolbar, from Mod+F in
+  its `scope`, from a key press in a page it can reach, and from the `find-in-page` command, and
+  searches the page only with scripts off; measured in Obsidian 1.5.3 and 1.14.4, highlights work in
+  the page's frame, and a view's `scope` gets Mod+F before Obsidian's own hotkeys.
 - `src/settings.ts` holds the settings (#38), how they are read from the plugin's saved data
   (`readSettings`, where a missing or mistyped value takes its default), and the settings tab. The
   Theme and Scripts settings choose how those buttons start, and open tabs keep their state; source
