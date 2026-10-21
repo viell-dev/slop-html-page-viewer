@@ -86,13 +86,22 @@ async function enterText(name: string, text: string): Promise<string> {
         [...(setting.activeTab?.containerEl?.querySelectorAll(".setting-item") ?? [])].find(
           (candidate) => candidate.querySelector(".setting-item-name")?.textContent === name,
         );
-      const input = find()?.querySelector<HTMLInputElement>("input[type=text]");
+      const before = find();
+      const input = before?.querySelector<HTMLInputElement>("input[type=text]");
       if (!input) throw new Error(`No text field named ${name}`);
       input.value = text;
       // The settings window may be a window of its own, with its own Event.
       const view = input.ownerDocument.defaultView as (Window & typeof globalThis) | null;
       input.dispatchEvent(new (view ?? window).Event("change"));
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // The tab shows the change once the plugin has saved the settings and
+      // rendered the tab again, which replaces its elements; however long the
+      // save takes (#71).
+      const deadline = Date.now() + 10_000;
+      while (find() === before && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (find() === before)
+        throw new Error(`The settings tab did not render again after ${name} changed`);
       return find()?.querySelector(".setting-item-description")?.textContent ?? "";
     },
     name,
