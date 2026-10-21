@@ -465,6 +465,7 @@ class FileCopier {
   }
 
   /** The first pass: notes a reference and leaves it as it is. */
+  // eslint-disable-next-line @typescript-eslint/require-await -- a Visit returns a promise
   readonly note: Visit = async (url) => {
     const target = this.target(url);
     const size = target === null ? null : this.files.size(target.path);
@@ -653,6 +654,7 @@ export async function preparePage(
     if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
     const css = await context.read(path);
     if (css === null) continue;
+    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const style = doc.createElement("style");
     for (const name of ["media", "title"]) {
       const value = link.getAttribute(name);
@@ -684,14 +686,17 @@ export async function preparePage(
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
 
+  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const policy = doc.createElement("meta");
   policy.setAttribute("http-equiv", "Content-Security-Policy");
   policy.setAttribute("content", pagePolicy(context.vaultUrl));
+  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const base = doc.createElement("base");
   base.setAttribute("href", baseUrl);
   doc.head.prepend(policy, base);
 
   if (!ownStyles && options.readingStyle !== undefined) {
+    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const reading = doc.createElement("style");
     reading.id = READING_STYLE_ID;
     reading.textContent = styleElementText(options.readingStyle);

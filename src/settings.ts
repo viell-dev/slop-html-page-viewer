@@ -59,6 +59,7 @@ export interface SettingsHost extends Plugin {
   updateSettings(change: Partial<ViewerSettings>): Promise<void>;
 }
 
+// eslint-disable-next-line obsidianmd/settings-tab/prefer-setting-definitions -- Obsidian 1.5 lacks it; see #64
 export class ViewerSettingTab extends PluginSettingTab {
   constructor(
     app: App,
@@ -74,6 +75,7 @@ export class ViewerSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Theme in new tabs")
       .setDesc(
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- names the toolbar button
         "Show pages without styles of their own in Obsidian's theme when a tab opens. The Theme button changes it for one tab.",
       )
       .addToggle((toggle) =>
@@ -85,6 +87,7 @@ export class ViewerSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Scripts when a page opens")
       .setDesc(
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- names the toolbar button
         "Run a page's scripts as soon as it opens. A page with scripts on cannot reach Obsidian. It shows the vault's images and other files only if the next setting copies them into it, and its links work as in a browser. The Scripts button changes it for the open page.",
       )
       .addToggle((toggle) =>
@@ -96,6 +99,7 @@ export class ViewerSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Local files with scripts on")
       .setDesc(
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- MB is a unit
         "Copy the images, media, text tracks, fonts, and scripts that a page names from the vault into it while its scripts are on, so that they show and run. The page's scripts can read the files copied into it, and a page with many takes longer to open. A page gets up to 32 MB of them, scripts and fonts first, and none over 8 MB.",
       )
       .addToggle((toggle) =>
@@ -137,6 +141,7 @@ export class ViewerSettingTab extends PluginSettingTab {
         text.inputEl.addEventListener("change", () => {
           void this.host
             .updateSettings({ extensions: normalizeExtensions(text.getValue()) })
+            // eslint-disable-next-line @typescript-eslint/no-deprecated -- see the class
             .then(() => this.display());
         });
       });

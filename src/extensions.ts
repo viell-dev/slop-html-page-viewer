@@ -18,7 +18,7 @@ export function normalizeExtensions(input: string | readonly unknown[]): string[
       : input.filter((part) => typeof part === "string");
   const extensions = new Set<string>();
   for (const part of parts) {
-    const extension = (part as string).trim().replace(/^\.+/, "").toLowerCase();
+    const extension = part.trim().replace(/^\.+/, "").toLowerCase();
     if (/^[\p{L}\p{N}_-]+$/u.test(extension)) extensions.add(extension);
   }
   return extensions.size > 0 ? [...extensions] : [...DEFAULT_EXTENSIONS];

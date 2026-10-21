@@ -133,7 +133,7 @@ export class App {
     cachedRead: async (file: TFile): Promise<string> => this.files.get(file.path) ?? "",
     readBinary: async (file: TFile): Promise<ArrayBuffer> => {
       this.binaryReads.push(file.path);
-      return new TextEncoder().encode(this.files.get(file.path) ?? "").buffer as ArrayBuffer;
+      return new TextEncoder().encode(this.files.get(file.path) ?? "").buffer;
     },
     read: async (file: TFile): Promise<string> => {
       this.reads.push(file.path);
@@ -199,7 +199,7 @@ export class App {
     },
     getActiveFile: (): TFile | null => this.activeFile,
     getActiveViewOfType: <T>(type: abstract new (...args: never[]) => T): T | null =>
-      this.activeView instanceof type ? (this.activeView as T) : null,
+      this.activeView instanceof type ? this.activeView : null,
     getLeaf: (pane: false | string = false): WorkspaceLeaf => {
       const leaf = new WorkspaceLeaf(this);
       leaf.pane = pane;

@@ -20,6 +20,13 @@ export default defineConfig(
   // The rules of Obsidian's review of community plugins.
   obsidianmd.configs.recommended,
   {
+    rules: {
+      // That review forbids disabling its rules in place; the fork is not in
+      // Obsidian's directory, and each disable here states its reason.
+      "eslint-comments/no-restricted-disable": "off",
+    },
+  },
+  {
     files: ["**/*.ts"],
     extends: [tseslint.configs.recommendedTypeChecked],
     languageOptions: {

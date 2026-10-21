@@ -221,11 +221,13 @@ class HtmlPageViewerView extends TextFileView {
 
     // While the view has focus, Mod+F opens its find bar rather than Obsidian's,
     // which notes have and this view does not.
+    /* eslint-disable obsidianmd/no-unsupported-api -- declared from 1.5.7, but find.e2e.ts measures it in 1.5.3 */
     this.scope = new Scope(this.app.scope);
     this.scope.register(["Mod"], "f", () => {
       this.openFind();
       return false;
     });
+    /* eslint-enable obsidianmd/no-unsupported-api -- the end of the scope's use */
     this.register(() => {
       this.cancelFindTimer();
       this.clearFindMatches();
@@ -547,6 +549,7 @@ class HtmlPageViewerView extends TextFileView {
     const doc = this.iframe?.contentDocument;
     if (!doc || doc.URL !== "about:srcdoc" || doc.readyState === "loading") return null;
     if (!doc.getElementById(FIND_STYLE_ID)) {
+      // eslint-disable-next-line obsidianmd/prefer-create-el -- the page's document, without Obsidian's helpers
       const style = doc.createElement("style");
       style.id = FIND_STYLE_ID;
       style.textContent = FIND_STYLE;
@@ -811,6 +814,7 @@ class HtmlPageViewerView extends TextFileView {
         target.scrollTo({ top, behavior: "instant" as ScrollBehavior });
       } catch {
         const saved = root.style.getPropertyValue("scroll-behavior");
+        // eslint-disable-next-line obsidianmd/no-static-styles-assignment -- the page's root, for one move
         root.style.setProperty("scroll-behavior", "auto");
         target.scrollTo({ top });
         if (saved) root.style.setProperty("scroll-behavior", saved);

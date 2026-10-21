@@ -523,7 +523,7 @@ describe("copying local files (#11)", () => {
       },
       async readBinary(path) {
         reads.push(path);
-        return path in files ? (new TextEncoder().encode(files[path]).buffer as ArrayBuffer) : null;
+        return path in files ? new TextEncoder().encode(files[path]).buffer : null;
       },
     };
   }

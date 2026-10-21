@@ -28,6 +28,7 @@ const UNSHOWN = new Set(["script", "style", "template", "textarea", "select", "h
  */
 function isHidden(element: Element): boolean {
   if (element.hasAttribute("hidden")) return true;
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- called on its element below
   const check = (element as Element & { checkVisibility?: () => boolean }).checkVisibility;
   if (!check || check.call(element)) return false;
   return element.ownerDocument.defaultView?.getComputedStyle(element).display !== "contents";
@@ -196,6 +197,7 @@ interface HighlightApi {
 }
 
 function highlightApi(win: Window | null): HighlightApi | null {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- without it, Window has neither property
   const scope = win as
     | (Window & {
         Highlight?: new () => Set<Range>;
