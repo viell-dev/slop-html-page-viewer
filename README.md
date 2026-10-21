@@ -51,8 +51,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   does not serve vault files to such a page. Copied stylesheets still apply. [Issue
   #11](https://github.com/viell-dev/slop-html-page-viewer/issues/11) plans another option.
 - **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
-  them, so a link opens in the frame itself. For the same reason, the find bar then finds only in the
-  source view.
+  them, so a link opens in the frame itself. For the same reason, the find bar then finds only in
+  the source view.
 - **A link to a part of another page** opens that page at its top.
 - **Files outside the vault never load**, even when a page refers to them, and links to them are
   refused.
