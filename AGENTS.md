@@ -253,7 +253,10 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   `test/support/obsidian.ts` stands in for the `obsidian` module and records what the plugin asks of
   it, and `test/support/harness.ts` loads the plugin and opens views as Obsidian does. Extend the
   stand-in when the plugin uses more of Obsidian's API, keeping it as Obsidian behaves.
-  `test/policy.test.ts` checks the built bundle for the APIs the security model rules out.
+  `test/policy.test.ts` checks the built bundle for the APIs the security model rules out, and
+  `test/consistency.test.ts` the facts that several files state. When a fact moves, change its
+  check with it. `eslint.config.mjs` and `.prettierrc.json` configure the lint and format checks.
+  [TESTING.md](./TESTING.md) maps the promises to their tests; keep it current.
 - `test/e2e/` runs the built plugin in Obsidian: `wdio.conf.mts` copies `main.js`, `manifest.json`,
   and `styles.css` into `dist/e2e-plugin/` and installs it into a copy of `vaults/pages/`;
   `support/viewer.ts` drives the view; `specs/` holds the suites. Measure loading, origins, and link

@@ -48,14 +48,27 @@ plugin. Use a vault made for testing, with synthetic pages.
 
 ```sh
 npx tsc --noEmit
+npm run lint
+npm run format:check
 npm run build
 npm test
 ```
 
+`npm run lint` runs ESLint with `typescript-eslint`'s type-checked rules and the rules of Obsidian's
+plugin review. A rule that is wrong for one line is disabled on that line, with its reason after
+`--`. `npm run format` formats the code with Prettier; the fixture pages and the prototype build are
+left as they are.
+
 `npm test` bundles each `test/*.test.ts` file with esbuild and runs the bundles with Node.js's test
 runner. The tests run the plugin in a jsdom window, with a stand-in for the parts of Obsidian's API
 that it uses (`test/support/obsidian.ts`), and check what the view shows. A test marked `todo`
-reproduces a known defect and names its issue; remove the marker with the fix.
+reproduces a known defect and names its issue; remove the marker with the fix. No test is skipped
+or focused with `.skip` or `.only`. `test/consistency.test.ts` checks that the versions, changelog,
+release notes, the README's settings, labels, CI jobs, end-to-end suites, and documents' links
+agree.
+
+[TESTING.md](TESTING.md) maps each promise of the README to the tests behind it and lists what no
+test covers. Update it with a change that adds a promise or changes its tests.
 
 ### Tests in Obsidian
 
@@ -119,9 +132,10 @@ to be missing or stored elsewhere.
 ### CI
 
 GitHub Actions runs the type check, build, and tests on Linux and Windows with the Node.js version
-in `.nvmrc`, and an `npm audit` on Linux; `main` requires both platforms. The `e2e` job runs the
-tests in Obsidian on Linux for every pull request, and weekly, so that a new Obsidian release is
-tested within a week. The Docker image is built and run weekly and on request.
+in `.nvmrc`, and the lint and format checks and an `npm audit` on Linux; `main` requires both
+platforms. The `e2e` job runs the tests in Obsidian on Linux for every pull request, and weekly, so
+that a new Obsidian release is tested within a week. The Docker image is built and run weekly and
+on request.
 
 ## Branches
 

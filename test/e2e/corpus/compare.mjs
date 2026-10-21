@@ -1,7 +1,8 @@
 // Compares the corpus results of the plugin with those of the frozen
 // prototype build, on the same Obsidian version: it fails if the prototype
 // showed an image that the plugin does not show, or shows from another file,
-// and prints how the two differ.
+// and prints how the two differ. Unless E2E_ONLY narrows the run, it also
+// fails when the prototype's results are missing.
 //
 // Usage: node test/e2e/corpus/compare.mjs [results directory]
 
@@ -18,8 +19,14 @@ const prototypes = fs
   .filter((name) => /^corpus-prototype-.+\.json$/.test(name));
 
 if (prototypes.length === 0) {
-  console.log("No prototype results to compare with.");
-  process.exit(0);
+  // Only a run that E2E_ONLY narrows may leave the prototype out; otherwise
+  // its results are missing because it failed or never ran.
+  if ((process.env.E2E_ONLY ?? "").trim() !== "") {
+    console.log("No prototype results to compare with: E2E_ONLY narrowed the run.");
+    process.exit(0);
+  }
+  console.error("No prototype results to compare with; the corpus spec did not run with it.");
+  process.exit(1);
 }
 
 let regressions = 0;

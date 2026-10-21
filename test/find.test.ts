@@ -172,6 +172,20 @@ describe("the find bar", () => {
     assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
   });
 
+  it("labels its field and every toolbar button, and announces its count", async () => {
+    const { view } = await sourceView();
+    for (const toolbarButton of view.contentEl.querySelectorAll("button")) {
+      // An icon button has a label; a text button is named by its text.
+      const name = toolbarButton.getAttribute("aria-label") ?? toolbarButton.textContent ?? "";
+      assert.ok(name.trim() !== "", toolbarButton.outerHTML);
+      assert.equal(toolbarButton.getAttribute("type"), "button");
+    }
+    button(view, "Find in page").click();
+    assert.equal(input(view).getAttribute("aria-label"), "Find in page");
+    const counter = view.contentEl.querySelector(".html-page-viewer__find-count");
+    assert.equal(counter?.getAttribute("aria-live"), "polite");
+  });
+
   it("searches as the text changes, after a pause", async () => {
     const { view } = await sourceView();
     button(view, "Find in page").click();

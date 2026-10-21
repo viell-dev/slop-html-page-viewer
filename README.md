@@ -168,6 +168,7 @@ The fork is written and maintained by AI agents, and no person reviews the code.
 accepted on their tests and on CI on Linux and Windows. These include tests in Obsidian itself, on
 the oldest and the newest supported version, of a synthetic vault of archived web pages; on the
 newest version, each page is also compared with how the previous build showed it.
+[TESTING.md](TESTING.md) lists which tests back each promise here, and what they do not cover.
 
 ## Contributing, security, and license
 
