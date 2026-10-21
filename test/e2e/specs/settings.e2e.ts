@@ -86,13 +86,22 @@ async function enterText(name: string, text: string): Promise<string> {
         [...(setting.activeTab?.containerEl?.querySelectorAll(".setting-item") ?? [])].find(
           (candidate) => candidate.querySelector(".setting-item-name")?.textContent === name,
         );
-      const input = find()?.querySelector<HTMLInputElement>("input[type=text]");
+      const before = find();
+      const input = before?.querySelector<HTMLInputElement>("input[type=text]");
       if (!input) throw new Error(`No text field named ${name}`);
       input.value = text;
       // The settings window may be a window of its own, with its own Event.
       const view = input.ownerDocument.defaultView as (Window & typeof globalThis) | null;
       input.dispatchEvent(new (view ?? window).Event("change"));
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // The tab shows the change once the plugin has saved the settings and
+      // rendered the tab again, which replaces its elements; however long the
+      // save takes (#71).
+      const deadline = Date.now() + 10_000;
+      while (find() === before && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (find() === before)
+        throw new Error(`The settings tab did not render again after ${name} changed`);
       return find()?.querySelector(".setting-item-description")?.textContent ?? "";
     },
     name,
@@ -111,14 +120,37 @@ async function viewTypeFor(extension: string): Promise<string | null> {
   );
 }
 
-/** The settings as the plugin saved them in the vault. */
-async function savedSettings(): Promise<Record<string, unknown>> {
-  const text = await browser.executeObsidian(
-    async ({ app }, id) => app.vault.adapter.read(`${app.vault.configDir}/plugins/${id}/data.json`),
-    PLUGIN_ID,
-  );
-  return JSON.parse(text) as Record<string, unknown>;
+/**
+ * The settings as the plugin saved them in the vault, once `saved` holds for
+ * them: the plugin saves them after a change applies, and the save takes its
+ * time (#71). After 10 s, it returns them as they are, for the test to report.
+ */
+async function savedSettings(
+  saved: (settings: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+  const read = async (): Promise<Record<string, unknown>> => {
+    try {
+      const text = await browser.executeObsidian(
+        async ({ app }, id) =>
+          app.vault.adapter.read(`${app.vault.configDir}/plugins/${id}/data.json`),
+        PLUGIN_ID,
+      );
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  };
+  let settings = await read();
+  const deadline = Date.now() + 10_000;
+  while (!saved(settings) && Date.now() < deadline) {
+    await browser.pause(100);
+    settings = await read();
+  }
+  return settings;
 }
+
+const sameList = (value: unknown, list: string[]): boolean =>
+  JSON.stringify(value) === JSON.stringify(list);
 
 describe("The settings in Obsidian", function () {
   afterEach(async function () {
@@ -143,7 +175,10 @@ describe("The settings in Obsidian", function () {
     expect(description).toContain("Another view opens .md, so the viewer does not.");
     await closeSettings();
     try {
-      expect((await savedSettings()).extensions).toEqual(["html", "htm", "xht", "md"]);
+      const wanted = ["html", "htm", "xht", "md"];
+      expect((await savedSettings((s) => sameList(s.extensions, wanted))).extensions).toEqual(
+        wanted,
+      );
       expect(await viewTypeFor("xht")).toBe(VIEW_TYPE);
       expect(await viewTypeFor("md")).toBe("markdown");
       await openInActiveTab("Saved/Other extension.xht");
@@ -158,7 +193,9 @@ describe("The settings in Obsidian", function () {
     }
     expect(await viewTypeFor("xht")).toBe(null);
     expect(await viewTypeFor("htm")).toBe(VIEW_TYPE);
-    expect((await savedSettings()).extensions).toEqual(["html", "htm"]);
+    expect(
+      (await savedSettings((s) => sameList(s.extensions, ["html", "htm"]))).extensions,
+    ).toEqual(["html", "htm"]);
   });
 
   it("wrap long lines in the source view, and stop at once when wrapping is turned off", async function () {
@@ -208,7 +245,7 @@ describe("The settings in Obsidian", function () {
     expect(await clickToggle("Scripts when a page opens")).toBe(true);
     await closeSettings();
     try {
-      expect((await savedSettings()).scriptsOn).toBe(true);
+      expect((await savedSettings((s) => s.scriptsOn === true)).scriptsOn).toBe(true);
       // The open page keeps what it shows; the next one opens with scripts on.
       expect(await frameSandbox()).toBe("allow-same-origin");
       await openInActiveTab("Saved/Other page.html");
@@ -242,7 +279,7 @@ describe("The settings in Obsidian", function () {
     expect(await clickToggle("Local files with scripts on")).toBe(true);
     await closeSettings();
     try {
-      expect((await savedSettings()).copyLocalFiles).toBe(true);
+      expect((await savedSettings((s) => s.copyLocalFiles === true)).copyLocalFiles).toBe(true);
       // The open page, with scripts on, shows its image at once.
       expect(await shows(GREEN, SQUARE_PIXELS * 0.9)).toBeGreaterThanOrEqual(SQUARE_PIXELS * 0.9);
       expect(await frameSandbox()).toBe("allow-scripts");
@@ -284,6 +321,6 @@ describe("The settings in Obsidian", function () {
       await openSettingsTab();
       expect(await clickToggle("Theme in new tabs")).toBe(true);
     }
-    expect((await savedSettings()).themeOn).toBe(true);
+    expect((await savedSettings((s) => s.themeOn === true)).themeOn).toBe(true);
   });
 });
