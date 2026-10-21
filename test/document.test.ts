@@ -131,6 +131,13 @@ describe("inlineStylesheet", () => {
     await inlineStylesheet(`@import "../../../etc/style.css";`, `${VAULT}Mirror/main.css`, ctx);
     assert.deepEqual(ctx.reads, []);
   });
+
+  it("reads only CSS files, and leaves imports of other files as absolute imports", async () => {
+    const ctx = context({ "notes.md": "Private text", "Upper.CSS": "a { x: 1 }" });
+    const css = await inlineStylesheet(`@import "notes.md";\n@import "Upper.CSS";`, `${VAULT}main.css`, ctx);
+    assert.equal(css, `@import url("${VAULT}notes.md");\na { x: 1 }`);
+    assert.deepEqual(ctx.reads, ["Upper.CSS"]);
+  });
 });
 
 describe("preparePage", () => {
@@ -177,6 +184,20 @@ describe("preparePage", () => {
     const page = parse(await prepare(html, ctx));
     assert.equal(page.querySelectorAll("link").length, 5);
     assert.deepEqual(ctx.reads, ["Saved/missing.css"]);
+  });
+
+  it("copies only CSS files, never another vault file that a page links as a stylesheet", async () => {
+    const ctx = context({ "Saved/notes.md": "Private text", "Saved/data.json": "{}", "Saved/Upper.CSS": "a { x: 1 }" });
+    const html = [
+      `<link rel="stylesheet" href="notes.md">`,
+      `<link rel="stylesheet" href="data.json">`,
+      `<link rel="stylesheet" href="Upper.CSS">`,
+      `<style>@import "notes.md";</style>`,
+    ].join("");
+    const page = await prepare(html, ctx);
+    assert.doesNotMatch(page, /Private text/);
+    assert.equal(parse(page).querySelectorAll("link").length, 2);
+    assert.deepEqual(ctx.reads, ["Saved/Upper.CSS"]);
   });
 
   it("keeps copied stylesheets from closing their style element (#26)", async () => {
@@ -300,6 +321,16 @@ describe("preparePage", () => {
     it("locates a stylesheet by name, and its own references from its real location", async () => {
       const page = parse(await prepare(`<link rel="stylesheet" href="site.css">`, locating()));
       assert.equal(page.querySelector("style")?.textContent, `body { background: url("${url("Theme/bg.png")}") }`);
+    });
+
+    it("never copies a note that a stylesheet link finds by name", async () => {
+      const files: Record<string, string> = { "Private/diary.md": "Private text" };
+      const ctx: PageContext = {
+        ...context(files),
+        exists: (path) => path in files,
+        locate: (linktext) => Object.keys(files).find((path) => path.endsWith(`/${linktext}`)) ?? null,
+      };
+      assert.doesNotMatch(await prepare(`<link rel="stylesheet" href="diary.md">`, ctx), /Private text/);
     });
 
     it("locates url()s in style attributes and style elements, and leaves the rest", async () => {
