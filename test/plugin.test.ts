@@ -27,10 +27,13 @@ describe("plugin", () => {
 
   it("registers the extensions once, through Obsidian's API, where Obsidian has no view registry", async () => {
     const harness = await Harness.load({ extensions: ["html", "xht"] }, { viewRegistry: false });
-    assert.deepEqual([...harness.plugin.extensions], [
-      ["html", VIEW_TYPE],
-      ["xht", VIEW_TYPE],
-    ]);
+    assert.deepEqual(
+      [...harness.plugin.extensions],
+      [
+        ["html", VIEW_TYPE],
+        ["xht", VIEW_TYPE],
+      ],
+    );
   });
 
   it("offers its command only while an HTML file is active", async () => {

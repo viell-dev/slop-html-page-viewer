@@ -1,7 +1,8 @@
 // Compares the corpus results of the plugin with those of the frozen
 // prototype build, on the same Obsidian version: it fails if the prototype
 // showed an image that the plugin does not show, or shows from another file,
-// and prints how the two differ.
+// and prints how the two differ. Unless E2E_ONLY narrows the run, it also
+// fails when the prototype's results are missing.
 //
 // Usage: node test/e2e/corpus/compare.mjs [results directory]
 
@@ -9,13 +10,23 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-const directory = path.resolve(process.argv[2] ?? path.join(import.meta.dirname, "../../../test-results/e2e"));
+const directory = path.resolve(
+  process.argv[2] ?? path.join(import.meta.dirname, "../../../test-results/e2e"),
+);
 const read = (name) => JSON.parse(fs.readFileSync(path.join(directory, name), "utf8"));
-const prototypes = fs.readdirSync(directory).filter((name) => /^corpus-prototype-.+\.json$/.test(name));
+const prototypes = fs
+  .readdirSync(directory)
+  .filter((name) => /^corpus-prototype-.+\.json$/.test(name));
 
 if (prototypes.length === 0) {
-  console.log("No prototype results to compare with.");
-  process.exit(0);
+  // Only a run that E2E_ONLY narrows may leave the prototype out; otherwise
+  // its results are missing because it failed or never ran.
+  if ((process.env.E2E_ONLY ?? "").trim() !== "") {
+    console.log("No prototype results to compare with: E2E_ONLY narrowed the run.");
+    process.exit(0);
+  }
+  console.error("No prototype results to compare with; the corpus spec did not run with it.");
+  process.exit(1);
 }
 
 let regressions = 0;
@@ -27,7 +38,14 @@ for (const name of prototypes) {
     process.exit(1);
   }
   const viewer = read(viewerName);
-  const totals = { prototype: 0, viewer: 0, images: 0, styledPrototype: 0, styledViewer: 0, pages: 0 };
+  const totals = {
+    prototype: 0,
+    viewer: 0,
+    images: 0,
+    styledPrototype: 0,
+    styledViewer: 0,
+    pages: 0,
+  };
   for (const [page, before] of Object.entries(prototype.pages)) {
     const after = viewer.pages[page];
     if (!after) {

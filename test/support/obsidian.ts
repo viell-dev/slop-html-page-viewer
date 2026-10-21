@@ -56,7 +56,8 @@ export class Scope {
   /** Presses a hotkey as Obsidian does while the scope is active, and says whether one handled it. */
   press(modifiers: string[], key: string): boolean {
     const handler = this.keys.find(
-      (candidate) => candidate.key === key && JSON.stringify(candidate.modifiers) === JSON.stringify(modifiers),
+      (candidate) =>
+        candidate.key === key && JSON.stringify(candidate.modifiers) === JSON.stringify(modifiers),
     );
     if (handler) {
       handler.func(null);
@@ -132,7 +133,7 @@ export class App {
     cachedRead: async (file: TFile): Promise<string> => this.files.get(file.path) ?? "",
     readBinary: async (file: TFile): Promise<ArrayBuffer> => {
       this.binaryReads.push(file.path);
-      return new TextEncoder().encode(this.files.get(file.path) ?? "").buffer as ArrayBuffer;
+      return new TextEncoder().encode(this.files.get(file.path) ?? "").buffer;
     },
     read: async (file: TFile): Promise<string> => {
       this.reads.push(file.path);
@@ -180,7 +181,9 @@ export class App {
     /** Obsidian's link resolution, simplified: an exact path, else the shortest path ending in the link text. */
     getFirstLinkpathDest: (linktext: string): TFile | null => {
       if (this.files.has(linktext)) return new TFile(linktext);
-      const matches = [...this.files.keys()].filter((path) => path.endsWith(`/${linktext}`)).sort((a, b) => a.length - b.length);
+      const matches = [...this.files.keys()]
+        .filter((path) => path.endsWith(`/${linktext}`))
+        .sort((a, b) => a.length - b.length);
       return matches.length > 0 ? new TFile(matches[0]) : null;
     },
   };
@@ -196,7 +199,7 @@ export class App {
     },
     getActiveFile: (): TFile | null => this.activeFile,
     getActiveViewOfType: <T>(type: abstract new (...args: never[]) => T): T | null =>
-      this.activeView instanceof type ? (this.activeView as T) : null,
+      this.activeView instanceof type ? this.activeView : null,
     getLeaf: (pane: false | string = false): WorkspaceLeaf => {
       const leaf = new WorkspaceLeaf(this);
       leaf.pane = pane;
@@ -237,7 +240,8 @@ export class Plugin {
       return;
     }
     for (const extension of extensions) {
-      if (this.extensions.has(extension)) throw new Error(`Attempting to register an existing file extension "${extension}"`);
+      if (this.extensions.has(extension))
+        throw new Error(`Attempting to register an existing file extension "${extension}"`);
       this.extensions.set(extension, viewType);
     }
   }

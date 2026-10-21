@@ -46,7 +46,8 @@ export function linkTarget(href: string, pageUrl: string, vaultUrl: string): Lin
   // Custom schemes such as Obsidian's app: have opaque origins, so compare the
   // scheme and host: the same ones as the vault's mean a local file.
   const vaultOrigin = new URL(vaultUrl);
-  if (url.protocol === vaultOrigin.protocol && url.host === vaultOrigin.host) return { kind: "outside", url: url.href };
+  if (url.protocol === vaultOrigin.protocol && url.host === vaultOrigin.host)
+    return { kind: "outside", url: url.href };
   return { kind: "external", url: url.href };
 }
 
@@ -63,7 +64,8 @@ export function paneFor(event: MouseEvent, isMacOS: boolean): PaneChoice {
 
 /** What following a link does outside the page. */
 export interface LinkActions {
-  /** eference is the link's href as written, for resolving it by name. */
+  /** 
+eference is the link's href as written, for resolving it by name. */
   openVault(path: string, pane: PaneChoice, reference: string): void;
   openExternal(url: string): void;
   refuse(url: string): void;

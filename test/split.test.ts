@@ -32,7 +32,8 @@ describe("pairing a page's elements with their source lines", () => {
       { name: "p", line: 6 },
       { name: "a", line: 7 },
     ];
-    const html = "<html><head><title>T</title></head><body><h1>H</h1><p>A <a href=x>link</a></p></body></html>";
+    const html =
+      "<html><head><title>T</title></head><body><h1>H</h1><p>A <a href=x>link</a></p></body></html>";
     assert.deepEqual(anchors(html, tags), [
       ["h1", 5],
       ["p", 6],
@@ -61,7 +62,13 @@ describe("pairing a page's elements with their source lines", () => {
   it("keeps its place after a long head without a body tag, and after a template's contents", () => {
     const head = Array.from({ length: 20 }, (_, index) => ({ name: "meta", line: index + 1 }));
     const template = Array.from({ length: 20 }, (_, index) => ({ name: "li", line: 30 + index }));
-    const tags = [...head, { name: "p", line: 21 }, { name: "template", line: 29 }, ...template, { name: "h2", line: 50 }];
+    const tags = [
+      ...head,
+      { name: "p", line: 21 },
+      { name: "template", line: 29 },
+      ...template,
+      { name: "h2", line: 50 },
+    ];
     const html = `${"<meta>".repeat(20)}<p>first</p><template>${"<li>x</li>".repeat(20)}</template><h2>after</h2>`;
     assert.deepEqual(
       anchors(html, tags).filter(([name]) => name !== "li"),
@@ -77,11 +84,21 @@ describe("pairing a page's elements with their source lines", () => {
   function paired(lines: string[]): [string, number][] {
     const html = lines.join("\n");
     const doc = new DOMParser().parseFromString(html, "text/html");
-    return anchorElements(doc.body, startTags(html)).map(({ element, line }) => [element.localName, line]);
+    return anchorElements(doc.body, startTags(html)).map(({ element, line }) => [
+      element.localName,
+      line,
+    ]);
   }
 
   it("aligns past the copies that misnested formatting makes", () => {
-    const lines = ["<body>", "<b><p>one</b>two</p>", "<h2>three</h2>", "<p>four</p>", "<p>five</p>", "<b>six</b>"];
+    const lines = [
+      "<body>",
+      "<b><p>one</b>two</p>",
+      "<h2>three</h2>",
+      "<p>four</p>",
+      "<p>five</p>",
+      "<b>six</b>",
+    ];
     assert.deepEqual(paired(lines), [
       ["b", 2],
       ["h2", 3],
@@ -293,7 +310,8 @@ describe("following a scrolled side", () => {
 
 describe("start tags", () => {
   it("lists each start tag with its line, and no end tags, comments, or script contents", () => {
-    const html = '<!doctype html>\n<p class="a\nb">x</p><!-- <q> -->\n<script>if (a<b) {}</script>\n<IMG\n src="x">';
+    const html =
+      '<!doctype html>\n<p class="a\nb">x</p><!-- <q> -->\n<script>if (a<b) {}</script>\n<IMG\n src="x">';
     assert.deepEqual(startTags(html), [
       { name: "p", line: 2 },
       { name: "script", line: 4 },
@@ -318,7 +336,10 @@ describe("the split view", () => {
 
     const next = harness.newView(view.leaf);
     harness.open(next, "Notes.html", PAGE);
-    assert.ok(next.contentEl.querySelector(".html-page-viewer__split"), "the tab keeps the split view");
+    assert.ok(
+      next.contentEl.querySelector(".html-page-viewer__split"),
+      "the tab keeps the split view",
+    );
   });
 
   it("finds in its source", async () => {
@@ -331,7 +352,10 @@ describe("the split view", () => {
     assert.ok(input);
     input.value = "<p";
     input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    assert.equal(view.contentEl.querySelector(".html-page-viewer__find-count")?.textContent, "1 of 2");
+    assert.equal(
+      view.contentEl.querySelector(".html-page-viewer__find-count")?.textContent,
+      "1 of 2",
+    );
     input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
 
@@ -340,7 +364,10 @@ describe("the split view", () => {
     const view = harness.newView();
     harness.open(view, "Notes.html", PAGE);
     button(view, "Split").click();
-    assert.match(view.contentEl.querySelector(".html-page-viewer__security")?.textContent ?? "", /scroll apart while scripts are on/);
+    assert.match(
+      view.contentEl.querySelector(".html-page-viewer__security")?.textContent ?? "",
+      /scroll apart while scripts are on/,
+    );
   });
 });
 describe("measuring again", () => {
@@ -348,7 +375,12 @@ describe("measuring again", () => {
     let size = 100;
     let time = 0;
     let measures = 0;
-    const value = remeasured(() => (measures += 1), () => size, () => time, 250);
+    const value = remeasured(
+      () => (measures += 1),
+      () => size,
+      () => time,
+      250,
+    );
     assert.equal(value(), 1);
     size = 200;
     time = 100;

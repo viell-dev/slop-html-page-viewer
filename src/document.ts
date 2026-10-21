@@ -87,7 +87,11 @@ export function resourceUrl(path: string, vaultUrl: string): string {
  * exists; otherwise null, and the reference stays as it is. The reference's
  * fragment is kept, as for an SVG symbol.
  */
-export function locatedUrl(reference: string, absolute: string, context: PageContext): string | null {
+export function locatedUrl(
+  reference: string,
+  absolute: string,
+  context: PageContext,
+): string | null {
   if (!context.exists || !context.locate) return null;
   const path = vaultPath(absolute, context.vaultUrl);
   if (path === null || context.exists(path)) return null;
@@ -143,7 +147,8 @@ function unescapeCss(value: string): string {
   });
 }
 
-const URL_TOKEN = /url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^)"'\s\\]|\\.)*))\s*\)/gi;
+const URL_TOKEN =
+  /url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^)"'\s\\]|\\.)*))\s*\)/gi;
 const IMPORT_RULE =
   /@import\s+(?:url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^)"'\s\\]|\\.)*))\s*\)|"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)')\s*([^;]*);/gi;
 
@@ -153,24 +158,31 @@ const IMPORT_RULE =
  * the context can (`locatedUrl`).
  */
 export function absoluteUrls(css: string, sheetUrl: string, context?: PageContext): string {
-  return css.replace(URL_TOKEN, (token: string, double?: string, single?: string, bare?: string) => {
-    const reference = unescapeCss(double ?? single ?? bare ?? "");
-    // An empty reference or a fragment refers to the document, as in SVG filters.
-    if (reference === "" || reference.startsWith("#")) return token;
-    const absolute = resolve(reference, sheetUrl);
-    if (absolute === null) return token;
-    return `url(${cssString((context && locatedUrl(reference, absolute, context)) ?? absolute)})`;
-  });
+  return css.replace(
+    URL_TOKEN,
+    (token: string, double?: string, single?: string, bare?: string) => {
+      const reference = unescapeCss(double ?? single ?? bare ?? "");
+      // An empty reference or a fragment refers to the document, as in SVG filters.
+      if (reference === "" || reference.startsWith("#")) return token;
+      const absolute = resolve(reference, sheetUrl);
+      if (absolute === null) return token;
+      return `url(${cssString((context && locatedUrl(reference, absolute, context)) ?? absolute)})`;
+    },
+  );
 }
 
 /** Replaces only the `url()`s in CSS that `locatedUrl` locates by name. */
 function locateCssUrls(css: string, baseUrl: string, context: PageContext): string {
-  return css.replace(URL_TOKEN, (token: string, double?: string, single?: string, bare?: string) => {
-    const reference = unescapeCss(double ?? single ?? bare ?? "");
-    const absolute = reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
-    const located = absolute === null ? null : locatedUrl(reference, absolute, context);
-    return located === null ? token : `url(${cssString(located)})`;
-  });
+  return css.replace(
+    URL_TOKEN,
+    (token: string, double?: string, single?: string, bare?: string) => {
+      const reference = unescapeCss(double ?? single ?? bare ?? "");
+      const absolute =
+        reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
+      const located = absolute === null ? null : locatedUrl(reference, absolute, context);
+      return located === null ? token : `url(${cssString(located)})`;
+    },
+  );
 }
 
 /** Attributes holding a URL of a resource the page loads, by element. */
@@ -286,11 +298,15 @@ export async function inlineStylesheet(
     const target = located ?? absolute;
     const path = target === null ? null : vaultPath(target, context.vaultUrl);
     const conditions = media.trim();
-    let text = target === null ? rule : `@import url(${cssString(target)})${conditions ? ` ${conditions}` : ""};`;
+    let text =
+      target === null
+        ? rule
+        : `@import url(${cssString(target)})${conditions ? ` ${conditions}` : ""};`;
     // Cascade layers and support conditions have no plain block form to wrap
     // the imported text in, so such imports stay imports.
     const wrappable = !/\b(layer|supports)\s*\(|^layer\b/i.test(conditions);
-    const readable = path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
+    const readable =
+      path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
     if (target !== null && path !== null && readable && wrappable) {
       const imported = await context.read(path);
       if (imported !== null) {
@@ -449,10 +465,12 @@ class FileCopier {
   }
 
   /** The first pass: notes a reference and leaves it as it is. */
+  // eslint-disable-next-line @typescript-eslint/require-await -- a Visit returns a promise
   readonly note: Visit = async (url) => {
     const target = this.target(url);
     const size = target === null ? null : this.files.size(target.path);
-    if (target !== null && size !== null) this.noted.push({ path: target.path, size, rank: copyRank(target.type) });
+    if (target !== null && size !== null)
+      this.noted.push({ path: target.path, size, rank: copyRank(target.type) });
     return null;
   };
 
@@ -506,9 +524,11 @@ async function visitCssUrls(css: string, baseUrl: string, visit: Visit): Promise
   for (const match of css.matchAll(URL_TOKEN)) {
     const [token, double, single, bare] = match;
     const reference = unescapeCss(double ?? single ?? bare ?? "");
-    const absolute = reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
+    const absolute =
+      reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
     const replaced = absolute === null ? null : await visit(absolute);
-    result += css.slice(cursor, match.index) + (replaced === null ? token : `url(${cssString(replaced)})`);
+    result +=
+      css.slice(cursor, match.index) + (replaced === null ? token : `url(${cssString(replaced)})`);
     cursor = match.index + token.length;
   }
   return result + css.slice(cursor);
@@ -522,7 +542,9 @@ async function visitSrcset(srcset: string, baseUrl: string, visit: Visit): Promi
     const [whole, comma, space, url] = match;
     const absolute = resolve(url, baseUrl);
     const replaced = absolute === null ? null : await visit(absolute);
-    result += srcset.slice(cursor, match.index) + (replaced === null ? whole : `${comma}${space}${replaced}`);
+    result +=
+      srcset.slice(cursor, match.index) +
+      (replaced === null ? whole : `${comma}${space}${replaced}`);
     cursor = match.index + whole.length;
   }
   return result + srcset.slice(cursor);
@@ -567,7 +589,12 @@ async function visitFileReferences(doc: Document, baseUrl: string, visit: Visit)
  * refer to into the page as `data:` URLs, for a page with scripts on, which
  * cannot load them otherwise. Other references stay as they are.
  */
-async function copyReferencedFiles(doc: Document, baseUrl: string, files: LocalFiles, vaultUrl: string): Promise<CopiedFiles> {
+async function copyReferencedFiles(
+  doc: Document,
+  baseUrl: string,
+  files: LocalFiles,
+  vaultUrl: string,
+): Promise<CopiedFiles> {
   const copier = new FileCopier(files, vaultUrl);
   await visitFileReferences(doc, baseUrl, copier.note);
   copier.plan();
@@ -596,11 +623,17 @@ export interface PreparedPage {
 
 /** Whether a page has a stylesheet of its own: a <style> or a stylesheet link. */
 function hasOwnStyles(doc: Document): boolean {
-  return doc.querySelector("style") !== null || [...doc.querySelectorAll("link")].some(isStylesheetLink);
+  return (
+    doc.querySelector("style") !== null || [...doc.querySelectorAll("link")].some(isStylesheetLink)
+  );
 }
 
 /** Prepares the copy of a page that the rendered view shows. */
-export async function preparePage(html: string, context: PageContext, options: PageOptions = {}): Promise<PreparedPage> {
+export async function preparePage(
+  html: string,
+  context: PageContext,
+  options: PageOptions = {},
+): Promise<PreparedPage> {
   const doc = new DOMParser().parseFromString(html, "text/html");
   const ownStyles = hasOwnStyles(doc);
 
@@ -621,12 +654,15 @@ export async function preparePage(html: string, context: PageContext, options: P
     if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
     const css = await context.read(path);
     if (css === null) continue;
+    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const style = doc.createElement("style");
     for (const name of ["media", "title"]) {
       const value = link.getAttribute(name);
       if (value !== null) style.setAttribute(name, value);
     }
-    style.textContent = styleElementText(await inlineStylesheet(css, sheetUrl, context, new Set([path])));
+    style.textContent = styleElementText(
+      await inlineStylesheet(css, sheetUrl, context, new Set([path])),
+    );
     link.replaceWith(style);
   }
 
@@ -650,14 +686,17 @@ export async function preparePage(html: string, context: PageContext, options: P
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
 
+  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const policy = doc.createElement("meta");
   policy.setAttribute("http-equiv", "Content-Security-Policy");
   policy.setAttribute("content", pagePolicy(context.vaultUrl));
+  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const base = doc.createElement("base");
   base.setAttribute("href", baseUrl);
   doc.head.prepend(policy, base);
 
   if (!ownStyles && options.readingStyle !== undefined) {
+    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const reading = doc.createElement("style");
     reading.id = READING_STYLE_ID;
     reading.textContent = styleElementText(options.readingStyle);

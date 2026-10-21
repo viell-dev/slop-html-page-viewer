@@ -33,6 +33,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx tsc --noEmit
+      # Linting and formatting give the same result on every system.
+      - if: runner.os == 'Linux'
+        run: npm run lint
+      - if: runner.os == 'Linux'
+        run: npm run format:check
       - run: npm run build
       - run: npm test
       - if: runner.os == 'Linux'

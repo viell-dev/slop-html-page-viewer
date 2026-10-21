@@ -2,7 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { browser, expect } from "@wdio/globals";
 import { type Color, solidPng } from "../support/pixels.ts";
-import { clickToolbarButton, framePixels, openInActiveTab, saveScreenshot, vaultFolder, waitForPage } from "../support/viewer.ts";
+import {
+  clickToolbarButton,
+  framePixels,
+  openInActiveTab,
+  saveScreenshot,
+  vaultFolder,
+  waitForPage,
+} from "../support/viewer.ts";
 
 // The fixture image's green, and the mirrored site's banner blue.
 const GREEN: Color = [46, 125, 50];

@@ -31,7 +31,9 @@ async function openedUrls(): Promise<string[]> {
 
 async function frameLocation(): Promise<string> {
   return browser.execute(() => {
-    const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
+    const frame = document.querySelector<HTMLIFrameElement>(
+      ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
+    );
     try {
       return frame?.contentWindow?.location.href ?? "none";
     } catch {
@@ -45,7 +47,11 @@ describe("Links in a page in Obsidian", function () {
     await browser.executeObsidian(({ app }) => {
       // Start each test with one tab.
       app.workspace.iterateAllLeaves((leaf) => {
-        if (leaf !== app.workspace.getMostRecentLeaf() && leaf.getRoot() === app.workspace.rootSplit) leaf.detach();
+        if (
+          leaf !== app.workspace.getMostRecentLeaf() &&
+          leaf.getRoot() === app.workspace.rootSplit
+        )
+          leaf.detach();
       });
     });
   });
@@ -102,19 +108,25 @@ describe("Links in a page in Obsidian", function () {
       });
     const before = await tabs();
     await clickInPage('a[href="about.html"]', [CONTROL]);
-    await browser.waitUntil(async () => (await tabs()) === before + 1, { timeoutMsg: "no new tab opened" });
+    await browser.waitUntil(async () => (await tabs()) === before + 1, {
+      timeoutMsg: "no new tab opened",
+    });
   });
 
   it("scrolls to a part of the page", async function () {
     await openInActiveTab("Saved/Long page.html");
     await waitForPage();
     await browser.execute(() => {
-      document.querySelector(".workspace-leaf.mod-active iframe.html-page-viewer__frame")?.setAttribute("data-e2e-marker", "");
+      document
+        .querySelector(".workspace-leaf.mod-active iframe.html-page-viewer__frame")
+        ?.setAttribute("data-e2e-marker", "");
     });
     const attempts = await clickInPage('a[href="#end"]');
     await browser.pause(500);
     const after = await browser.execute(() => {
-      const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
+      const frame = document.querySelector<HTMLIFrameElement>(
+        ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
+      );
       const end = frame?.contentDocument?.getElementById("end")?.getBoundingClientRect();
       const height = frame?.contentWindow?.innerHeight ?? 0;
       let location = "cross-origin";
@@ -126,10 +138,20 @@ describe("Links in a page in Obsidian", function () {
       return {
         sameFrame: frame?.hasAttribute("data-e2e-marker") ?? false,
         endInView: end !== undefined && end.top >= 0 && end.top < height,
-        detail: { location, scrollY: frame?.contentWindow?.scrollY ?? null, endTop: end?.top ?? null, height },
+        detail: {
+          location,
+          scrollY: frame?.contentWindow?.scrollY ?? null,
+          endTop: end?.top ?? null,
+          height,
+        },
       };
     });
-    expect({ sameFrame: after.sameFrame, endInView: after.endInView, attempts, detail: after.detail }).toEqual({
+    expect({
+      sameFrame: after.sameFrame,
+      endInView: after.endInView,
+      attempts,
+      detail: after.detail,
+    }).toEqual({
       sameFrame: true,
       endInView: true,
       attempts,
@@ -142,7 +164,9 @@ describe("Links in a page in Obsidian", function () {
     await openInActiveTab("Saved/Long page.html");
     await waitForPage();
     await clickInPage('a[href="../../outside.html"]');
-    const notice = await browser.$(".notice=This link leads outside the vault, so it was not opened.");
+    const notice = await browser.$(
+      ".notice=This link leads outside the vault, so it was not opened.",
+    );
     await notice.waitForExist();
     expect(await frameLocation()).toBe("about:srcdoc");
     expect((await activeFile()).path).toBe("Saved/Long page.html");
@@ -166,7 +190,9 @@ describe("Links in a page in Obsidian", function () {
       await browser.waitUntil(
         async () =>
           browser.execute((active) => {
-            const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)?.contentDocument;
+            const doc = document.querySelector<HTMLIFrameElement>(
+              `${active} iframe.html-page-viewer__frame`,
+            )?.contentDocument;
             return doc?.URL === "about:srcdoc" && doc.readyState === "interactive";
           }, ACTIVE),
         { timeoutMsg: "the page did not reach the state between parsing and loading" },
@@ -186,9 +212,14 @@ describe("Links in a page in Obsidian", function () {
     await openInActiveTab("Saved/Example article.html");
     await waitForPage();
     const shown = await browser.execute((active) => {
-      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)?.contentDocument;
+      const doc = document.querySelector<HTMLIFrameElement>(
+        `${active} iframe.html-page-viewer__frame`,
+      )?.contentDocument;
       return {
-        links: [...(doc?.querySelectorAll("a") ?? [])].map((link) => [link.textContent, link.getAttribute("title")]),
+        links: [...(doc?.querySelectorAll("a") ?? [])].map((link) => [
+          link.textContent,
+          link.getAttribute("title"),
+        ]),
         images: [...(doc?.images ?? [])].map((image) => image.getAttribute("title")),
       };
     }, ACTIVE);
@@ -204,8 +235,15 @@ describe("Links in a page in Obsidian", function () {
     await clickToolbarButton("Scripts OFF");
     try {
       const titled = await browser.execute((active) => {
-        const srcdoc = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)?.srcdoc ?? "";
-        return new DOMParser().parseFromString(srcdoc, "text/html").querySelector("a")?.getAttribute("title") ?? null;
+        const srcdoc =
+          document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)
+            ?.srcdoc ?? "";
+        return (
+          new DOMParser()
+            .parseFromString(srcdoc, "text/html")
+            .querySelector("a")
+            ?.getAttribute("title") ?? null
+        );
       }, ACTIVE);
       expect(titled).toBe("https://example.com/article");
     } finally {

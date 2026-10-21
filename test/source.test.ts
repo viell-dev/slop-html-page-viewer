@@ -43,8 +43,14 @@ describe("source view", () => {
       const shown = lines(view);
       assert.equal(shown.length, expected.length);
       shown.forEach((line, index) => {
-        assert.equal(line.querySelector(".html-page-viewer__line-number")?.textContent, String(index + 1));
-        assert.equal(line.querySelector(".html-page-viewer__source-code")?.textContent, expected[index]);
+        assert.equal(
+          line.querySelector(".html-page-viewer__line-number")?.textContent,
+          String(index + 1),
+        );
+        assert.equal(
+          line.querySelector(".html-page-viewer__source-code")?.textContent,
+          expected[index],
+        );
       });
     });
   }
@@ -116,7 +122,10 @@ describe("source view", () => {
   it("keeps the spaces between attributes (#52)", async () => {
     for (const data of ["<input a b c>", "<input disabled >", '<a href = "x">y</a>']) {
       const view = await showSource(data);
-      assert.equal(lines(view)[0].querySelector(".html-page-viewer__source-code")?.textContent, data);
+      assert.equal(
+        lines(view)[0].querySelector(".html-page-viewer__source-code")?.textContent,
+        data,
+      );
     }
     const view = await showSource("<input disabled hidden>");
     assert.deepEqual(tokens(lines(view)[0]), [
@@ -142,7 +151,9 @@ describe("source view", () => {
 
   it("highlights attribute names as HTML reads them (#53)", async () => {
     const view = await showSource('<a @click="go()" :class="c" [value]="v" #ref>');
-    const names = tokens(lines(view)[0]).filter(([kind]) => kind === "attr").map(([, text]) => text);
+    const names = tokens(lines(view)[0])
+      .filter(([kind]) => kind === "attr")
+      .map(([, text]) => text);
     assert.deepEqual(names, ["@click", ":class", "[value]", "#ref"]);
   });
 
@@ -189,9 +200,36 @@ describe("source view", () => {
   it("shows any text unchanged, line by line", async () => {
     // Fragments of markup in random order, from a fixed seed.
     const pieces = [
-      ...["<", ">", "/", "!", "?", "-", "--", "=", '"', "'", " ", "\t", "\n", "a", "B", "1", "&amp;"],
+      ...[
+        "<",
+        ">",
+        "/",
+        "!",
+        "?",
+        "-",
+        "--",
+        "=",
+        '"',
+        "'",
+        " ",
+        "\t",
+        "\n",
+        "a",
+        "B",
+        "1",
+        "&amp;",
+      ],
       ...["<!--", "-->", "--!>", "<!DOCTYPE", "<p ", "x=", "\r"],
-      ...["<script>", "</script>", "</SCRIPT ", "</scriptx>", "<style>", "</style>", "<title>", "<plaintext>"],
+      ...[
+        "<script>",
+        "</script>",
+        "</SCRIPT ",
+        "</scriptx>",
+        "<style>",
+        "</style>",
+        "<title>",
+        "<plaintext>",
+      ],
     ];
     let seed = 1;
     const random = (limit: number): number => {
@@ -208,7 +246,9 @@ describe("source view", () => {
       const view = harness.newView();
       harness.open(view, "page.html", data);
       button(view, "Source").click();
-      const shown = lines(view).map((line) => line.querySelector(".html-page-viewer__source-code")?.textContent);
+      const shown = lines(view).map(
+        (line) => line.querySelector(".html-page-viewer__source-code")?.textContent,
+      );
       assert.deepEqual(shown, data.split("\n"), JSON.stringify(data));
     }
   });
@@ -221,7 +261,9 @@ describe("source view", () => {
       const view = harness.newView();
       harness.open(view, "page.html", data);
       button(view, "Source").click();
-      const shown = lines(view).map((line) => line.querySelector(".html-page-viewer__source-code")?.textContent);
+      const shown = lines(view).map(
+        (line) => line.querySelector(".html-page-viewer__source-code")?.textContent,
+      );
       assert.deepEqual(shown, data.split("\n"), JSON.stringify(data));
     }
   });

@@ -45,7 +45,10 @@ export function solidPng(size: number, color: Color): Buffer {
   header.writeUInt32BE(size, 4);
   header[8] = 8;
   header[9] = 2;
-  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: size }, () => color).flat())]);
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.from(Array.from({ length: size }, () => color).flat()),
+  ]);
   const data = zlib.deflateSync(Buffer.concat(Array.from({ length: size }, () => row)));
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),

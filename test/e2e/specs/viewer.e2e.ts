@@ -45,8 +45,10 @@ describe("The viewer in Obsidian", function () {
   });
 
   it("keeps the tab's view mode and theme while the tab shows a note, and not in a new tab", async function () {
-    const themeButton = async (): Promise<string> => browser.$(`${ACTIVE} .html-page-viewer__theme-toggle`).getText();
-    const showsSource = async (): Promise<boolean> => browser.$(`${ACTIVE} .html-page-viewer__source`).isExisting();
+    const themeButton = async (): Promise<string> =>
+      browser.$(`${ACTIVE} .html-page-viewer__theme-toggle`).getText();
+    const showsSource = async (): Promise<boolean> =>
+      browser.$(`${ACTIVE} .html-page-viewer__source`).isExisting();
     await openInActiveTab("Saved/Other page.html");
     await clickToolbarButton("Theme ON");
     await clickToolbarButton("Source");
@@ -69,7 +71,9 @@ describe("The viewer in Obsidian", function () {
     } finally {
       await browser.executeObsidian(({ app }) => {
         app.workspace.getMostRecentLeaf()?.detach();
-        const tab = (window as unknown as { e2eTab: Parameters<typeof app.workspace.setActiveLeaf>[0] }).e2eTab;
+        const tab = (
+          window as unknown as { e2eTab: Parameters<typeof app.workspace.setActiveLeaf>[0] }
+        ).e2eTab;
         app.workspace.setActiveLeaf(tab, { focus: true });
       });
     }
@@ -82,7 +86,9 @@ describe("The viewer in Obsidian", function () {
     await clickToolbarButton("Source");
     const expected = await browser.executeObsidian(async ({ app }) => {
       const file = app.vault.getAbstractFileByPath("Saved/Example article.html");
-      return file && "extension" in file ? (await app.vault.read(file as never)).split("\n").length : 0;
+      return file && "extension" in file
+        ? (await app.vault.read(file as never)).split("\n").length
+        : 0;
     });
     const lines = await browser.$$(`${ACTIVE} .html-page-viewer__source-line`);
     expect(lines.length).toBe(expected);

@@ -16,7 +16,10 @@ describe("linkTarget", () => {
     [`${VAULT}Notes/Topic.md`, { kind: "vault", path: "Notes/Topic.md" }],
     [`${VAULT}Mirror/`, { kind: "vault", path: "Mirror/" }],
     [VAULT, { kind: "vault", path: "" }],
-    ["app://vault-id/home/user/secret.html", { kind: "outside", url: "app://vault-id/home/user/secret.html" }],
+    [
+      "app://vault-id/home/user/secret.html",
+      { kind: "outside", url: "app://vault-id/home/user/secret.html" },
+    ],
     ["https://example.com/article", { kind: "external", url: "https://example.com/article" }],
     ["mailto:someone@example.com", { kind: "external", url: "mailto:someone@example.com" }],
     ["obsidian://open?vault=Other", { kind: "external", url: "obsidian://open?vault=Other" }],

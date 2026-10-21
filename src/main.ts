@@ -10,11 +10,25 @@ import {
   setIcon,
 } from "obsidian";
 import { type LocalFiles, preparePage, styleElementText, withoutQuery } from "./document";
-import { FIND_STYLE, FIND_STYLE_ID, findRanges, Highlighter, pageRuns, sourceRuns, type TextRun } from "./find";
+import {
+  FIND_STYLE,
+  FIND_STYLE_ID,
+  findRanges,
+  Highlighter,
+  pageRuns,
+  sourceRuns,
+  type TextRun,
+} from "./find";
 import { type PaneChoice, watchLinks } from "./links";
 import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
-import { DEFAULT_SETTINGS, readSettings, type SettingsHost, type ViewerSettings, ViewerSettingTab } from "./settings";
+import {
+  DEFAULT_SETTINGS,
+  readSettings,
+  type SettingsHost,
+  type ViewerSettings,
+  ViewerSettingTab,
+} from "./settings";
 import {
   anchorElements,
   lineAtTop,
@@ -55,10 +69,7 @@ export default class HtmlPageViewerPlugin extends Plugin implements SettingsHost
 
   async onload(): Promise<void> {
     this.settings = readSettings(await this.loadData());
-    this.registerView(
-      VIEW_TYPE_HTML_PAGE_VIEWER,
-      (leaf) => new HtmlPageViewerView(leaf, this),
-    );
+    this.registerView(VIEW_TYPE_HTML_PAGE_VIEWER, (leaf) => new HtmlPageViewerView(leaf, this));
     this.registerFileExtensions();
     this.addSettingTab(new ViewerSettingTab(this.app, this));
 
@@ -210,11 +221,13 @@ class HtmlPageViewerView extends TextFileView {
 
     // While the view has focus, Mod+F opens its find bar rather than Obsidian's,
     // which notes have and this view does not.
+    /* eslint-disable obsidianmd/no-unsupported-api -- declared from 1.5.7, but find.e2e.ts measures it in 1.5.3 */
     this.scope = new Scope(this.app.scope);
     this.scope.register(["Mod"], "f", () => {
       this.openFind();
       return false;
     });
+    /* eslint-enable obsidianmd/no-unsupported-api -- the end of the scope's use */
     this.register(() => {
       this.cancelFindTimer();
       this.clearFindMatches();
@@ -229,7 +242,8 @@ class HtmlPageViewerView extends TextFileView {
   private updateCopying(): void {
     if (!this.scriptsEnabled) return;
     if (this.securityNote) this.securityNote.textContent = this.securityText();
-    if (this.iframe !== null && this.plugin.settings.copyLocalFiles !== this.copyingFiles) this.render();
+    if (this.iframe !== null && this.plugin.settings.copyLocalFiles !== this.copyingFiles)
+      this.render();
   }
 
   /** Wraps the source view's long lines, or not, as the settings say. */
@@ -339,10 +353,14 @@ class HtmlPageViewerView extends TextFileView {
     if (!this.scriptsEnabled) {
       return "Sandbox blocks scripts, forms, popups, and top navigation; the page can show files from this vault.";
     }
-    const apart = this.mode === "split" ? " The source and the page scroll apart while scripts are on." : "";
-    return (this.plugin.settings.copyLocalFiles
-      ? "Sandbox allows scripts, isolated from Obsidian; the page's local images, media, text tracks, fonts, and scripts are copied into it, where its scripts can read them. Forms, popups, and top navigation remain blocked."
-      : "Sandbox allows scripts, isolated from Obsidian and from this vault's files; forms, popups, and top navigation remain blocked.") + apart;
+    const apart =
+      this.mode === "split" ? " The source and the page scroll apart while scripts are on." : "";
+    return (
+      (this.plugin.settings.copyLocalFiles
+        ? "Sandbox allows scripts, isolated from Obsidian; the page's local images, media, text tracks, fonts, and scripts are copied into it, where its scripts can read them. Forms, popups, and top navigation remain blocked."
+        : "Sandbox allows scripts, isolated from Obsidian and from this vault's files; forms, popups, and top navigation remain blocked.") +
+      apart
+    );
   }
 
   private renderTitle(parent: HTMLElement): void {
@@ -379,14 +397,19 @@ class HtmlPageViewerView extends TextFileView {
     }
 
     const findButton = createIconButton(toolbar, "search", "Find in page");
-    findButton.addEventListener("click", () => (this.find.open ? this.closeFind() : this.openFind()));
+    findButton.addEventListener("click", () =>
+      this.find.open ? this.closeFind() : this.openFind(),
+    );
 
     const refreshButton = createIconButton(toolbar, "refresh-cw", "Refresh preview");
     refreshButton.addEventListener("click", () => {
       void this.reloadFile();
     });
 
-    const scriptsButton = createTextButton(toolbar, this.scriptsEnabled ? "Scripts ON" : "Scripts OFF");
+    const scriptsButton = createTextButton(
+      toolbar,
+      this.scriptsEnabled ? "Scripts ON" : "Scripts OFF",
+    );
     scriptsButton.addClass("html-page-viewer__scripts-toggle");
     scriptsButton.toggleClass("is-enabled", this.scriptsEnabled);
     scriptsButton.setAttribute("aria-pressed", String(this.scriptsEnabled));
@@ -434,7 +457,9 @@ class HtmlPageViewerView extends TextFileView {
     this.findBar = null;
     if (refocus) {
       const shown =
-        this.mode === "rendered" ? this.iframe : this.contentEl.querySelector<HTMLElement>(".html-page-viewer__source");
+        this.mode === "rendered"
+          ? this.iframe
+          : this.contentEl.querySelector<HTMLElement>(".html-page-viewer__source");
       shown?.focus();
     }
   }
@@ -459,7 +484,12 @@ class HtmlPageViewerView extends TextFileView {
   private renderFindBar(parent: HTMLElement): HTMLElement {
     const bar = parent.createDiv({ cls: "html-page-viewer__find" });
     const input = bar.createEl("input", {
-      attr: { type: "search", placeholder: "Find", "aria-label": "Find in page", spellcheck: "false" },
+      attr: {
+        type: "search",
+        placeholder: "Find",
+        "aria-label": "Find in page",
+        spellcheck: "false",
+      },
     });
     input.value = this.find.query;
     bar.createSpan({ cls: "html-page-viewer__find-count", attr: { "aria-live": "polite" } });
@@ -511,12 +541,15 @@ class HtmlPageViewerView extends TextFileView {
     // The split view finds in its source, which the page follows while it can.
     if (this.mode !== "rendered") {
       const source = this.contentEl.querySelector(".html-page-viewer__source");
-      return source ? { runs: sourceRuns(source), win: this.contentEl.ownerDocument.defaultView } : null;
+      return source
+        ? { runs: sourceRuns(source), win: this.contentEl.ownerDocument.defaultView }
+        : null;
     }
     if (this.scriptsEnabled) return "Find works in the source view while scripts are on.";
     const doc = this.iframe?.contentDocument;
     if (!doc || doc.URL !== "about:srcdoc" || doc.readyState === "loading") return null;
     if (!doc.getElementById(FIND_STYLE_ID)) {
+      // eslint-disable-next-line obsidianmd/prefer-create-el -- the page's document, without Obsidian's helpers
       const style = doc.createElement("style");
       style.id = FIND_STYLE_ID;
       style.textContent = FIND_STYLE;
@@ -581,7 +614,10 @@ class HtmlPageViewerView extends TextFileView {
     // `getConfig` is not in Obsidian's API types, though Obsidian 1.5 and later
     // have it. Readable line length is on by default.
     const vault = this.app.vault as unknown as { getConfig?: (setting: string) => unknown };
-    return readingStylesheet(readTheme(this.contentEl.ownerDocument), vault.getConfig?.("readableLineLength") !== false);
+    return readingStylesheet(
+      readTheme(this.contentEl.ownerDocument),
+      vault.getConfig?.("readableLineLength") !== false,
+    );
   }
 
   /**
@@ -635,7 +671,8 @@ class HtmlPageViewerView extends TextFileView {
     const readingStyle = this.themeEnabled ? this.readingStyle() : undefined;
     // Only a page with scripts on needs its files copied: with scripts off, it
     // loads them itself.
-    const copyFiles = this.scriptsEnabled && this.plugin.settings.copyLocalFiles ? this.localFiles() : undefined;
+    const copyFiles =
+      this.scriptsEnabled && this.plugin.settings.copyLocalFiles ? this.localFiles() : undefined;
     this.copyingFiles = copyFiles !== undefined;
     let page: string;
     let ownStyles = false;
@@ -649,7 +686,8 @@ class HtmlPageViewerView extends TextFileView {
           vaultUrl,
           read: (path) => this.readVaultText(path),
           exists: (path) => this.app.vault.getAbstractFileByPath(path) !== null,
-          locate: (linktext) => this.app.metadataCache.getFirstLinkpathDest(linktext, file.path)?.path ?? null,
+          locate: (linktext) =>
+            this.app.metadataCache.getFirstLinkpathDest(linktext, file.path)?.path ?? null,
         },
         { readingStyle, copyFiles },
       );
@@ -681,7 +719,8 @@ class HtmlPageViewerView extends TextFileView {
       if (!watched.has(doc)) {
         watched.add(doc);
         watchLinks(doc, pageUrl, vaultUrl, Platform.isMacOS, {
-          openVault: (path, pane, reference) => void this.openVaultPath(path, pane, reference, file.path),
+          openVault: (path, pane, reference) =>
+            void this.openVaultPath(path, pane, reference, file.path),
           openExternal: (url) => window.open(url),
           refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
         });
@@ -732,7 +771,9 @@ class HtmlPageViewerView extends TextFileView {
    */
   private syncScrolling(iframe: HTMLIFrameElement, doc: Document): void {
     const win = doc.defaultView;
-    const source = this.contentEl.querySelector<HTMLElement>(".html-page-viewer__split .html-page-viewer__source");
+    const source = this.contentEl.querySelector<HTMLElement>(
+      ".html-page-viewer__split .html-page-viewer__source",
+    );
     const main = this.contentEl.ownerDocument.defaultView;
     if (!doc.body || !win || !source || !main?.requestAnimationFrame) return;
 
@@ -758,7 +799,10 @@ class HtmlPageViewerView extends TextFileView {
       now,
     );
     const lineTops = remeasured(
-      () => [...source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")].map((line) => line.offsetTop),
+      () =>
+        [...source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")].map(
+          (line) => line.offsetTop,
+        ),
       () => source.scrollHeight,
       now,
     );
@@ -770,6 +814,7 @@ class HtmlPageViewerView extends TextFileView {
         target.scrollTo({ top, behavior: "instant" as ScrollBehavior });
       } catch {
         const saved = root.style.getPropertyValue("scroll-behavior");
+        // eslint-disable-next-line obsidianmd/no-static-styles-assignment -- the page's root, for one move
         root.style.setProperty("scroll-behavior", "auto");
         target.scrollTo({ top });
         if (saved) root.style.setProperty("scroll-behavior", saved);
@@ -810,13 +855,20 @@ class HtmlPageViewerView extends TextFileView {
    * whose path leads nowhere opens the file Obsidian's link resolution finds
    * for it from this page, by name or by a partial path.
    */
-  private async openVaultPath(path: string, pane: PaneChoice, reference: string, pagePath: string): Promise<void> {
+  private async openVaultPath(
+    path: string,
+    pane: PaneChoice,
+    reference: string,
+    pagePath: string,
+  ): Promise<void> {
     const vault = this.app.vault;
     const clean = path.replace(/\/+$/, "");
     let target = clean === "" ? vault.getRoot() : vault.getAbstractFileByPath(clean);
     if (target !== null && !(target instanceof TFile)) {
       const folder = clean === "" ? "" : `${clean}/`;
-      target = vault.getAbstractFileByPath(`${folder}index.html`) ?? vault.getAbstractFileByPath(`${folder}index.htm`);
+      target =
+        vault.getAbstractFileByPath(`${folder}index.html`) ??
+        vault.getAbstractFileByPath(`${folder}index.htm`);
     } else if (target === null) {
       let linktext = "";
       try {
@@ -824,7 +876,8 @@ class HtmlPageViewerView extends TextFileView {
       } catch {
         // A malformed reference names nothing.
       }
-      target = linktext === "" ? null : this.app.metadataCache.getFirstLinkpathDest(linktext, pagePath);
+      target =
+        linktext === "" ? null : this.app.metadataCache.getFirstLinkpathDest(linktext, pagePath);
     }
     if (target instanceof TFile) {
       await this.app.workspace.getLeaf(pane).openFile(target);
@@ -924,7 +977,16 @@ interface Token {
 }
 
 /** Elements whose contents HTML reads as text up to their end tag. */
-const RAW_TEXT_ELEMENTS = new Set(["iframe", "noembed", "noframes", "script", "style", "textarea", "title", "xmp"]);
+const RAW_TEXT_ELEMENTS = new Set([
+  "iframe",
+  "noembed",
+  "noframes",
+  "script",
+  "style",
+  "textarea",
+  "title",
+  "xmp",
+]);
 
 /** HTML's whitespace, which excludes the other spaces that `\s` matches. */
 const HTML_SPACE = /[\t\n\f\r ]/;
@@ -1005,8 +1067,10 @@ export function startTags(html: string): StartTag[] {
   let before = "";
   for (const token of tokenizeHtml(html)) {
     // A tag's name follows the punctuation that opens it: `<`, or `</` for an end tag.
-    if (token.kind === "tag" && !before.endsWith("</")) tags.push({ name: token.text.toLowerCase(), line });
-    for (let at = token.text.indexOf("\n"); at !== -1; at = token.text.indexOf("\n", at + 1)) line += 1;
+    if (token.kind === "tag" && !before.endsWith("</"))
+      tags.push({ name: token.text.toLowerCase(), line });
+    for (let at = token.text.indexOf("\n"); at !== -1; at = token.text.indexOf("\n", at + 1))
+      line += 1;
     before = token.text;
   }
   return tags;
@@ -1038,7 +1102,11 @@ function commentEnd(html: string, start: number): number {
  * the tag ends: after its `>`, which a quoted value can contain, or -1 if the
  * file ends first.
  */
-function tokenizeAttributes(html: string, start: number, push: (kind: TokenKind, text: string) => void): number {
+function tokenizeAttributes(
+  html: string,
+  start: number,
+  push: (kind: TokenKind, text: string) => void,
+): number {
   let cursor = start;
   while (cursor < html.length) {
     const char = html[cursor];
@@ -1068,7 +1136,7 @@ function tokenizeAttributes(html: string, start: number, push: (kind: TokenKind,
     push("punctuation", html.slice(separatorStart, cursor));
 
     const quote = html[cursor];
-    if (quote === "\"" || quote === "'") {
+    if (quote === '"' || quote === "'") {
       const close = html.indexOf(quote, cursor + 1);
       const end = close === -1 ? html.length : close + 1;
       push("string", html.slice(cursor, end));
@@ -1093,7 +1161,12 @@ function rawTextEnd(html: string, start: number, name: string): number {
 function isFindKey(event: KeyboardEvent): boolean {
   const mod = Platform.isMacOS ? event.metaKey : event.ctrlKey;
   // The code names the key where it is, for layouts whose F key types another letter.
-  return mod && !event.altKey && !event.shiftKey && (event.key.toLowerCase() === "f" || event.code === "KeyF");
+  return (
+    mod &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event.key.toLowerCase() === "f" || event.code === "KeyF")
+  );
 }
 
 /**

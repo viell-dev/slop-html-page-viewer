@@ -29,7 +29,9 @@ export async function openInActiveTab(filePath: string): Promise<void> {
 
 /** The view type of the active tab. */
 export async function activeViewType(): Promise<string | undefined> {
-  return browser.executeObsidian(({ app }) => app.workspace.getMostRecentLeaf()?.view.getViewType());
+  return browser.executeObsidian(({ app }) =>
+    app.workspace.getMostRecentLeaf()?.view.getViewType(),
+  );
 }
 
 /**
@@ -71,7 +73,9 @@ export async function saveScreenshot(name: string): Promise<void> {
 
 /** The vault's folder on disk. */
 export async function vaultFolder(): Promise<string> {
-  return browser.executeObsidian(({ app }) => (app.vault.adapter as unknown as { basePath: string }).basePath);
+  return browser.executeObsidian(
+    ({ app }) => (app.vault.adapter as unknown as { basePath: string }).basePath,
+  );
 }
 
 /** Waits until the active tab's frame has rendered its page. */
@@ -82,7 +86,9 @@ export async function waitForPage(): Promise<void> {
   await browser.waitUntil(
     async () => {
       state = await browser.execute((active) => {
-        const frame = document.querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`);
+        const frame = document.querySelector<HTMLIFrameElement>(
+          `${active} iframe.html-page-viewer__frame`,
+        );
         if (!frame?.srcdoc) return "none";
         const doc = frame.contentDocument;
         return doc === null ? "opaque" : doc.URL === "about:srcdoc" ? doc.readyState : "none";
@@ -106,14 +112,19 @@ export async function framePixels(color: Color): Promise<number> {
 /** Where a link in the active tab's page is, once it has stopped moving. */
 async function stablePoint(selector: string): Promise<{ x: number; y: number }> {
   return browser.execute(async (selector) => {
-    const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
+    const frame = document.querySelector<HTMLIFrameElement>(
+      ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
+    );
     const target = frame?.contentDocument?.querySelector(selector);
     if (!frame || !target) throw new Error(`No ${selector} in the page`);
     target.scrollIntoView({ block: "center" });
     const measure = () => {
       const outer = frame.getBoundingClientRect();
       const inner = target.getBoundingClientRect();
-      return { x: Math.round(outer.left + inner.left + 4), y: Math.round(outer.top + inner.top + inner.height / 2) };
+      return {
+        x: Math.round(outer.left + inner.left + 4),
+        y: Math.round(outer.top + inner.top + inner.height / 2),
+      };
     };
     // Text can reflow while fonts load; wait until two measurements agree.
     let point = measure();
@@ -136,7 +147,9 @@ export async function clickInPage(selector: string, modifiers: string[] = []): P
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const point = await stablePoint(selector);
     await browser.execute((selector) => {
-      const frame = document.querySelector<HTMLIFrameElement>(".workspace-leaf.mod-active iframe.html-page-viewer__frame");
+      const frame = document.querySelector<HTMLIFrameElement>(
+        ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
+      );
       const state = window as unknown as { e2eHit?: boolean };
       state.e2eHit = false;
       const record = (event: Event) => {
@@ -150,7 +163,8 @@ export async function clickInPage(selector: string, modifiers: string[] = []): P
     if (modifiers.length > 0) await browser.action("key").down(modifiers[0]).perform(true);
     await browser.action("pointer").move(point).down().up().perform();
     if (modifiers.length > 0) await browser.action("key").up(modifiers[0]).perform();
-    if (await browser.execute(() => (window as unknown as { e2eHit?: boolean }).e2eHit === true)) return attempt;
+    if (await browser.execute(() => (window as unknown as { e2eHit?: boolean }).e2eHit === true))
+      return attempt;
   }
   throw new Error(`Three clicks at ${selector} missed it`);
 }
@@ -158,7 +172,8 @@ export async function clickInPage(selector: string, modifiers: string[] = []): P
 export async function activeFile(): Promise<{ path: string | null; type: string | null }> {
   return browser.executeObsidian(({ app }) => {
     const leaf = app.workspace.getMostRecentLeaf();
-    const view = leaf?.view as { file?: { path: string } | null; getViewType(): string } | undefined;
+    const view = leaf?.view as
+      { file?: { path: string } | null; getViewType(): string } | undefined;
     return { path: view?.file?.path ?? null, type: view?.getViewType() ?? null };
   });
 }
