@@ -35,7 +35,13 @@ describe("plugin code", () => {
   }
 
   it("does not write to vault files", () => {
-    assert.doesNotMatch(bundle, /\.(modify|process|create|delete|trash|rename|append)\s*\(/);
+    assert.doesNotMatch(
+      bundle,
+      /\.(modify|modifyBinary|process|createBinary|createFolder|trash|trashFile|rename|renameFile|writeBinary|mkdir|rmdir)\s*\(/,
+    );
+    // These are also methods of the DOM, sets, and maps, as the view and the
+    // find bar's highlights use them, so they are checked where a write would be.
+    assert.doesNotMatch(bundle, /\b(vault|adapter|fileManager)\s*\.\s*(create|delete|copy|append|write|remove)\s*\(/);
   });
 });
 

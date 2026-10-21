@@ -106,6 +106,34 @@
   opacity: 0.5;
 }
 
+.html-page-viewer__find {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.html-page-viewer__find input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.html-page-viewer__find-count {
+  color: var(--html-page-viewer-muted);
+  font-size: 0.84em;
+  white-space: nowrap;
+}
+
+/* Matches in the source view; the page's frame gets its own colours (src/find.ts). */
+::highlight(html-page-viewer-match) {
+  background-color: var(--text-highlight-bg, rgba(255, 208, 0, 0.4));
+}
+
+::highlight(html-page-viewer-current) {
+  background-color: var(--text-highlight-bg-active, rgba(255, 128, 0, 0.4));
+}
+
 .html-page-viewer__security {
   align-items: center;
   color: var(--html-page-viewer-muted);

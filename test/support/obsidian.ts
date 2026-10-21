@@ -28,6 +28,42 @@ export class TFile {
   }
 }
 
+/** A hotkey registered in a scope. */
+export interface ScopeKey {
+  readonly modifiers: string[] | null;
+  readonly key: string | null;
+  readonly func: (event: KeyboardEvent | null) => boolean | void;
+}
+
+/** Obsidian's keyboard scopes, which record their hotkeys for tests to press. */
+export class Scope {
+  readonly keys: ScopeKey[] = [];
+
+  constructor(readonly parent?: Scope) {}
+
+  register(modifiers: string[] | null, key: string | null, func: ScopeKey["func"]): ScopeKey {
+    const handler = { modifiers, key, func };
+    this.keys.push(handler);
+    return handler;
+  }
+
+  unregister(handler: ScopeKey): void {
+    this.keys.splice(this.keys.indexOf(handler), 1);
+  }
+
+  /** Presses a hotkey as Obsidian does while the scope is active, and says whether one handled it. */
+  press(modifiers: string[], key: string): boolean {
+    const handler = this.keys.find(
+      (candidate) => candidate.key === key && JSON.stringify(candidate.modifiers) === JSON.stringify(modifiers),
+    );
+    if (handler) {
+      handler.func(null);
+      return true;
+    }
+    return this.parent?.press(modifiers, key) ?? false;
+  }
+}
+
 export interface ViewState {
   type: string;
   state?: Record<string, unknown>;
@@ -65,6 +101,9 @@ export class App {
   readonly reads: string[] = [];
   readonly leaves: WorkspaceLeaf[] = [];
   activeFile: TFile | null = null;
+  /** The view that has focus, as `getActiveViewOfType` finds it. */
+  activeView: unknown = null;
+  readonly scope = new Scope();
   readError: Error | null = null;
   /** Obsidian's settings, as `vault.getConfig` reads them, with Obsidian's defaults. */
   readonly config = new Map<string, unknown>([["readableLineLength", true]]);
@@ -145,6 +184,8 @@ export class App {
       for (const callback of this.listeners.get(name) ?? []) callback();
     },
     getActiveFile: (): TFile | null => this.activeFile,
+    getActiveViewOfType: <T>(type: abstract new (...args: never[]) => T): T | null =>
+      this.activeView instanceof type ? (this.activeView as T) : null,
     getLeaf: (pane: false | string = false): WorkspaceLeaf => {
       const leaf = new WorkspaceLeaf(this);
       leaf.pane = pane;
@@ -342,6 +383,14 @@ export class TextFileView {
 
   /** Called by Obsidian when the view is added to the workspace. */
   onload(): void {}
+
+  /** The view's hotkeys while it has focus, which a view assigns itself. */
+  scope: Scope | null = null;
+  readonly cleanups: (() => void)[] = [];
+
+  register(cleanup: () => void): void {
+    this.cleanups.push(cleanup);
+  }
 
   registerEvent(ref: unknown): void {
     this.events.push(ref);
