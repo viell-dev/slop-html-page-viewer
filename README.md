@@ -23,9 +23,9 @@ and anyone may use it under the license.
   browser would instead.
 - Follows links as Obsidian does: web links open outside Obsidian, in the default browser, links to
   other HTML pages open them in the viewer, links to notes and other vault files open them as
-  Obsidian opens a file, and links within the page scroll to their target. Ctrl-click (Cmd-click on
-  macOS) or a middle click opens a new tab. Hovering a link shows where it leads, and hovering an
-  image shows its alt text, unless the page gives them titles of its own.
+  Obsidian opens a file, and links within the page scroll to their target. Ctrl-click or a middle
+  click opens a new tab. Hovering a link shows where it leads, and hovering an image shows its alt
+  text, unless the page gives them titles of its own.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
@@ -33,8 +33,8 @@ and anyone may use it under the license.
 - Shows the source and the page side by side in its **Split** view, one above the other in a narrow
   pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole.
 - Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
-  Ctrl+F (Cmd+F on macOS) while the viewer has focus, or the **Find in page** command opens a find
-  bar, which highlights every match, up to 10,000, and moves between them with Enter and
+  Ctrl+F while the viewer has focus, or the **Find in page** command opens a find bar, which
+  highlights every match, up to 10,000, and moves between them with Enter and
   Shift+Enter; Escape closes it. In the page, a match stays within a paragraph or another block, and
   leaves out text that the page hides. In the split view, it finds in the source, which the page
   follows.
@@ -43,6 +43,7 @@ and anyone may use it under the license.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
   on by default; and **File extensions**, `html, htm` by default.
+  On Obsidian 1.13 and later, these settings also appear in the global settings search.
 - Never writes to the files it opens.
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).
@@ -101,10 +102,12 @@ upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2
 To build it from a checkout instead, with Node.js 24 and npm, run `npm ci` and `npm run build`, and
 copy the same three files from the checkout's root.
 
-**Compatibility.** The plugin needs Obsidian 1.5.0 or later. Each change is tested in Obsidian
-1.5.3, the oldest public release that this allows, and in the latest release, on Linux desktop.
-Desktop Windows and macOS, and mobile, are not tested in Obsidian
-([#65](https://github.com/viell-dev/slop-html-page-viewer/issues/65)).
+**Compatibility.** The fork supports Linux desktop with Obsidian 1.5.0 or later. Each change is
+tested in Obsidian 1.5.3, the oldest public release that this allows, and in the latest release.
+Windows is a development host with extra build and unit-test coverage; Linux Obsidian also runs
+in Docker there. Windows Obsidian is not a supported target. macOS and mobile are out of scope,
+and the plugin is marked desktop-only. Wider platform support can be reconsidered if the fork
+moves beyond personal use.
 
 **Update.** Install the newer release the same way, replacing the three files, then turn the
 plugin off and on again in **Settings → Community plugins**, or restart Obsidian. Its settings are
@@ -117,8 +120,8 @@ off instead keeps them. It never changes the pages it opens.
 ## Keyboard
 
 The toolbar's buttons are ordinary buttons with labels, reached with Tab. **Scripts** and
-**Theme** say whether they are on. Ctrl+F (Cmd+F on macOS), while the viewer has focus, opens the
-find bar. In it, Enter moves to the next match and Shift+Enter to the previous one, Escape closes
+**Theme** say whether they are on. Ctrl+F, while the viewer has focus, opens the find bar. In it,
+Enter moves to the next match and Shift+Enter to the previous one, Escape closes
 it, and the number of matches is announced as it changes. The **Find in page** command has no
 hotkey of its own; one can be set in **Settings → Hotkeys**.
 

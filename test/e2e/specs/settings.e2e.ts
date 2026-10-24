@@ -11,6 +11,13 @@ import {
 } from "../support/viewer.ts";
 
 const PLUGIN_ID = "viell-html-page-viewer";
+const SETTING_NAMES = [
+  "Theme in new tabs",
+  "Scripts when a page opens",
+  "Local files with scripts on",
+  "Wrap long lines in the source view",
+  "File extensions",
+];
 
 // The saved article's image, and the square that the mirrored page's script draws.
 const GREEN: Color = [46, 125, 50];
@@ -25,6 +32,8 @@ interface SettingsWindow {
   close(): void;
   openTabById(id: string): void;
   activeTab?: { id?: string; containerEl?: HTMLElement } | null;
+  searchResultsEl?: HTMLElement;
+  searchComponent?: { inputEl: HTMLInputElement };
 }
 
 /** Opens the plugin's tab in Obsidian's settings, as its sidebar does. */
@@ -32,6 +41,12 @@ async function openSettingsTab(): Promise<void> {
   await browser.executeObsidian(({ app }, id) => {
     const setting = (app as unknown as { setting: SettingsWindow }).setting;
     setting.open();
+    const input = setting.searchComponent?.inputEl;
+    if (input && input.value !== "") {
+      input.value = "";
+      const view = input.ownerDocument.defaultView as Window & typeof globalThis;
+      input.dispatchEvent(new view.Event("input", { bubbles: true }));
+    }
     setting.openTabById(id);
   }, PLUGIN_ID);
   await browser.waitUntil(
@@ -78,9 +93,9 @@ async function clickToggle(name: string): Promise<boolean> {
  * Types into the text field of the setting named `name` and leaves it, as a
  * person does, and returns the setting's description afterwards.
  */
-async function enterText(name: string, text: string): Promise<string> {
+async function enterText(name: string, text: string, normalized: string): Promise<string> {
   return browser.executeObsidian(
-    async ({ app }, name, text) => {
+    async ({ app }, name, text, normalized) => {
       const setting = (app as unknown as { setting: SettingsWindow }).setting;
       const find = () =>
         [...(setting.activeTab?.containerEl?.querySelectorAll(".setting-item") ?? [])].find(
@@ -93,19 +108,19 @@ async function enterText(name: string, text: string): Promise<string> {
       // The settings window may be a window of its own, with its own Event.
       const view = input.ownerDocument.defaultView as (Window & typeof globalThis) | null;
       input.dispatchEvent(new (view ?? window).Event("change"));
-      // The tab shows the change once the plugin has saved the settings and
-      // rendered the tab again, which replaces its elements; however long the
-      // save takes (#71).
+      // Wait for the saved change to reach the control (#71). Obsidian 1.13+
+      // can update a row in place; replacing its element is not required.
+      const applied = () => find()?.querySelector<HTMLInputElement>("input")?.value === normalized;
       const deadline = Date.now() + 10_000;
-      while (find() === before && Date.now() < deadline) {
+      while (!applied() && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      if (find() === before)
-        throw new Error(`The settings tab did not render again after ${name} changed`);
+      if (!applied()) throw new Error(`The settings tab did not apply the change to ${name}`);
       return find()?.querySelector(".setting-item-description")?.textContent ?? "";
     },
     name,
     text,
+    normalized,
   );
 }
 
@@ -159,19 +174,64 @@ describe("The settings in Obsidian", function () {
 
   it("are in the plugin's tab of Obsidian's settings", async function () {
     await openSettingsTab();
-    expect(await settingNames()).toEqual([
-      "Theme in new tabs",
-      "Scripts when a page opens",
-      "Local files with scripts on",
-      "Wrap long lines in the source view",
-      "File extensions",
-    ]);
+    expect(await settingNames()).toEqual(SETTING_NAMES);
+  });
+
+  it("appear in settings search on Obsidian versions with that search (#64)", async function () {
+    await openSettingsTab();
+    const available = await browser.executeObsidian(({ app }) => {
+      const tab = (app as unknown as { setting: SettingsWindow }).setting.activeTab;
+      return typeof (tab as unknown as { update?: unknown }).update === "function";
+    });
+    // Obsidian 1.5 has no global settings search. Its tab is checked above.
+    if (!available) return;
+    for (const name of SETTING_NAMES) {
+      await browser.executeObsidian(({ app }, name) => {
+        const setting = (app as unknown as { setting: SettingsWindow }).setting;
+        const doc = setting.activeTab!.containerEl!.ownerDocument;
+        const input = doc.querySelector<HTMLInputElement>(
+          'input[placeholder="Search settings..."]',
+        );
+        if (!input) throw new Error("No global settings search field");
+        input.value = name;
+        const view = doc.defaultView as Window & typeof globalThis;
+        input.dispatchEvent(new view.Event("input", { bubbles: true }));
+      }, name);
+      await browser.waitUntil(
+        async () =>
+          browser.executeObsidian(({ app }, name) => {
+            const setting = (app as unknown as { setting: SettingsWindow }).setting;
+            return [
+              ...(setting.searchResultsEl?.querySelectorAll(".vertical-tab-nav-item-title") ?? []),
+            ].some((item) => item.textContent === name);
+          }, name),
+        {
+          timeout: 3000,
+          timeoutMsg: "The viewer's setting was not found in global settings search",
+        },
+      );
+      await browser.executeObsidian(({ app }, name) => {
+        const setting = (app as unknown as { setting: SettingsWindow }).setting;
+        const result = [
+          ...(setting.searchResultsEl?.querySelectorAll<HTMLElement>(
+            ".setting-search-result-item",
+          ) ?? []),
+        ].find((item) => item.querySelector(".vertical-tab-nav-item-title")?.textContent === name);
+        if (!result) throw new Error(`No settings search result named ${name}`);
+        result.click();
+      }, name);
+      expect(await settingNames()).toEqual(SETTING_NAMES);
+    }
   });
 
   it("open the files of every listed extension as HTML, and leave others' extensions to them", async function () {
     expect(await viewTypeFor("xht")).toBe(null);
     await openSettingsTab();
-    const description = await enterText("File extensions", "html, htm, .XHT, md");
+    const description = await enterText(
+      "File extensions",
+      "html, htm, .XHT, md",
+      "html, htm, xht, md",
+    );
     expect(description).toContain("Another view opens .md, so the viewer does not.");
     await closeSettings();
     try {
@@ -188,7 +248,7 @@ describe("The settings in Obsidian", function () {
       expect(await activeViewType()).toBe("markdown");
     } finally {
       await openSettingsTab();
-      await enterText("File extensions", "");
+      await enterText("File extensions", "", "html, htm");
       await closeSettings();
     }
     expect(await viewTypeFor("xht")).toBe(null);

@@ -93,9 +93,9 @@ describe("the README", () => {
   it("documents every setting with its default", () => {
     // Each setting in the tab, with the key its control reads.
     const tab = read(path.join("src", "settings.ts"));
-    const settings = [
-      ...tab.matchAll(/\.setName\("([^"]+)"\)[\s\S]*?this\.host\.settings\.(\w+)/g),
-    ].map((match) => ({ name: match[1], key: match[2] as keyof ViewerSettings }));
+    const settings = [...tab.matchAll(/name: "([^"]+)"[\s\S]*?this\.host\.settings\.(\w+)/g)].map(
+      (match) => ({ name: match[1], key: match[2] as keyof ViewerSettings }),
+    );
     assert.deepEqual(
       settings.map((setting) => setting.key).sort(),
       Object.keys(DEFAULT_SETTINGS).sort(),

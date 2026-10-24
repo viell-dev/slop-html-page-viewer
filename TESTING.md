@@ -19,6 +19,9 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 - **The archive corpus** (`test/e2e/corpus/`) opens every page of a synthetic vault of archived web
   pages in Obsidian, and compares the result with the frozen prototype build.
 
+The settings suite also checks that global settings search finds all five viewer settings and
+opens each result on versions that provide the search (Obsidian 1.13 and later).
+
 ## Promises and their evidence
 
 | Promise                                                                                                                                                                            | Unit tests                                                                                                         | In Obsidian                                                                                               |
@@ -66,12 +69,12 @@ On 2026-10-21, each of these deliberate breakages failed the check named:
 
 ## Limits
 
-- Obsidian runs only on Linux in these tests. Desktop Windows and macOS, and mobile, are untested
-  in Obsidian (#65); the unit tests also run on Windows.
+- Linux desktop is the supported Obsidian target. Windows provides additional build and unit-test
+  coverage, and can run Linux Obsidian in Docker. Windows Obsidian, macOS, and mobile are outside
+  the support scope; the manifest prevents mobile installation (#65).
 - Obsidian 1.5.0 to 1.5.2, which the manifest allows, were Insider builds that need an account to
   download; 1.5.3 is the oldest version tested. The versions between 1.5.3 and the latest are not
   tested.
-- Whether the settings appear in Obsidian 1.13's settings search is untested (#64).
 - Screen readers are not tested; the tests check the labels and attributes that they read.
 - The 15 s limit for a corpus page is a ceiling against a page that hangs, not a measure of speed.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against

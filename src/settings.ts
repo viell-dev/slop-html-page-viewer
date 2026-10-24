@@ -2,7 +2,13 @@
 // Scripts settings choose how those buttons start; the toolbar still changes
 // them for one tab or one page.
 
-import { type App, type Plugin, PluginSettingTab, Setting } from "obsidian";
+import {
+  type App,
+  type Plugin,
+  PluginSettingTab,
+  Setting,
+  type SettingDefinitionRender,
+} from "obsidian";
 import { DEFAULT_EXTENSIONS, normalizeExtensions } from "./extensions";
 
 export interface ViewerSettings {
@@ -59,7 +65,6 @@ export interface SettingsHost extends Plugin {
   updateSettings(change: Partial<ViewerSettings>): Promise<void>;
 }
 
-// eslint-disable-next-line obsidianmd/settings-tab/prefer-setting-definitions -- Obsidian 1.5 lacks it; see #64
 export class ViewerSettingTab extends PluginSettingTab {
   constructor(
     app: App,
@@ -68,60 +73,58 @@ export class ViewerSettingTab extends PluginSettingTab {
     super(app, host);
   }
 
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-
-    new Setting(containerEl)
-      .setName("Theme in new tabs")
-      .setDesc(
-        // eslint-disable-next-line obsidianmd/ui/sentence-case -- names the toolbar button
-        "Show pages without styles of their own in Obsidian's theme when a tab opens. The Theme button changes it for one tab.",
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.host.settings.themeOn)
-          .onChange((value) => this.host.updateSettings({ themeOn: value })),
-      );
-
-    new Setting(containerEl)
-      .setName("Scripts when a page opens")
-      .setDesc(
-        // eslint-disable-next-line obsidianmd/ui/sentence-case -- names the toolbar button
-        "Run a page's scripts as soon as it opens. A page with scripts on cannot reach Obsidian. It shows the vault's images and other files only if the next setting copies them into it, and its links work as in a browser. The Scripts button changes it for the open page.",
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.host.settings.scriptsOn)
-          .onChange((value) => this.host.updateSettings({ scriptsOn: value })),
-      );
-
-    new Setting(containerEl)
-      .setName("Local files with scripts on")
-      .setDesc(
-        // eslint-disable-next-line obsidianmd/ui/sentence-case -- MB is a unit
-        "Copy the images, media, text tracks, fonts, and scripts that a page names from the vault into it while its scripts are on, so that they show and run. The page's scripts can read the files copied into it, and a page with many takes longer to open. A page gets up to 32 MB of them, scripts and fonts first, and none over 8 MB.",
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.host.settings.copyLocalFiles)
-          .onChange((value) => this.host.updateSettings({ copyLocalFiles: value })),
-      );
-
-    new Setting(containerEl)
-      .setName("Wrap long lines in the source view")
-      .setDesc("Wrap lines that are longer than the view. Turn it off to scroll sideways instead.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.host.settings.wrapSource)
-          .onChange((value) => this.host.updateSettings({ wrapSource: value })),
-      );
-
+  // Obsidian 1.13+ indexes these definitions for search and renders their controls.
+  // Render callbacks keep our normalization, immediate effects, and save path.
+  getSettingDefinitions() {
     const refused = this.host.refusedExtensions;
-    new Setting(containerEl)
-      .setName("File extensions")
-      .setDesc(
-        [
+    return [
+      {
+        name: "Theme in new tabs",
+        desc: "Show pages without styles of their own in Obsidian's theme when a tab opens. The Theme button changes it for one tab.",
+        render: (setting: Setting) => {
+          setting.addToggle((toggle) =>
+            toggle
+              .setValue(this.host.settings.themeOn)
+              .onChange((value) => this.host.updateSettings({ themeOn: value })),
+          );
+        },
+      },
+      {
+        name: "Scripts when a page opens",
+        desc: "Run a page's scripts as soon as it opens. A page with scripts on cannot reach Obsidian. It shows the vault's images and other files only if the next setting copies them into it, and its links work as in a browser. The Scripts button changes it for the open page.",
+        render: (setting: Setting) => {
+          setting.addToggle((toggle) =>
+            toggle
+              .setValue(this.host.settings.scriptsOn)
+              .onChange((value) => this.host.updateSettings({ scriptsOn: value })),
+          );
+        },
+      },
+      {
+        name: "Local files with scripts on",
+        desc: "Copy the images, media, text tracks, fonts, and scripts that a page names from the vault into it while its scripts are on, so that they show and run. The page's scripts can read the files copied into it, and a page with many takes longer to open. A page gets up to 32 MB of them, scripts and fonts first, and none over 8 MB.",
+        render: (setting: Setting) => {
+          setting.addToggle((toggle) =>
+            toggle
+              .setValue(this.host.settings.copyLocalFiles)
+              .onChange((value) => this.host.updateSettings({ copyLocalFiles: value })),
+          );
+        },
+      },
+      {
+        name: "Wrap long lines in the source view",
+        desc: "Wrap lines that are longer than the view. Turn it off to scroll sideways instead.",
+        render: (setting: Setting) => {
+          setting.addToggle((toggle) =>
+            toggle
+              .setValue(this.host.settings.wrapSource)
+              .onChange((value) => this.host.updateSettings({ wrapSource: value })),
+          );
+        },
+      },
+      {
+        name: "File extensions",
+        desc: [
           "The extensions of the files that open in the viewer, separated by commas. The viewer shows them all as HTML. Leave it empty for html and htm.",
           refused.length > 0
             ? `Another view opens ${refused.map((extension) => `.${extension}`).join(", ")}, so the viewer does not.`
@@ -132,18 +135,37 @@ export class ViewerSettingTab extends PluginSettingTab {
         ]
           .filter(Boolean)
           .join(" "),
-      )
-      .addText((text) => {
-        text
-          .setPlaceholder(DEFAULT_EXTENSIONS.join(", "))
-          .setValue(this.host.settings.extensions.join(", "));
-        // A change applies when the field is left, not at every key.
-        text.inputEl.addEventListener("change", () => {
-          void this.host
-            .updateSettings({ extensions: normalizeExtensions(text.getValue()) })
-            // eslint-disable-next-line @typescript-eslint/no-deprecated -- see the class
-            .then(() => this.display());
-        });
-      });
+        render: (setting: Setting) => {
+          setting.addText((text) => {
+            text
+              .setPlaceholder(DEFAULT_EXTENSIONS.join(", "))
+              .setValue(this.host.settings.extensions.join(", "));
+            // A change applies when the field is left, not at every key.
+            text.inputEl.addEventListener("change", () => {
+              void this.host
+                .updateSettings({ extensions: normalizeExtensions(text.getValue()) })
+                .then(() => {
+                  // eslint-disable-next-line obsidianmd/no-unsupported-api -- feature-detected; display() supports Obsidian < 1.13
+                  if (typeof this.update === "function") this.update();
+                  // eslint-disable-next-line @typescript-eslint/no-deprecated -- fallback for Obsidian < 1.13
+                  else this.display();
+                });
+            });
+          });
+        },
+      },
+    ] satisfies SettingDefinitionRender[];
+  }
+
+  // Obsidian < 1.13 calls display(). Share the definitions so both versions
+  // show the same text and controls, without importing any newer runtime API.
+  display(): void {
+    this.containerEl.empty();
+    for (const definition of this.getSettingDefinitions()) {
+      const setting = new Setting(this.containerEl)
+        .setName(definition.name)
+        .setDesc(definition.desc);
+      definition.render(setting);
+    }
   }
 }
