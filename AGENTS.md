@@ -12,6 +12,11 @@ from outside it. Use synthetic fixtures, never real vault documents, in tests, i
 requests, and keep private documents out of screenshots and logs. The owner's vault is private: turn
 observations from it into synthetic fixtures.
 
+Linux desktop is the supported target. Windows is a development host and supplies extra build and
+unit-test coverage, plus Linux Obsidian in Docker. Windows Obsidian, macOS, and mobile are outside
+the fork's support scope; reconsider broader support if the owner chooses wider distribution. Keep
+verification focused on practical risks rather than an exhaustive search for obscure edge cases.
+
 ## Upstream
 
 Upstream is
@@ -237,7 +242,9 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   (`readSettings`, where a missing or mistyped value takes its default), and the settings tab. The
   Theme and Scripts settings choose how those buttons start, and open tabs keep their state; source
   wrapping (#40) and the copying of local files into pages with scripts on (#11) apply at once,
-  through the workspace event `html-page-viewer:settings-change`. Obsidian 1.14 shows its settings
+  through the workspace event `html-page-viewer:settings-change`. The tab's searchable definitions
+  (#64) share their controls with the `display()` fallback for Obsidian before 1.13. Changes to the
+  extensions refresh the definitions with `update()` where available. Obsidian 1.14 shows its settings
   in a window of its own, so tests reach a settings tab through `app.setting.activeTab`, not the
   main window's document.
 - `src/extensions.ts` normalizes the listed extensions and holds them in Obsidian's view registry

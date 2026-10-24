@@ -17,8 +17,8 @@ body:
     attributes:
       label: Build and environment
       description:
-        The commit you built, the Obsidian version, the operating system, and whether it is desktop
-        or mobile.
+        The commit you built, the Obsidian version, and the operating system. This fork supports
+        Linux desktop; Windows is used for additional development checks.
     validations:
       required: true
   - type: dropdown

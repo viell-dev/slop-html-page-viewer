@@ -10,6 +10,13 @@ follow at the [end](#upstream-releases).
 
 Nothing that changes the plugin.
 
+## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
+
+- The viewer's settings appear in global settings search on Obsidian 1.13 and later, while older
+  versions keep the same settings tab.
+- The supported target is Linux desktop. Windows supplies additional development checks; macOS
+  and mobile are out of scope. The manifest now prevents mobile installation.
+
 ## [0.5.0](.github/release-notes/0.5.0.md) - 2026-10-21
 
 - A find bar for the source view and, with scripts off, the rendered page.

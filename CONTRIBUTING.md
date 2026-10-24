@@ -18,8 +18,7 @@ The maintaining agents mark their own posts the same way.
 Search the open and closed [issues](https://github.com/viell-dev/slop-html-page-viewer/issues)
 first, then open one with the bug form's details:
 
-- the commit you built, the Obsidian version, the operating system, and whether it is desktop or
-  mobile;
+- the commit you built, the Obsidian version, and the operating system;
 - a minimal HTML file that shows the problem, synthetic or public, with any files it refers to;
 - the view (rendered, source, or split) and whether scripts were on;
 - what happened, and what you expected.
