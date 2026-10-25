@@ -1,6 +1,8 @@
 import fs from "node:fs";
 
 const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
+const releasePackage = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const releaseVersions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
 const main = fs.readFileSync("src/main.ts", "utf8");
 const styles = fs.readFileSync("styles.css", "utf8");
 const staticFixture = fs.readFileSync("test-fixtures/static.html", "utf8");
@@ -8,7 +10,7 @@ const interactiveFixture = fs.readFileSync("test-fixtures/interactive.html", "ut
 
 const assertions = [
   [manifest.id === "html-page-viewer", "manifest id is html-page-viewer"],
-  [manifest.version === "0.1.1", "manifest version is 0.1.1"],
+  [manifest.version === releasePackage.version && /^\d+\.\d+\.\d+$/.test(manifest.version) && releaseVersions[manifest.version] === manifest.minAppVersion, "release version matches package and supported app version"],
   [main.includes("private scriptsEnabled = false"), "scripts default to off"],
   [main.includes("sandboxValue(this.scriptsEnabled)"), "iframe sandbox is derived from script toggle"],
   [main.includes("allow-scripts"), "script toggle grants only allow-scripts"],
