@@ -82,9 +82,6 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   tag or a comment continues over several lines. Upstream's leaves out the space after an attribute
   without a value, and highlights only the first line of such a tag.
 - It has settings, a find bar, and a split view of the source beside the page.
-- `npm run build` works on Windows. Upstream
-  [merged](https://github.com/viggomeesters/obsidian-html-page-viewer/pull/1) the same fix on
-  2026-10-25, after its latest release, 0.1.1.
 
 Changes that could serve upstream's users are kept separate from fork-only ones and offered
 upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
