@@ -15,6 +15,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { browser } from "@wdio/globals";
 import { parseObsidianVersions } from "wdio-obsidian-service";
 
 const root = path.resolve(import.meta.dirname, "../..");
@@ -125,5 +126,17 @@ export const config: WebdriverIO.Config = {
   outputDir: path.join(outputDir, "logs"),
   injectGlobals: false,
   mochaOpts: { ui: "bdd", timeout: 60_000 },
+  // A failed test leaves a screenshot of Obsidian's window among the results
+  // that CI keeps, named for the Obsidian version and the test (#77).
+  afterTest: async function (test, _context, { passed }) {
+    if (passed) return;
+    const name = `${test.parent} ${test.title}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 100);
+    const file = `failed-${browser.getObsidianVersion()}-${name}.png`;
+    await browser.saveScreenshot(path.join(outputDir, "screenshots", file)).catch(() => undefined);
+  },
   logLevel: "warn",
 };
