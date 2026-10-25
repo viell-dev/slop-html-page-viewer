@@ -14,8 +14,9 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
   agreement. They are required in CI.
 - **Tests in Obsidian** (`test/e2e/`) run the built plugin in real Obsidian, 1.5.3 and the latest
   release, on Linux. They are required for every pull request and also run weekly, so that a new
-  Obsidian release is tested within a week. Their logs and screenshots are kept as a CI artifact
-  for 30 days. Anything about loading, origins, focus, or keys is measured here.
+  Obsidian release is tested within a week. Their logs and screenshots, with one of Obsidian's
+  window for each failed test, are kept as a CI artifact for 30 days. Anything about loading,
+  origins, focus, or keys is measured here.
 - **The archive corpus** (`test/e2e/corpus/`) opens every page of a synthetic vault of archived web
   pages in Obsidian, and compares the result with the frozen prototype build.
 

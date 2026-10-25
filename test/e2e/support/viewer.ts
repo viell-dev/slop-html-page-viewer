@@ -111,12 +111,27 @@ export async function framePixels(color: Color): Promise<number> {
 
 /** Where a link in the active tab's page is, once it has stopped moving. */
 async function stablePoint(selector: string): Promise<{ x: number; y: number }> {
-  return browser.execute(async (selector) => {
+  return browser.executeObsidian(async ({ app }, selector) => {
     const frame = document.querySelector<HTMLIFrameElement>(
       ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
     );
     const target = frame?.contentDocument?.querySelector(selector);
-    if (!frame || !target) throw new Error(`No ${selector} in the page`);
+    if (!frame || !target) {
+      // Say what the tab shows instead, so that a failure in CI tells a page
+      // that has not loaded from a tab that has moved on.
+      const view = app.workspace.getMostRecentLeaf()?.view as
+        { file?: { path: string } | null; getViewType(): string } | undefined;
+      const doc = frame?.contentDocument;
+      const page = !frame
+        ? "no frame"
+        : !doc
+          ? "a page it cannot reach"
+          : `a page with base ${doc.baseURI} (${doc.readyState})`;
+      throw new Error(
+        `No ${selector} in the page: the tab shows ${view?.getViewType() ?? "nothing"} ` +
+          `${view?.file?.path ?? "without a file"}, with ${page}`,
+      );
+    }
     target.scrollIntoView({ block: "center" });
     const measure = () => {
       const outer = frame.getBoundingClientRect();
@@ -146,6 +161,7 @@ async function stablePoint(selector: string): Promise<{ x: number; y: number }> 
 export async function clickInPage(selector: string, modifiers: string[] = []): Promise<number> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const point = await stablePoint(selector);
+    const before = await activeFile();
     await browser.execute((selector) => {
       const frame = document.querySelector<HTMLIFrameElement>(
         ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
@@ -165,6 +181,22 @@ export async function clickInPage(selector: string, modifiers: string[] = []): P
     if (modifiers.length > 0) await browser.action("key").up(modifiers[0]).perform();
     if (await browser.execute(() => (window as unknown as { e2eHit?: boolean }).e2eHit === true))
       return attempt;
+    // The listener misses a click that lands on a frame that replaced the one
+    // it watches. If the tab has moved on to another file, the click took
+    // effect, and clicking again would look for the link in what replaced the
+    // page (#77). Otherwise the page is still there, perhaps loading again.
+    try {
+      await browser.waitUntil(
+        async () => {
+          const now = await activeFile();
+          return now.path !== before.path || now.type !== before.type;
+        },
+        { timeout: 1000, interval: 100 },
+      );
+      return attempt;
+    } catch {
+      await waitForPage();
+    }
   }
   throw new Error(`Three clicks at ${selector} missed it`);
 }
