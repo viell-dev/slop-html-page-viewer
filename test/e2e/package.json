@@ -13,5 +13,8 @@
     "typescript": "5.9.3",
     "wdio-obsidian-reporter": "3.3.0",
     "wdio-obsidian-service": "3.3.0"
+  },
+  "overrides": {
+    "serialize-javascript": "7.1.4"
   }
 }
