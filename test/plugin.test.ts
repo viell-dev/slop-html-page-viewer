@@ -76,6 +76,12 @@ describe("manifest", () => {
     assert.equal(manifest.version, pkg.version);
   });
 
+  // Upstream requires x.y.z, as Obsidian's releases do; the fork also publishes
+  // release candidates, whose versions scripts/release-lib.ts checks in full.
+  it("has a version in x.y.z form, or x.y.z with a prerelease part", () => {
+    assert.match(String(manifest.version), /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/);
+  });
+
   it("lists its version in versions.json with its minimum Obsidian version", () => {
     assert.equal(versions[String(manifest.version)], manifest.minAppVersion);
   });
