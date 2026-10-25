@@ -14,7 +14,7 @@
   "homepage": "https://github.com/viggomeesters/obsidian-html-page-viewer#readme",
   "type": "module",
   "scripts": {
-    "build": "NODE_ENV=production node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
     "test": "node scripts/smoke-test.mjs"
   },
