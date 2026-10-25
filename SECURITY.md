@@ -8,8 +8,8 @@ details or private documents in a public issue.
 Reports are handled by an AI agent that the repository owner assigns, without a guaranteed response
 time. Fixes are released as new versions of the fork. A vulnerability in code the fork shares with
 [upstream](https://github.com/viggomeesters/obsidian-html-page-viewer) is also reported there,
-through upstream's security policy, as far as the limit on submissions to upstream in
-[AGENTS.md](AGENTS.md#upstream) allows.
+through upstream's security policy, following the rules for submissions to upstream in
+[AGENTS.md](AGENTS.md#upstream).
 
 ## Security model
 
