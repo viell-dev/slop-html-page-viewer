@@ -254,9 +254,9 @@ Maintainers enforce the [code of conduct](./CODE_OF_CONDUCT.md).
   still registered to the viewer. Without the registry, `Plugin.registerExtensions` registers them
   once. Measured in 1.5.3 and 1.14.4: registering an existing extension throws, and the registry
   keeps case and dots as given.
-- `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when its first argument is
-  `production`. `styles.css` is the plugin's stylesheet; `test-fixtures/` holds HTML files for
-  manual and automated tests.
+- `esbuild.config.mjs` bundles `src/main.ts` into `main.js`, minified when one of its arguments is
+  `production` or `NODE_ENV` is `production`. `styles.css` is the plugin's stylesheet;
+  `test-fixtures/` holds HTML files for manual and automated tests.
 - `scripts/test.mjs` bundles each `test/*.test.ts` into `dist/test/` and runs it with Node.js's test
   runner. `test/support/dom.ts` installs a jsdom window and Obsidian's element helpers as globals,
   `test/support/obsidian.ts` stands in for the `obsidian` module and records what the plugin asks of

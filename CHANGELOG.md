@@ -3,8 +3,8 @@
 The fork's releases, newest first. Each version's full notes, written for someone installing it,
 are in [`.github/release-notes/`](.github/release-notes/), and they are the text of its
 [GitHub release](https://github.com/viell-dev/slop-html-page-viewer/releases). Changes merged since
-the newest release are listed under **Unreleased**. Upstream's own releases, from before the fork,
-follow at the [end](#upstream-releases).
+the newest release are listed under **Unreleased**. Upstream's own releases follow at the
+[end](#upstream-releases).
 
 ## Unreleased
 
@@ -62,8 +62,14 @@ The release candidate of 0.2.0, with the same plugin.
 
 ## Upstream releases
 
-[HTML Page Viewer](https://github.com/viggomeesters/obsidian-html-page-viewer)'s releases before the
-fork, as upstream recorded them.
+[HTML Page Viewer](https://github.com/viggomeesters/obsidian-html-page-viewer)'s releases, as
+upstream recorded them. The fork's releases take their changes from upstream's `main` as it syncs,
+not by version.
+
+### 0.1.2 - 2026-10-25
+
+- Cross-platform production build.
+- Current Community installation documentation.
 
 ### 0.1.1 - 2026-06-07
 
