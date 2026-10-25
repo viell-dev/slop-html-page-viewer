@@ -28,14 +28,15 @@ offered upstream, and every check for a maintainer's response; keep it current, 
 - Within their assigned work, agents may report upstream defects and offer upstream-bound fixes,
   following upstream's current contribution guidance and templates. Each submission opens with an
   attribution callout that names the agent and says whether the owner reviewed it.
-- Upstream has not established that it accepts agent-written contributions. The first pull request,
-  viggomeesters/obsidian-html-page-viewer#1, invites the maintainer to decline more, and stays the
-  only submission, report or pull request, until a maintainer responds to it. Silence, an automated
-  reply, or the absence of a ban is not a response; honor a response that declines.
-- Check it while working on the fork and log each check in #2. If nobody responds by 2026-12-19,
-  the owner's decision applies: stop offering changes and develop without regard to upstream.
-  Record in #2 that the upstream route is unavailable, then decide whether the upstream-bound
-  branch rule below still serves the fork, and record that decision there.
+- Upstream accepts agent-written contributions: its maintainer merged the first pull request,
+  viggomeesters/obsidian-html-page-viewer#1, on 2026-10-25, although its callout invited them to
+  decline more. Keep submissions useful and proportionate. Offer a branch that builds on another
+  only once upstream has merged that one, so that each pull request shows only its own change.
+  Honor any later request to stop or to decline a kind of contribution, and record it in #2.
+- Check upstream's `main`, its other branches, and the responses to open submissions while working
+  on the fork, and log each check in #2. If upstream stops responding, record in #2 when the route
+  becomes unavailable, as [Dependency defects](#dependency-defects) describes, then decide whether
+  the upstream-bound branch rule below still serves the fork, and record that decision there.
 - Upstream-bound branches have no `AGENTS.md`. Read this file on `main` when working on one.
 - Sync upstream's `main` through a pull request: push `upstream/main` to a branch named
   `upstream-sync-<date>` and open a pull request into `main`. If it conflicts, create that branch
