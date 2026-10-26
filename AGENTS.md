@@ -95,9 +95,11 @@ in the pull request's verification section.
 
 The owner installs the fork by hand from GitHub releases. It is not in Obsidian's community plugin
 directory, and listing it there would need the owner's decision. Agents publish routine releases
-when their changes are ready, without asking each time. The owner does not test releases: test each
-one as thoroughly as anything else before publishing it. Publish full versions. A release candidate
-is only for a change that needs real use before its release, and no test can stand in for that use.
+when their changes are ready, subject to the [human release-testing
+gate](RELEASING.md#human-release-testing). A person must try the first stable release and substantial
+interface or workflow changes before stable publication. Agents perform functional verification and
+prepare the focused human request. Publish a candidate when that test needs an installable build;
+ordinary fixes may reuse relevant recorded human evidence.
 Choose the version by semantic versioning: a minor version for new features, a patch for fixes.
 
 [RELEASING.md](./RELEASING.md) is the procedure: the release pull request, a dry run, the Release
@@ -124,11 +126,15 @@ Labels follow [`.github/labels.json`](./.github/labels.json); keep GitHub in syn
 - A request that needs the owner goes in its own issue, assigned to them and labelled
   `Needs: Owner`: their decision on scope or direction, their identity, access, or second factor,
   or an observation only they can make. One that another suitable person could answer gets
-  `Needs: Human` instead. State exactly what is needed and why an agent cannot provide it, the
+  `Needs: Human` instead. Assign the person being asked under either label, including the owner
+  when asking them to test. State exactly what is needed and why human input is required, the
   recommendation, the result to expect, and what waits for it. A request to try something names
   the build, gives synthetic inputs, numbered steps, and the expected results, and says what to
-  report. Label the work that waits for the answer `Status: Blocked`, and link the two. Never ask
-  the owner to test what a test can check.
+  report. Label the work that waits for the answer `Status: Blocked`, and link the two. Run the
+  mechanical checks as an agent, while retaining required human usability testing. Verify the live
+  assignee and labels and link the request before ending the thread; candidate publication and
+  preparation merges do not complete it. Keep it open until the answer and resulting work are
+  handled, and check pending requests when maintenance resumes.
 - Edit an issue's or pull request's text from its exact bytes: write it to a file with `gh api`
   from a tool that keeps them, and send it back with `gh api -X PATCH … -F body=@file`. PowerShell
   turns captured `gh` output into an array of lines, and writing that array joins them with
