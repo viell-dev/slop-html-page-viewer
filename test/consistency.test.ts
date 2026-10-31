@@ -116,11 +116,14 @@ describe("the README", () => {
     }
   });
 
-  it("names the Node.js version in .nvmrc, as CONTRIBUTING.md and the e2e image do", () => {
+  it("keeps build instructions and the e2e image aligned with .nvmrc", () => {
     const major = read(".nvmrc").trim();
     assert.match(major, /^\d+$/);
     assert.ok(readme.includes(`Node.js ${major}`), "README");
-    assert.ok(read("CONTRIBUTING.md").includes(`currently ${major}`), "CONTRIBUTING.md");
+    assert.ok(
+      read("CONTRIBUTING.md").includes("Node.js version in `.nvmrc`"),
+      "CONTRIBUTING.md points to the authoritative version file",
+    );
     assert.match(
       read(path.join("test", "e2e", "Dockerfile")),
       new RegExp(`^FROM node:${major}[.-]`, "m"),

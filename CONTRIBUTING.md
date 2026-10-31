@@ -28,7 +28,7 @@ authorized publishing it. Report vulnerabilities privately, as [SECURITY.md](SEC
 
 ## Set up
 
-Development needs npm and the Node.js version in `.nvmrc`, currently 24; in the checkout, `nvm use`
+Development needs npm and the Node.js version in `.nvmrc`; in the checkout, `nvm use`
 or `fnm use` selects it. CI and the release workflow read the same file. The end-to-end Docker image
 names the version in its `FROM` line, so change the two together.
 
@@ -174,3 +174,16 @@ made under the MIT license. Keep discussion respectful and about reproducible be
   request. Add a line to the **Unreleased** section of [CHANGELOG.md](CHANGELOG.md) for a change
   that users would notice.
 - Keep changes scoped, and state remaining limits.
+
+## Maintaining documentation
+
+The README owns the user journey and supported behavior; `SECURITY.md` owns the security model,
+`TESTING.md` the coverage and limits, and `RELEASING.md` the release and recovery procedure.
+`AGENTS.md` adds durable maintenance instructions and non-obvious safeguards. Link to the owning
+document rather than repeating its procedure elsewhere. Public procedures must stand alone.
+
+Keep guidance accurate when behavior or policy changes. Issues and pull requests own decisions,
+investigations, progress, and verification receipts; do not append their history to agent
+instructions. Read configuration from its checked-in source and release state from tags and
+releases. Preserve changelogs, version-specific release notes, compatibility and upgrade guidance,
+active restrictions, and unresolved work.
