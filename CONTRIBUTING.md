@@ -80,7 +80,8 @@ separate dependency audit
 
 Update every `@wdio/*` package together; the service and reporter must support that major. Follow
 the [v10 migration guide](https://webdriver.io/docs/v10-migration), including strict selectors
-and namespaced capability spec lists. The Docker image installs `unzip` for driver downloads.
+and namespaced capability spec lists. The Docker image installs `unzip` for driver downloads, and
+`lifecycle.e2e.ts` uses it to unzip the packaged plugin as a user does.
 
 With Docker, on any system, Windows included:
 
@@ -89,10 +90,11 @@ npm run build
 npm run test:e2e:docker
 ```
 
-On Linux with Obsidian's system libraries, Xvfb, and herbstluftwm installed, `npm ci --prefix
-test/e2e` and then `npm run test:e2e` run the suite directly. Neither takes arguments; environment
-variables choose what runs. Screenshots and logs go to `test-results/e2e/`, and downloaded Obsidian
-versions to `.obsidian-cache/` or, with Docker, the `html-page-viewer-obsidian-cache` volume.
+On Linux with Obsidian's system libraries, Xvfb, herbstluftwm, and `unzip` installed,
+`npm ci --prefix test/e2e` and then `npm run test:e2e` run the suite directly. Neither takes
+arguments; environment variables choose what runs. Screenshots and logs go to `test-results/e2e/`,
+and downloaded Obsidian versions to `.obsidian-cache/` or, with Docker, the
+`html-page-viewer-obsidian-cache` volume.
 
 The suite runs Obsidian 1.5.3, the oldest public release that the manifest's `minAppVersion` allows,
 and the latest public release. Set `OBSIDIAN_VERSIONS` to `appVersion/installerVersion` pairs to

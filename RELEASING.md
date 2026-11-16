@@ -101,7 +101,9 @@ it; retain its failure evidence and follow the issue's required diagnosis.
    as [AGENTS.md](AGENTS.md#review) describes, and passes CI.
 5. Merge it, and wait for CI to pass on the merge commit on `main`. The workflow refuses a commit
    whose required checks have not all passed: `verify (ubuntu-latest)`, `verify (windows-latest)`,
-   and `e2e`, the tests in Obsidian.
+   and `e2e`, the tests in Obsidian. Among them, `lifecycle.e2e.ts` installs the commit's own
+   packaged zip, updates to it from an earlier version, and restarts Obsidian
+   ([TESTING.md](TESTING.md#layers)).
 
 ## Try it first
 
