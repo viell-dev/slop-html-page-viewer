@@ -152,9 +152,8 @@ If none of these explains it, [report a defect](CONTRIBUTING.md#report-a-defect)
 ## Security model
 
 The view shows a copy of the page, never the file itself, in a sandboxed frame; a page whose copy
-cannot be prepared shows an error instead. Scripts are off
-unless the toolbar or the settings turn them on, and scripts and same-origin access are never
-granted together:
+cannot be prepared shows an error instead. Scripts are off unless the toolbar or the settings turn
+them on, and scripts and same-origin access are never granted together:
 
 - **Scripts off:** the sandbox grants only `allow-same-origin`, so that the page can load the
   vault's files. It cannot run scripts, submit forms, open popups, or navigate Obsidian.
