@@ -2,7 +2,7 @@
 // and opens their targets in Obsidian, the browser, or the page itself,
 // instead of navigating the frame away from the copy it shows.
 
-import { vaultPath, withoutQuery } from "./document";
+import { isPageFragment, vaultPath, withoutQuery } from "./document";
 
 export type LinkTarget =
   /** A part of the page itself, by its id or name. */
@@ -37,7 +37,7 @@ export function linkTarget(href: string, pageUrl: string, vaultUrl: string): Lin
   }
   if (url.protocol === "javascript:") return { kind: "none" };
 
-  if (url.href.includes("#") && withoutQuery(url.href) === withoutQuery(pageUrl)) {
+  if (isPageFragment(url, pageUrl)) {
     return { kind: "fragment", id: fragmentId(url) };
   }
   const path = vaultPath(url.href, vaultUrl);
@@ -73,15 +73,28 @@ export interface LinkActions {
   refuse(url: string): void;
 }
 
-function scrollToFragment(doc: Document, id: string): void {
-  // An empty fragment scrolls to the top; a real target takes precedence over "top".
+function scrollToFragment(doc: Document, id: string, rawId: string): void {
+  const indicated = (name: string): Element | undefined | null =>
+    doc.getElementById(name) ??
+    [...doc.getElementsByName(name)].find((element) => element.localName === "a");
+  // Try the literal fragment before decoding, and only named anchors (not form fields).
   const target =
-    id === ""
+    rawId === ""
       ? doc.documentElement
-      : (doc.getElementById(id) ??
-        doc.getElementsByName(id)[0] ??
+      : (indicated(rawId) ??
+        indicated(id) ??
         (id.toLowerCase() === "top" ? doc.documentElement : null));
   target?.scrollIntoView();
+}
+
+/** href wins over legacy xlink:href, which is a reference only on SVG elements. */
+function linkReference(link: Element): string | null {
+  return (
+    link.getAttribute("href") ??
+    (link.namespaceURI === "http://www.w3.org/2000/svg"
+      ? link.getAttributeNS("http://www.w3.org/1999/xlink", "href")
+      : null)
+  );
 }
 
 /**
@@ -100,13 +113,13 @@ export function watchLinks(
     if (event.type === "auxclick" && event.button !== 1) return;
     // The page's nodes belong to the frame's window, so test by shape.
     const start = event.target as { closest?: (selector: string) => Element | null } | null;
-    const link = start?.closest?.("a, area[href]");
-    if (!link) return;
-    const reference =
-      link.getAttribute("href") ??
-      (link.namespaceURI === "http://www.w3.org/2000/svg"
-        ? link.getAttributeNS("http://www.w3.org/1999/xlink", "href")
-        : null);
+    let link = start?.closest?.("a, area");
+    let reference: string | null = null;
+    while (link) {
+      reference = linkReference(link);
+      if (reference !== null) break;
+      link = link.parentElement?.closest("a, area");
+    }
     if (reference === null) return;
     event.preventDefault();
     let resolved: string;
@@ -118,7 +131,7 @@ export function watchLinks(
     const target = linkTarget(resolved, pageUrl, vaultUrl);
     switch (target.kind) {
       case "fragment":
-        scrollToFragment(doc, target.id);
+        scrollToFragment(doc, target.id, new URL(resolved).hash.slice(1));
         break;
       case "vault":
         actions.openVault(target.path, paneFor(event, isMacOS), reference);
