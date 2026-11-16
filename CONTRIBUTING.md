@@ -86,14 +86,24 @@ npm run test:e2e:docker
 ```
 
 On Linux with Obsidian's system libraries, Xvfb, and herbstluftwm installed, `npm ci --prefix
-test/e2e` and then `npm run test:e2e` run the suite directly. Arguments after `--` go to `wdio run`,
-such as `--spec specs/viewer.e2e.ts`. Screenshots and logs go to `test-results/e2e/`, and downloaded
+test/e2e` and then `npm run test:e2e` run the suite directly. Runner arguments (including `--spec`)
+are rejected: use `E2E_ONLY` for focused runs. Screenshots and logs go to `test-results/e2e/`, and downloaded
 Obsidian versions to `.obsidian-cache/` or, with Docker, the `html-page-viewer-obsidian-cache`
 volume.
 
 The suite runs Obsidian 1.5.3, the oldest public release that the manifest's `minAppVersion` allows,
 and the latest public release. Set `OBSIDIAN_VERSIONS` to `appVersion/installerVersion` pairs to
-test others, and `E2E_ONLY` to spec file names, such as `links.e2e.ts`, to run only those.
+test others. `E2E_ONLY` is the supported focused interface: comma-separated spec file names (not
+paths or globs), such as `viewer.e2e.ts,links.e2e.ts`. Unknown names fail before tests start.
+
+```sh
+E2E_ONLY=viewer.e2e.ts npm run test:e2e:docker
+```
+
+In PowerShell, set `$env:E2E_ONLY = "viewer.e2e.ts"` before the command and remove it with
+`Remove-Item Env:E2E_ONLY` afterwards to return to a full run. The selection filters capabilities
+as well as specs, so ordinary suites never run against the archive/prototype vaults. Without a
+selection, missing corpus results still fail the run.
 Obsidian is downloaded, never stored in the repository or the image, because its terms do not allow
 redistributing it. It serves files whose paths are not ASCII only under a UTF-8 locale, which
 `session.sh` sets, together with a window manager layout that keeps every Obsidian window at full

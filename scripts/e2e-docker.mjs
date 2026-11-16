@@ -1,6 +1,7 @@
 // Runs the end-to-end suite in Docker, on any system with Docker, Windows
 // included: builds test/e2e/Dockerfile from this checkout and runs it.
-// Arguments go to `wdio run`, such as `--spec specs/viewer.e2e.ts`.
+// Focus a run with E2E_ONLY=viewer.e2e.ts (comma-separated spec file names).
+// Runner arguments, including --spec, are unsupported.
 //
 // OBSIDIAN_VERSIONS picks the Obsidian versions and E2E_ONLY the spec files, as in
 // test/e2e/wdio.conf.mts.
@@ -11,6 +12,11 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { selectedSpecs } from "./e2e-selection.ts";
+
+if (process.argv.length > 2)
+  throw new Error("Runner arguments are unsupported; use E2E_ONLY=viewer.e2e.ts to focus the run.");
+selectedSpecs();
 
 const image = "html-page-viewer-e2e";
 const cacheVolume = "html-page-viewer-obsidian-cache";
@@ -40,5 +46,4 @@ run("docker", [
   "--volume",
   `${output}:/out`,
   image,
-  ...process.argv.slice(2),
 ]);
