@@ -9,6 +9,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { selectedSpecs } from "../../../scripts/e2e-selection.ts";
+
+const only = selectedSpecs();
 
 const directory = path.resolve(
   process.argv[2] ?? path.join(import.meta.dirname, "../../../test-results/e2e"),
@@ -21,7 +24,7 @@ const prototypes = fs
 if (prototypes.length === 0) {
   // Only a run that E2E_ONLY narrows may leave the prototype out; otherwise
   // its results are missing because it failed or never ran.
-  if ((process.env.E2E_ONLY ?? "").trim() !== "") {
+  if (only && !only.includes("corpus.e2e.ts")) {
     console.log("No prototype results to compare with: E2E_ONLY narrowed the run.");
     process.exit(0);
   }
