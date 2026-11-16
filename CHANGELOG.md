@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5 - 2026-11-16
+
+- Maintenance verification for Obsidian 1.15.1 on macOS desktop.
+- Add reproducible official Obsidian lint checks; no runtime code change.
+
 ## 0.1.4 - 2026-11-11
 
 - Preserve source whitespace and highlighting across multiline tags, attribute values, and comments.
