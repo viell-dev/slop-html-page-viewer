@@ -24,7 +24,7 @@ and anyone may use it under the license.
 - Follows links as Obsidian does: web links open outside Obsidian, in the default browser, links to
   other HTML pages open them in the viewer, links to notes and other vault files open them as
   Obsidian opens a file, and links within the page scroll to their target. Ctrl-click or a middle
-  click opens a new tab. Hovering a link shows where it leads, and hovering an image shows its alt
+  click opens a new tab. HTML and SVG links (including legacy `xlink:href`) are supported. Hovering a link shows where it leads, and hovering an image shows its alt
   text, unless the page gives them titles of its own.
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and

@@ -10,7 +10,7 @@ describe("linkTarget", () => {
   const cases: [string, ReturnType<typeof linkTarget>][] = [
     [`${PAGE}#details`, { kind: "fragment", id: "details" }],
     [`${PAGE}?1700000000#Caf%C3%A9`, { kind: "fragment", id: "Café" }],
-    [`${PAGE}#`, { kind: "vault", path: "Saved/Example article.html" }],
+    [`${PAGE}#`, { kind: "fragment", id: "" }],
     [`${VAULT}Saved/Other%20page.html`, { kind: "vault", path: "Saved/Other page.html" }],
     [`${VAULT}Saved/Other%20page.html#part`, { kind: "vault", path: "Saved/Other page.html" }],
     [`${VAULT}Notes/Topic.md`, { kind: "vault", path: "Notes/Topic.md" }],
@@ -126,6 +126,56 @@ describe("watchLinks", () => {
     const { calls, scrolled, click } = setUp();
     assert.equal(click("fragment"), true);
     assert.deepEqual(scrolled, ["details"]);
+    assert.deepEqual(calls, []);
+  });
+
+  it("resolves SVG links with the effective base and preserves their reference", () => {
+    const { doc, calls, click, scrolled } = setUp();
+    doc.body.insertAdjacentHTML(
+      "beforeend",
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+      <a id="svg" href="Other%20page.html"><text id="svg-inner">other</text></a>
+      <a id="legacy" xlink:href="../Notes/Topic.md"/>
+      <a id="svg-web" href="https://example.com/"/>
+      <a id="svg-out" href="../../../secret.html"/>
+      <a id="svg-fragment" href="#details"/>
+      <a id="precedence" href="Other%20page.html" xlink:href="wrong"/>
+    </svg>`,
+    );
+    click("svg-inner", { ctrlKey: true });
+    click("legacy", { button: 1 });
+    click("svg-web");
+    click("svg-out");
+    click("svg-fragment");
+    click("precedence");
+    assert.deepEqual(calls, [
+      "vault Saved/Other page.html tab Other%20page.html",
+      "vault Notes/Topic.md tab ../Notes/Topic.md",
+      "external https://example.com/",
+      "refuse app://vault-id/home/secret.html",
+      "vault Saved/Other page.html false Other%20page.html",
+    ]);
+    assert.deepEqual(scrolled, ["details"]);
+    doc.querySelector("base")!.setAttribute("href", "https://example.com/base/");
+    click("svg");
+    assert.equal(calls.at(-1), "external https://example.com/base/Other%20page.html");
+  });
+
+  it("scrolls empty fragments and resolves real targets before the top fallback", () => {
+    const { doc, calls, click, scrolled } = setUp();
+    doc.body.insertAdjacentHTML(
+      "beforeend",
+      `<a id="empty" href="#">top</a><a id="top-link" href="#top">top</a><h2 id="top">Top target</h2><a id="encoded" href="#Caf%C3%A9">cafe</a><h2 id="Café"></h2>`,
+    );
+    click("empty");
+    click("top-link");
+    click("encoded");
+    doc.getElementById("top")!.remove();
+    doc.body.insertAdjacentHTML("beforeend", '<a name="top"></a>');
+    click("top-link");
+    doc.querySelector('[name="top"]')!.remove();
+    click("top-link");
+    assert.deepEqual(scrolled, ["", "top", "Café", "", ""]);
     assert.deepEqual(calls, []);
   });
 

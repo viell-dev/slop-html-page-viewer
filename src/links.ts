@@ -25,7 +25,7 @@ function fragmentId(url: URL): string {
 }
 
 /**
- * Classifies a link's resolved URL (`link.href`), given the page's and the
+ * Classifies a link's resolved URL, given the page's and the
  * vault's resource URLs.
  */
 export function linkTarget(href: string, pageUrl: string, vaultUrl: string): LinkTarget {
@@ -37,7 +37,7 @@ export function linkTarget(href: string, pageUrl: string, vaultUrl: string): Lin
   }
   if (url.protocol === "javascript:") return { kind: "none" };
 
-  if (url.hash !== "" && withoutQuery(url.href) === withoutQuery(pageUrl)) {
+  if (url.href.includes("#") && withoutQuery(url.href) === withoutQuery(pageUrl)) {
     return { kind: "fragment", id: fragmentId(url) };
   }
   const path = vaultPath(url.href, vaultUrl);
@@ -64,19 +64,23 @@ export function paneFor(event: MouseEvent, isMacOS: boolean): PaneChoice {
 
 /** What following a link does outside the page. */
 export interface LinkActions {
-  /** 
-eference is the link's href as written, for resolving it by name. */
+  /**
+   * Opens the resolved vault `path` in `pane`. `reference` retains the href as
+   * written so Obsidian can resolve it by name when the path does not exist.
+   */
   openVault(path: string, pane: PaneChoice, reference: string): void;
   openExternal(url: string): void;
   refuse(url: string): void;
 }
 
 function scrollToFragment(doc: Document, id: string): void {
-  // As in browsers: an empty fragment or "top" scrolls to the top.
+  // An empty fragment scrolls to the top; a real target takes precedence over "top".
   const target =
-    id === "" || id.toLowerCase() === "top"
+    id === ""
       ? doc.documentElement
-      : (doc.getElementById(id) ?? doc.getElementsByName(id)[0] ?? null);
+      : (doc.getElementById(id) ??
+        doc.getElementsByName(id)[0] ??
+        (id.toLowerCase() === "top" ? doc.documentElement : null));
   target?.scrollIntoView();
 }
 
@@ -96,16 +100,28 @@ export function watchLinks(
     if (event.type === "auxclick" && event.button !== 1) return;
     // The page's nodes belong to the frame's window, so test by shape.
     const start = event.target as { closest?: (selector: string) => Element | null } | null;
-    const link = start?.closest?.("a[href], area[href]");
+    const link = start?.closest?.("a, area[href]");
     if (!link) return;
+    const reference =
+      link.getAttribute("href") ??
+      (link.namespaceURI === "http://www.w3.org/2000/svg"
+        ? link.getAttributeNS("http://www.w3.org/1999/xlink", "href")
+        : null);
+    if (reference === null) return;
     event.preventDefault();
-    const target = linkTarget((link as HTMLAnchorElement).href, pageUrl, vaultUrl);
+    let resolved: string;
+    try {
+      resolved = new URL(reference, doc.baseURI).href;
+    } catch {
+      return;
+    }
+    const target = linkTarget(resolved, pageUrl, vaultUrl);
     switch (target.kind) {
       case "fragment":
         scrollToFragment(doc, target.id);
         break;
       case "vault":
-        actions.openVault(target.path, paneFor(event, isMacOS), link.getAttribute("href") ?? "");
+        actions.openVault(target.path, paneFor(event, isMacOS), reference);
         break;
       case "external":
         actions.openExternal(target.url);

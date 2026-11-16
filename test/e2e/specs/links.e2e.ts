@@ -56,6 +56,41 @@ describe("Links in a page in Obsidian", function () {
     });
   });
 
+  it("handles SVG references and empty fragments without reopening the page", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await waitForPage();
+    await recordWindowOpen();
+    await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+      doc.body.insertAdjacentHTML(
+        "beforeend",
+        `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a id="svg-web" href="https://example.com/svg"><text>web</text></a><a id="svg-note" xlink:href="../Notes/Topic.md"><text>note</text></a></svg><a id="empty" href="#">top</a>`,
+      );
+      (doc.querySelector("#svg-web text") as Element).dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      doc.documentElement.dataset.e2e = "retained";
+      doc.defaultView!.scrollTo(0, 1000);
+      doc
+        .querySelector("#empty")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    }, ACTIVE);
+    expect(await openedUrls()).toEqual(["https://example.com/svg"]);
+    expect(
+      await browser.execute((active) => {
+        const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+        return [doc.documentElement.dataset.e2e, doc.defaultView!.scrollY];
+      }, ACTIVE),
+    ).toEqual(["retained", 0]);
+    await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+      doc
+        .querySelector("#svg-note")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    }, ACTIVE);
+    await browser.waitUntil(async () => (await activeFile()).path === "Notes/Topic.md");
+  });
+
   it("opens a web link outside Obsidian and keeps the page in the frame", async function () {
     await openInActiveTab("Saved/Example article.html");
     await waitForPage();

@@ -13,6 +13,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - A page that cannot be prepared for display shows an error, with Refresh and the source view still
   available, instead of being shown without its protections. Escapes in a page's CSS decode as CSS
   specifies, and a stylesheet that cannot be read is left out, as a missing one is.
+- Fix SVG link navigation and empty-fragment scrolling; real `top` targets take precedence.
+
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 
