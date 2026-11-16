@@ -21,17 +21,17 @@ export const FIND_STYLE = [
 /** Elements whose text a page does not show as its text. */
 const UNSHOWN = new Set(["script", "style", "template", "textarea", "select", "head", "title"]);
 
-/**
- * Whether a page hides an element: by the `hidden` attribute, or by its styles,
- * as Chromium's `checkVisibility` reads them. An element whose `display` is
- * `contents` has no box of its own, but shows its children.
- */
+/** Whether this entire subtree is hidden; visibility is checked per text owner below. */
 function isHidden(element: Element): boolean {
   if (element.hasAttribute("hidden")) return true;
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+  if (style?.display === "none" || style?.opacity === "0") return true;
+  // Chromium 114 uses checkOpacity; newer hosts also accept opacityProperty.
+  // Do not check visibility here: descendants can override visibility:hidden.
   // eslint-disable-next-line @typescript-eslint/unbound-method -- called on its element below
-  const check = (element as Element & { checkVisibility?: () => boolean }).checkVisibility;
-  if (!check || check.call(element)) return false;
-  return element.ownerDocument.defaultView?.getComputedStyle(element).display !== "contents";
+  const check = element.checkVisibility;
+  if (!check || check.call(element, { checkOpacity: true, opacityProperty: true })) return false;
+  return style?.display !== "contents";
 }
 
 /** Elements that start a block of their own, so that a match never runs from one into the next. */
@@ -125,15 +125,17 @@ export function pageRuns(doc: Document): TextRun[] {
     nodes = [];
   };
   const visit = (element: Element): void => {
+    if (isHidden(element)) return;
+    const visibility = element.ownerDocument.defaultView?.getComputedStyle(element).visibility;
+    const textVisible = visibility !== "hidden" && visibility !== "collapse";
     // A closed details element shows only its summary.
     const closed = element.localName === "details" && !element.hasAttribute("open");
     for (const child of element.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
-        if (!closed) nodes.push(child as Text);
+        if (!closed && textVisible) nodes.push(child as Text);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         const name = (child as Element).localName;
-        if (UNSHOWN.has(name) || (closed && name !== "summary") || isHidden(child as Element))
-          continue;
+        if (UNSHOWN.has(name) || (closed && name !== "summary")) continue;
         const block = BLOCKS.has(name);
         if (block) end();
         visit(child as Element);

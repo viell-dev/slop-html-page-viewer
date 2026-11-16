@@ -63,6 +63,56 @@ describe("Finding text in Obsidian", function () {
     }, ACTIVE);
   });
 
+  it("excludes CSS-hidden text while retaining visibility overrides and source text", async function () {
+    await browser.executeObsidian(async ({ app }) => {
+      const html = `<p>visibleword</p><p style="visibility:hidden">hiddenword <span>inheritedword</span><span style="visibility:visible">overrideword</span></p><div style="opacity:0">transparentword<span style="opacity:1">opaquechild</span></div><div style="display:contents">contentsword</div><div style="display:none">displayword</div><div style="display:contents;visibility:hidden">hiddencontents<span style="visibility:visible">contentsoverride</span></div>`;
+      const path = "Saved/Find visibility.html";
+      const existing = app.vault.getAbstractFileByPath(path);
+      if (existing) await app.vault.modify(existing as never, html);
+      else await app.vault.create(path, html);
+    });
+    await openInActiveTab("Saved/Find visibility.html");
+    await waitForPage();
+    const options = await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+      const hidden = doc.querySelector("p[style]")!;
+      const transparent = doc.querySelector("div[style]")!;
+      return {
+        legacyVisibility: hidden.checkVisibility({ checkVisibilityCSS: true }),
+        legacyOpacity: transparent.checkVisibility({ checkOpacity: true }),
+        modernVisibility: hidden.checkVisibility({ visibilityProperty: true }),
+        modernOpacity: transparent.checkVisibility({ opacityProperty: true }),
+      };
+    }, ACTIVE);
+    expect(options.legacyVisibility).toBe(false);
+    expect(options.legacyOpacity).toBe(false);
+    const modern = Number(browser.capabilities.browserVersion?.split(".")[0]) >= 121;
+    expect(options.modernVisibility).toBe(!modern);
+    expect(options.modernOpacity).toBe(!modern);
+    await browser.$(`${ACTIVE} button[aria-label="Find in page"]`).click();
+    for (const word of ["visibleword", "overrideword", "contentsword", "contentsoverride"]) {
+      await find(word);
+      expect(await findCount()).toBe("1 of 1");
+    }
+    for (const word of [
+      "hiddenword",
+      "inheritedword",
+      "transparentword",
+      "opaquechild",
+      "displayword",
+      "hiddencontents",
+    ]) {
+      await find(word);
+      expect(await findCount()).toBe("No matches");
+    }
+    await clickToolbarButton("Source");
+    for (const word of ["hiddenword", "transparentword", "displayword"]) {
+      await find(word);
+      expect(await findCount()).toBe("1 of 1");
+    }
+    await closeFind();
+  });
+
   it("finds in a page, highlights the matches, and moves from one to the next", async function () {
     await openInActiveTab("Saved/Example article.html");
     await waitForPage();

@@ -40,6 +40,27 @@ describe("finding text in a page", () => {
     ]);
   });
 
+  it("uses computed styles when checkVisibility is unavailable", () => {
+    const doc = document.implementation.createHTMLDocument();
+    Object.defineProperty(doc, "defaultView", { value: window });
+    doc.body.innerHTML = `<p style="visibility:hidden">hidden<span style="visibility:visible">shown</span></p><div style="opacity:0"><span style="opacity:1">hidden</span></div><div style="display:none">hidden</div><div style="display:contents">shown</div>`;
+    assert.deepEqual(findRanges(pageRuns(doc), "hidden").ranges, []);
+    assert.equal(findRanges(pageRuns(doc), "shown").ranges.length, 2);
+  });
+
+  it("requests opacity checking with both Chromium option names", () => {
+    const doc = parse("<p>shown</p>");
+    const paragraph = doc.querySelector("p")!;
+    Object.defineProperty(paragraph, "checkVisibility", {
+      value: (options: { checkOpacity?: boolean; opacityProperty?: boolean }) => {
+        assert.equal(options.checkOpacity, true);
+        assert.equal(options.opacityProperty, true);
+        return false;
+      },
+    });
+    assert.deepEqual(pageRuns(doc), []);
+  });
+
   it("finds the text of noscript, which a page with scripts off shows", () => {
     // With scripts off, the parser reads noscript's contents as markup.
     const doc = new DOMParser().parseFromString(
@@ -185,6 +206,39 @@ describe("the find bar", () => {
     const counter = view.contentEl.querySelector(".html-page-viewer__find-count");
     assert.equal(counter?.getAttribute("aria-live"), "polite");
   });
+
+  for (const close of ["Escape", "Close find", "Find in page"]) {
+    it(`keeps pending input when closed with ${close}`, async (t) => {
+      const { view } = await sourceView();
+      t.mock.timers.enable({ apis: ["setTimeout"] });
+      document.body.append(view.contentEl);
+      try {
+        button(view, "Find in page").click();
+        input(view).value = "page";
+        press(input(view), "Enter");
+        input(view).value = "three";
+        input(view).dispatchEvent(new window.Event("input"));
+        t.mock.timers.tick(149);
+        assert.equal(count(view), "1 of 3", "the search remains delayed");
+        if (close === "Escape") press(input(view), "Escape");
+        else button(view, close).click();
+        assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
+        t.mock.timers.tick(200);
+        assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
+        if (close === "Escape")
+          assert.equal(
+            document.activeElement,
+            view.contentEl.querySelector(".html-page-viewer__source"),
+          );
+        button(view, "Find in page").click();
+        assert.equal(input(view).value, "three");
+        assert.equal(count(view), "1 of 1");
+        press(input(view), "Escape");
+      } finally {
+        view.contentEl.remove();
+      }
+    });
+  }
 
   it("searches as the text changes, after a pause", async () => {
     const { view } = await sourceView();

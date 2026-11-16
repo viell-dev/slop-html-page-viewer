@@ -36,9 +36,9 @@ and anyone may use it under the license.
 - Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
   Ctrl+F while the viewer has focus, or the **Find in page** command opens a find bar, which
   highlights every match, up to 10,000, and moves between them with Enter and
-  Shift+Enter; Escape closes it. In the page, a match stays within a paragraph or another block, and
-  leaves out text that the page hides. In the split view, it finds in the source, which the page
-  follows.
+  Shift+Enter; Escape closes it, keeping the typed query. In the page, a match stays within a
+  paragraph or another block, and leaves out text that the page hides, including CSS visibility and
+  zero opacity. In the split view, it finds in the source, which the page follows.
 - Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
   shows, also after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
