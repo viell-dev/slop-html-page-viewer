@@ -86,24 +86,25 @@ npm run test:e2e:docker
 ```
 
 On Linux with Obsidian's system libraries, Xvfb, and herbstluftwm installed, `npm ci --prefix
-test/e2e` and then `npm run test:e2e` run the suite directly. Runner arguments (including `--spec`)
-are rejected: use `E2E_ONLY` for focused runs. Screenshots and logs go to `test-results/e2e/`, and downloaded
-Obsidian versions to `.obsidian-cache/` or, with Docker, the `html-page-viewer-obsidian-cache`
-volume.
+test/e2e` and then `npm run test:e2e` run the suite directly. Neither takes arguments; environment
+variables choose what runs. Screenshots and logs go to `test-results/e2e/`, and downloaded Obsidian
+versions to `.obsidian-cache/` or, with Docker, the `html-page-viewer-obsidian-cache` volume.
 
 The suite runs Obsidian 1.5.3, the oldest public release that the manifest's `minAppVersion` allows,
 and the latest public release. Set `OBSIDIAN_VERSIONS` to `appVersion/installerVersion` pairs to
-test others. `E2E_ONLY` is the supported focused interface: comma-separated spec file names (not
-paths or globs), such as `viewer.e2e.ts,links.e2e.ts`. Unknown names fail before tests start.
+test others. To run only some suites, set `E2E_ONLY` to their spec file names, separated by commas:
+names such as `links.e2e.ts`, not paths or patterns. A name that matches no spec, or an argument
+such as `--spec`, stops the run before Obsidian starts.
 
 ```sh
-E2E_ONLY=viewer.e2e.ts npm run test:e2e:docker
+E2E_ONLY=viewer.e2e.ts,links.e2e.ts npm run test:e2e:docker
 ```
 
-In PowerShell, set `$env:E2E_ONLY = "viewer.e2e.ts"` before the command and remove it with
-`Remove-Item Env:E2E_ONLY` afterwards to return to a full run. The selection filters capabilities
-as well as specs, so ordinary suites never run against the archive/prototype vaults. Without a
-selection, missing corpus results still fail the run.
+In PowerShell, set `$env:E2E_ONLY = "viewer.e2e.ts"` first, and `Remove-Item Env:E2E_ONLY`
+afterwards to return to full runs. Each suite runs only against the vault it is written for, so a
+run of ordinary suites leaves out the archive corpus and its comparison with the prototype; a full
+run, or one that names `corpus.e2e.ts`, fails if the corpus results are missing.
+
 Obsidian is downloaded, never stored in the repository or the image, because its terms do not allow
 redistributing it. It serves files whose paths are not ASCII only under a UTF-8 locale, which
 `session.sh` sets, together with a window manager layout that keeps every Obsidian window at full

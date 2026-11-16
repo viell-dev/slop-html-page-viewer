@@ -20,10 +20,10 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 - **The archive corpus** (`test/e2e/corpus/`) opens every page of a synthetic vault of archived web
   pages in Obsidian, and compares the result with the frozen prototype build.
 
-`e2e-selection.test.ts` checks focused ordinary-spec selection, unknown names and unsupported
-runner arguments, and proves that absent corpus results fail full and corpus-selected runs while
-an ordinary-spec-only run may omit them. The host smoke command is
-`E2E_ONLY=viewer.e2e.ts npm run test:e2e:docker`; it runs only the ordinary vault lanes.
+`test/e2e-selection.test.ts` checks how `E2E_ONLY` narrows a run: it accepts spec file names,
+refuses unknown names and runner arguments, and lets only a run without `corpus.e2e.ts` leave out
+the corpus results, which a full run requires. `E2E_ONLY=viewer.e2e.ts npm run test:e2e:docker`
+is the quick check that a narrowed run works in Obsidian.
 
 The settings suite also checks that global settings search finds all five viewer settings and
 opens each result on versions that provide the search (Obsidian 1.13 and later).
