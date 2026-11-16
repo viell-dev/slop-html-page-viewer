@@ -8,8 +8,7 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
-- Protect release packaging output from replacing unrelated files; explain how to migrate an
-  unmarked package directory and support checkouts under linked parent directories.
+Nothing that changes the plugin.
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 

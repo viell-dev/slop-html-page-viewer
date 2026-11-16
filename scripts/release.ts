@@ -274,6 +274,35 @@ function readAssets(directory: string, version: string): Files {
 }
 
 /**
+ * Resolves `requested`, an absolute path, through the real path of its deepest existing ancestor,
+ * keeping the part that does not exist yet, so that links above a checkout are followed to the
+ * place they lead. `throughDirectory` says whether that ancestor is a directory.
+ */
+function resolveExisting(
+  requested: string,
+  remedy: string,
+): { resolved: string; throughDirectory: boolean } {
+  const missing: string[] = [];
+  let existing = requested;
+  while (!fs.lstatSync(existing, { throwIfNoEntry: false })) {
+    const parent = path.dirname(existing);
+    if (parent === existing) throw new Refusal(`No part of ${requested} exists. ${remedy}`);
+    missing.unshift(path.basename(existing));
+    existing = parent;
+  }
+  let real: string;
+  try {
+    real = fs.realpathSync(existing);
+  } catch {
+    throw new Refusal(`${existing} is a link that leads nowhere. ${remedy}`);
+  }
+  return {
+    resolved: path.join(real, ...missing),
+    throughDirectory: fs.statSync(real).isDirectory(),
+  };
+}
+
+/**
  * Returns the resolved absolute output directory. Validates everything before mutation,
  * then removes only the recorded version's regular artifacts, never the directory itself.
  */
@@ -283,21 +312,19 @@ function prepareOutput(destination: string): string {
   const stat = fs.lstatSync(requested, { throwIfNoEntry: false });
   if (stat?.isSymbolicLink())
     throw new Refusal(`Package output is a link: ${requested}. ${remedy}`);
-  // Resolve existing ancestors, retaining the suffix for a not-yet-created output.
-  // Links above a checkout are legitimate; their real targets determine protection.
-  const resolveOutput = (directory: string): string => {
-    const entry = fs.lstatSync(directory, { throwIfNoEntry: false });
-    if (entry) {
-      const resolved = fs.realpathSync(directory);
-      if (!fs.statSync(resolved).isDirectory())
-        throw new Refusal(`Package output passes through a non-directory: ${directory}. ${remedy}`);
-      return resolved;
-    }
-    return path.join(resolveOutput(path.dirname(directory)), path.basename(directory));
-  };
-  const out = resolveOutput(requested);
+  const output = resolveExisting(requested, remedy);
+  if (!output.throughDirectory)
+    throw new Refusal(`Package output passes through a non-directory: ${requested}. ${remedy}`);
+  const out = output.resolved;
   const checkout = fs.realpathSync(path.resolve(import.meta.dirname, ".."));
-  const home = resolveOutput(os.homedir());
+  // The home directory is protected however it is set; an odd value, such as a file or a
+  // broken link, must not stop packaging elsewhere.
+  let home = path.resolve(os.homedir());
+  try {
+    home = resolveExisting(home, remedy).resolved;
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+  }
   const contains = (parent: string, child: string) => {
     const relative = path.relative(parent, child);
     return (
@@ -315,7 +342,7 @@ function prepareOutput(destination: string): string {
     const stat = fs.lstatSync(marker, { throwIfNoEntry: false });
     if (!stat?.isFile())
       throw new Refusal(
-        `${out} is not empty and has no regular packaging marker: remove it only if it holds an earlier package you no longer need, or choose a new or empty --out directory.`,
+        `${out} is not empty and has no regular packaging marker. Remove it only if it holds an earlier package you no longer need. ${remedy}`,
       );
     const invalidMarker = () => new Refusal(`Invalid package ownership marker: ${out}. ${remedy}`);
     let record: unknown;
@@ -338,7 +365,9 @@ function prepareOutput(destination: string): string {
     for (const name of present) {
       const entry = fs.lstatSync(path.join(out, name));
       if ((name !== OUTPUT_MARKER && !previous.includes(name)) || !entry.isFile())
-        throw new Refusal(`Unknown artifact or link in package output: ${name}. ${remedy}`);
+        throw new Refusal(
+          `Unknown artifact or link in package output: ${path.join(out, name)}. ${remedy}`,
+        );
     }
   }
   // Validation above must finish before any mutation. Never remove the directory

@@ -812,6 +812,11 @@ describe("package output safety", () => {
     const result = run("release", "1.2.0", path.join(linkedRoot, "checkout"));
     assert.equal(result.status, 0, result.stderr);
     assert.ok(fs.existsSync(path.join(checkout, "release", "SHA256SUMS")));
+    // A relative --out can resolve without the link, as the working directory does on Linux,
+    // so package once through the link by its absolute path too.
+    const throughLink = run(path.join(linkedRoot, "checkout", "linked-release"));
+    assert.equal(throughLink.status, 0, throughLink.stderr);
+    assert.ok(fs.existsSync(path.join(checkout, "linked-release", "SHA256SUMS")));
     for (const out of [path.join(linkedRoot, "checkout"), path.join(linkedRoot, "home")]) {
       const refused = run(out, "1.2.0", checkout, home);
       assert.equal(refused.status, 1);
@@ -830,6 +835,26 @@ describe("package output safety", () => {
     assert.equal(fs.readFileSync(path.join(home, "important.txt"), "utf8"), "keep");
   });
 
+  it("packages whatever the home directory is, and refuses a path through a broken link", (t) => {
+    const { root, run } = fixture(t);
+    const homeFile = path.join(root, "home-file");
+    fs.writeFileSync(homeFile, "keep");
+    const withFileHome = run(path.join(root, "output"), "1.2.0", undefined, homeFile);
+    assert.equal(withFileHome.status, 0, withFileHome.stderr);
+    assert.equal(fs.readFileSync(homeFile, "utf8"), "keep");
+
+    const broken = path.join(root, "broken");
+    fs.symlinkSync(
+      path.join(root, "nothing"),
+      broken,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const refused = run(path.join(broken, "output"));
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /is a link that leads nowhere/);
+    assert.doesNotMatch(refused.stderr, /\n\s+at /);
+  });
+
   it("rejects destination and artifact links without touching targets", (t) => {
     const { root, run } = fixture(t);
     const target = path.join(root, "target");
@@ -837,12 +862,10 @@ describe("package output safety", () => {
     fs.writeFileSync(path.join(target, "important.txt"), "keep");
     const link = path.join(root, "link");
     fs.symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
-    for (const out of [link]) {
-      const result = run(out);
-      assert.equal(result.status, 1, result.stderr);
-      assert.match(result.stderr, /output is a link/);
-      assert.deepEqual(fs.readdirSync(target), ["important.txt"]);
-    }
+    const result = run(link);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /output is a link/);
+    assert.deepEqual(fs.readdirSync(target), ["important.txt"]);
     const out = path.join(root, "output");
     assert.equal(run(out).status, 0);
     fs.unlinkSync(path.join(out, "main.js"));
