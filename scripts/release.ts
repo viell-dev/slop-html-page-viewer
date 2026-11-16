@@ -28,6 +28,7 @@ import {
   type Files,
   type GitHub,
   packageRelease,
+  isVersion,
   PLUGIN_FILES,
   publish,
   Refusal,
@@ -252,6 +253,9 @@ const readJson = <T>(file: string): T => JSON.parse(fs.readFileSync(file, "utf8"
 const readIfThere = (file: string): string | null =>
   fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
 
+const OUTPUT_MARKER = ".html-page-viewer-package.json";
+const OUTPUT_OWNER = "html-page-viewer-release-v1";
+
 function readAssets(directory: string, version: string): Files {
   const present = fs.existsSync(directory)
     ? fs
@@ -269,22 +273,31 @@ function readAssets(directory: string, version: string): Files {
   );
 }
 
-const OUTPUT_MARKER = ".html-page-viewer-package.json";
-const OUTPUT_OWNER = "html-page-viewer-release-v1";
-
-/** No recursive removal: an owned output contains only recorded, regular artifacts. */
+/**
+ * Returns the resolved absolute output directory. Validates everything before mutation,
+ * then removes only the recorded version's regular artifacts, never the directory itself.
+ */
 function prepareOutput(destination: string): string {
-  const out = path.resolve(destination);
-  // Reject links (including Windows junctions) in every existing component, even
-  // when they point to an otherwise acceptable directory. Do not follow them.
-  for (let part = out; ; part = path.dirname(part)) {
-    const stat = fs.lstatSync(part, { throwIfNoEntry: false });
-    if (stat && (stat.isSymbolicLink() || !stat.isDirectory()))
-      throw new Refusal(`Refusing package output through a link or non-directory: ${part}`);
-    if (path.dirname(part) === part) break;
-  }
+  const requested = path.resolve(destination);
+  const remedy = "Choose a new or empty --out directory.";
+  const stat = fs.lstatSync(requested, { throwIfNoEntry: false });
+  if (stat?.isSymbolicLink())
+    throw new Refusal(`Package output is a link: ${requested}. ${remedy}`);
+  // Resolve existing ancestors, retaining the suffix for a not-yet-created output.
+  // Links above a checkout are legitimate; their real targets determine protection.
+  const resolveOutput = (directory: string): string => {
+    const entry = fs.lstatSync(directory, { throwIfNoEntry: false });
+    if (entry) {
+      const resolved = fs.realpathSync(directory);
+      if (!fs.statSync(resolved).isDirectory())
+        throw new Refusal(`Package output passes through a non-directory: ${directory}. ${remedy}`);
+      return resolved;
+    }
+    return path.join(resolveOutput(path.dirname(directory)), path.basename(directory));
+  };
+  const out = resolveOutput(requested);
   const checkout = fs.realpathSync(path.resolve(import.meta.dirname, ".."));
-  const home = fs.realpathSync(os.homedir());
+  const home = resolveOutput(os.homedir());
   const contains = (parent: string, child: string) => {
     const relative = path.relative(parent, child);
     return (
@@ -293,31 +306,39 @@ function prepareOutput(destination: string): string {
     );
   };
   if (out === path.parse(out).root || contains(out, checkout) || contains(out, home))
-    throw new Refusal(`Refusing protected package output: ${out}`);
+    throw new Refusal(`Protected package output: ${out}. ${remedy}`);
 
   const present = fs.existsSync(out) ? fs.readdirSync(out) : [];
   let previous: string[] = [];
   if (present.length > 0) {
     const marker = path.join(out, OUTPUT_MARKER);
     const stat = fs.lstatSync(marker, { throwIfNoEntry: false });
-    if (!stat?.isFile() || stat.isSymbolicLink())
-      throw new Refusal(`Refusing nonempty package output without ownership marker: ${out}`);
-    const record = readJson<{ owner?: string; version?: string }>(marker);
+    if (!stat?.isFile())
+      throw new Refusal(
+        `${out} is not empty and has no regular packaging marker: remove it only if it holds an earlier package you no longer need, or choose a new or empty --out directory.`,
+      );
+    const invalidMarker = () => new Refusal(`Invalid package ownership marker: ${out}. ${remedy}`);
+    let record: unknown;
+    try {
+      record = readJson<unknown>(marker);
+    } catch {
+      throw invalidMarker();
+    }
     if (
+      typeof record !== "object" ||
+      record === null ||
+      !("owner" in record) ||
       record.owner !== OUTPUT_OWNER ||
+      !("version" in record) ||
       typeof record.version !== "string" ||
-      !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(record.version)
+      !isVersion(record.version)
     )
-      throw new Refusal(`Invalid package ownership marker: ${out}`);
+      throw invalidMarker();
     previous = assetNames(record.version);
     for (const name of present) {
       const entry = fs.lstatSync(path.join(out, name));
-      if (
-        (name !== OUTPUT_MARKER && !previous.includes(name)) ||
-        !entry.isFile() ||
-        entry.isSymbolicLink()
-      )
-        throw new Refusal(`Refusing unknown artifact or link in package output: ${name}`);
+      if ((name !== OUTPUT_MARKER && !previous.includes(name)) || !entry.isFile())
+        throw new Refusal(`Unknown artifact or link in package output: ${name}. ${remedy}`);
     }
   }
   // Validation above must finish before any mutation. Never remove the directory
@@ -413,6 +434,7 @@ async function main(): Promise<void> {
       );
       const assets = packageRelease(target, plugin);
       const out = prepareOutput(destination);
+      // Write ownership first so a run interrupted during artifact writes can be rerun.
       fs.writeFileSync(
         path.join(out, OUTPUT_MARKER),
         JSON.stringify({ owner: OUTPUT_OWNER, version: target }),
