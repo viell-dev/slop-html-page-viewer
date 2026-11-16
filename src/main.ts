@@ -377,9 +377,11 @@ class HtmlPageViewerView extends TextFileView {
 
   private renderToolbar(parent: HTMLElement): void {
     const toolbar = parent.createDiv({ cls: "html-page-viewer__toolbar" });
+    // Toggle buttons rather than tabs: each is an ordinary button, and the
+    // pressed one is the mode shown.
     const modeGroup = toolbar.createDiv({
       cls: "html-page-viewer__segmented",
-      attr: { "aria-label": "View mode" },
+      attr: { role: "group", "aria-label": "View mode" },
     });
     const modes: [ViewMode, string][] = [
       ["rendered", "Rendered"],
@@ -389,6 +391,7 @@ class HtmlPageViewerView extends TextFileView {
     for (const [mode, label] of modes) {
       const button = createTextButton(modeGroup, label);
       button.toggleClass("is-active", this.mode === mode);
+      button.setAttribute("aria-pressed", String(this.mode === mode));
       button.addEventListener("click", () => {
         this.mode = mode;
         this.rememberChoices();

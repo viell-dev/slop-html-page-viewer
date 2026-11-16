@@ -117,9 +117,10 @@ off instead keeps them. It never changes the pages it opens.
 
 ## Keyboard
 
-The toolbar's buttons are ordinary buttons with labels, reached with Tab. **Scripts** and
-**Theme** say whether they are on. Ctrl+F, while the viewer has focus, opens the find bar. In it,
-Enter moves to the next match and Shift+Enter to the previous one, Escape closes
+The toolbar's buttons are ordinary buttons with labels, reached with Tab. **Rendered**, **Source**,
+and **Split** form a group named **View mode**, in which the selected one says it is pressed.
+**Scripts** and **Theme** say whether they are on. Ctrl+F, while the viewer has focus, opens the
+find bar. In it, Enter moves to the next match and Shift+Enter to the previous one, Escape closes
 it, and the number of matches is announced as it changes. The **Find in page** command has no
 hotkey of its own; one can be set in **Settings → Hotkeys**.
 

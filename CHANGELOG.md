@@ -8,7 +8,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
-Nothing that changes the plugin.
+- **Rendered**, **Source**, and **Split** form a labelled group, and the selected one says it is
+  pressed, so that screen readers announce which view mode a tab shows.
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 

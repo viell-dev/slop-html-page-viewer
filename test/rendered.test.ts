@@ -5,6 +5,7 @@ import {
   button,
   frame,
   Harness,
+  type HtmlView,
   message,
   sandboxTokens,
   securityPill,
@@ -12,6 +13,15 @@ import {
 } from "./support/harness";
 
 const PAGE = "<!doctype html><title>Report</title><p>Quarterly figures</p>";
+
+/** The view mode buttons that say they are pressed; every one says whether it is. */
+function pressedModes(view: HtmlView): string[] {
+  return ["Rendered", "Source", "Split"].filter((mode) => {
+    const pressed = button(view, mode).getAttribute("aria-pressed");
+    assert.ok(pressed === "true" || pressed === "false", `${mode} says whether it is pressed`);
+    return pressed === "true";
+  });
+}
 
 describe("rendered view", () => {
   it("renders a copy of the page whose references resolve from the file's folder", async () => {
@@ -189,6 +199,39 @@ describe("rendered view", () => {
     harness.open(second, "second.html", PAGE);
     assert.ok(frame(second));
     assert.equal(button(second, "Theme ON").getAttribute("aria-pressed"), "true");
+  });
+
+  it("says which view mode is selected, in a labelled group of buttons (#96)", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "page.html", PAGE);
+    const group = view.contentEl.querySelector(".html-page-viewer__segmented");
+    assert.equal(group?.getAttribute("role"), "group");
+    assert.equal(group?.getAttribute("aria-label"), "View mode");
+    assert.deepEqual(pressedModes(view), ["Rendered"]);
+
+    for (const mode of ["Source", "Split", "Rendered"]) {
+      button(view, mode).click();
+      assert.deepEqual(pressedModes(view), [mode], `after choosing ${mode}`);
+      assert.ok(button(view, mode).classList.contains("is-active"), "it shows as selected too");
+    }
+  });
+
+  it("says which view mode the tab keeps for its next page (#96)", async () => {
+    const harness = await Harness.load();
+    const before = harness.newView();
+    harness.open(before, "first.html", PAGE);
+    button(before, "Split").click();
+
+    harness.open(before, "second.html", PAGE);
+    assert.deepEqual(pressedModes(before), ["Split"]);
+    // A note replaced the view; this view is the tab's next HTML file.
+    const after = harness.newView(before.leaf);
+    harness.open(after, "third.html", PAGE);
+    assert.deepEqual(pressedModes(after), ["Split"]);
+    const other = harness.newView();
+    harness.open(other, "fourth.html", PAGE);
+    assert.deepEqual(pressedModes(other), ["Rendered"]);
   });
 
   it("reloads the file and the frame when refreshed", async () => {
