@@ -121,6 +121,13 @@ node scripts/release.ts package <version>
 node scripts/release.ts publish <version> --sha "$(git rev-parse HEAD)" --dry-run
 ```
 
+Packaging accepts a nonexistent or empty output directory (`--out`, default `release`). A nonempty
+output must have the helper's `.html-page-viewer-package.json` ownership marker and contain only its
+recorded generated artifacts. Repeated runs replace those artifacts only. Unknown files, directories,
+symbolic links or junctions at or above the output, filesystem roots, the checkout and its ancestors,
+and the home directory are refused before writing. Keep the marker for local reruns; it is not a
+release asset and is not required when publishing downloaded workflow artifacts.
+
 The local dry run reads GitHub anonymously, or with `GH_TOKEN`; it never writes.
 
 ## Publish

@@ -18,6 +18,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import process from "node:process";
 import {
   assetNames,
@@ -252,7 +253,12 @@ const readIfThere = (file: string): string | null =>
   fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
 
 function readAssets(directory: string, version: string): Files {
-  const present = fs.existsSync(directory) ? fs.readdirSync(directory).sort() : [];
+  const present = fs.existsSync(directory)
+    ? fs
+        .readdirSync(directory)
+        .filter((name) => name !== OUTPUT_MARKER)
+        .sort()
+    : [];
   const wanted = assetNames(version);
   if (present.join("\n") !== [...wanted].sort().join("\n"))
     throw new Refusal(
@@ -261,6 +267,66 @@ function readAssets(directory: string, version: string): Files {
   return new Map(
     wanted.map((name) => [name, new Uint8Array(fs.readFileSync(path.join(directory, name)))]),
   );
+}
+
+const OUTPUT_MARKER = ".html-page-viewer-package.json";
+const OUTPUT_OWNER = "html-page-viewer-release-v1";
+
+/** No recursive removal: an owned output contains only recorded, regular artifacts. */
+function prepareOutput(destination: string): string {
+  const out = path.resolve(destination);
+  // Reject links (including Windows junctions) in every existing component, even
+  // when they point to an otherwise acceptable directory. Do not follow them.
+  for (let part = out; ; part = path.dirname(part)) {
+    const stat = fs.lstatSync(part, { throwIfNoEntry: false });
+    if (stat && (stat.isSymbolicLink() || !stat.isDirectory()))
+      throw new Refusal(`Refusing package output through a link or non-directory: ${part}`);
+    if (path.dirname(part) === part) break;
+  }
+  const checkout = fs.realpathSync(path.resolve(import.meta.dirname, ".."));
+  const home = fs.realpathSync(os.homedir());
+  const contains = (parent: string, child: string) => {
+    const relative = path.relative(parent, child);
+    return (
+      relative === "" ||
+      (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+    );
+  };
+  if (out === path.parse(out).root || contains(out, checkout) || contains(out, home))
+    throw new Refusal(`Refusing protected package output: ${out}`);
+
+  const present = fs.existsSync(out) ? fs.readdirSync(out) : [];
+  let previous: string[] = [];
+  if (present.length > 0) {
+    const marker = path.join(out, OUTPUT_MARKER);
+    const stat = fs.lstatSync(marker, { throwIfNoEntry: false });
+    if (!stat?.isFile() || stat.isSymbolicLink())
+      throw new Refusal(`Refusing nonempty package output without ownership marker: ${out}`);
+    const record = readJson<{ owner?: string; version?: string }>(marker);
+    if (
+      record.owner !== OUTPUT_OWNER ||
+      typeof record.version !== "string" ||
+      !/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(record.version)
+    )
+      throw new Refusal(`Invalid package ownership marker: ${out}`);
+    previous = assetNames(record.version);
+    for (const name of present) {
+      const entry = fs.lstatSync(path.join(out, name));
+      if (
+        (name !== OUTPUT_MARKER && !previous.includes(name)) ||
+        !entry.isFile() ||
+        entry.isSymbolicLink()
+      )
+        throw new Refusal(`Refusing unknown artifact or link in package output: ${name}`);
+    }
+  }
+  // Validation above must finish before any mutation. Never remove the directory
+  // itself or recursively delete entries, even in a marked output.
+  fs.mkdirSync(out, { recursive: true });
+  for (const name of previous) {
+    if (present.includes(name)) fs.unlinkSync(path.join(out, name));
+  }
+  return out;
 }
 
 function parseArguments(argv: string[]): {
@@ -335,7 +401,7 @@ async function main(): Promise<void> {
       return;
     }
     case "package": {
-      const out = option("out") ?? "release";
+      const destination = option("out") ?? "release";
       const manifest = readJson<{ version: string }>("manifest.json");
       if (manifest.version !== target)
         fail([`manifest.json has ${manifest.version}, not ${target}.`]);
@@ -346,8 +412,11 @@ async function main(): Promise<void> {
         }),
       );
       const assets = packageRelease(target, plugin);
-      fs.rmSync(out, { recursive: true, force: true });
-      fs.mkdirSync(out, { recursive: true });
+      const out = prepareOutput(destination);
+      fs.writeFileSync(
+        path.join(out, OUTPUT_MARKER),
+        JSON.stringify({ owner: OUTPUT_OWNER, version: target }),
+      );
       for (const [name, bytes] of assets) fs.writeFileSync(path.join(out, name), bytes);
       process.stdout.write(Buffer.from(assets.get("SHA256SUMS")!));
       return;

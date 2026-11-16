@@ -48,6 +48,10 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                   | The Release workflow's `verify-published` step, against the published release                             |
 | Large pages stay usable                                                                                                                                                            | `find.test.ts`: at most 10,000 matches; `split.test.ts`: alignment past its limit; `settings.test.ts`: copy limits | `corpus.e2e.ts`: every page, the 600 KB page with 500 images too, opens and passes its checks within 15 s |
 
+`release.test.ts` also invokes the packaging command in disposable synthetic checkouts: protected
+paths, unowned contents and links are refused without deleting their targets; fresh, empty and
+previously owned outputs package successfully.
+
 There is no standing benchmark suite: timings on CI's shared runners vary too much to fail a build
 on. Costs that could matter were measured in Obsidian in their pull requests, such as about a
 second for every 8 MB copied into a page with scripts on (#58).

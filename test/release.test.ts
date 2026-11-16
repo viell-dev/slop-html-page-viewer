@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 import {
   assetNames,
@@ -628,5 +630,104 @@ describe("the release script", () => {
     const bad = run("check", "0.0.0-not-this");
     assert.equal(bad.status, 1);
     assert.ok(bad.stderr.includes(`manifest.json has ${version}.`), bad.stderr);
+  });
+});
+
+describe("package output safety", () => {
+  function fixture(t: import("node:test").TestContext) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hpv-package-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const checkout = path.join(root, "checkout");
+    fs.mkdirSync(path.join(checkout, "scripts"), { recursive: true });
+    for (const name of ["release.ts", "release-lib.ts"])
+      fs.copyFileSync(path.join("scripts", name), path.join(checkout, "scripts", name));
+    for (const [name, bytes] of plugin("1.2.0")) fs.writeFileSync(path.join(checkout, name), bytes);
+    fs.writeFileSync(path.join(checkout, "important.txt"), "keep");
+    const run = (out: string) =>
+      spawnSync(process.execPath, ["scripts/release.ts", "package", "1.2.0", "--out", out], {
+        cwd: checkout,
+        encoding: "utf8",
+      });
+    const home = path.join(root, "home");
+    fs.mkdirSync(home);
+    const homeRun = () =>
+      spawnSync(process.execPath, ["scripts/release.ts", "package", "1.2.0", "--out", home], {
+        cwd: checkout,
+        encoding: "utf8",
+        env: { ...process.env, HOME: home, USERPROFILE: home },
+      });
+    return { root, checkout, run, homeRun };
+  }
+
+  it("refuses the checkout, its ancestor and a synthetic home without mutation", (t) => {
+    const { root, checkout, run, homeRun } = fixture(t);
+    assert.equal(homeRun().status, 1);
+    for (const out of [checkout, root]) {
+      const result = run(out);
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /protected package output/);
+      assert.equal(fs.readFileSync(path.join(checkout, "important.txt"), "utf8"), "keep");
+    }
+  });
+
+  it("refuses unrelated contents, including extra files in an owned output", (t) => {
+    const { root, run } = fixture(t);
+    const out = path.join(root, "output");
+    fs.mkdirSync(out);
+    fs.writeFileSync(path.join(out, "important.txt"), "keep");
+    assert.equal(run(out).status, 1);
+    assert.equal(fs.readFileSync(path.join(out, "important.txt"), "utf8"), "keep");
+    fs.unlinkSync(path.join(out, "important.txt"));
+    assert.equal(run(out).status, 0);
+    const before = fs.readFileSync(path.join(out, "main.js"));
+    fs.writeFileSync(path.join(out, "important.txt"), "keep");
+    assert.equal(run(out).status, 1);
+    assert.deepEqual(fs.readFileSync(path.join(out, "main.js")), before);
+    assert.equal(fs.readFileSync(path.join(out, "important.txt"), "utf8"), "keep");
+  });
+
+  it("packages into fresh and empty directories and repeats deterministically", (t) => {
+    const { root, run } = fixture(t);
+    for (const name of ["fresh", "empty"]) {
+      const out = path.join(root, name);
+      if (name === "empty") fs.mkdirSync(out);
+      const first = run(out);
+      assert.equal(first.status, 0, first.stderr);
+      const before = fs
+        .readdirSync(out)
+        .map((file) => [file, fs.readFileSync(path.join(out, file))]);
+      const second = run(out);
+      assert.equal(second.status, 0, second.stderr);
+      assert.equal(second.stdout, first.stdout);
+      assert.deepEqual(
+        fs.readdirSync(out).map((file) => [file, fs.readFileSync(path.join(out, file))]),
+        before,
+      );
+    }
+  });
+
+  it("rejects destination and ancestor links, and artifact links without touching targets", (t) => {
+    const { root, run } = fixture(t);
+    const target = path.join(root, "target");
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, "important.txt"), "keep");
+    const link = path.join(root, "link");
+    fs.symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
+    for (const out of [link, path.join(link, "child")]) {
+      const result = run(out);
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /link or non-directory/);
+      assert.deepEqual(fs.readdirSync(target), ["important.txt"]);
+    }
+    const out = path.join(root, "output");
+    assert.equal(run(out).status, 0);
+    fs.unlinkSync(path.join(out, "main.js"));
+    fs.symlinkSync(
+      target,
+      path.join(out, "main.js"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    assert.equal(run(out).status, 1);
+    assert.equal(fs.readFileSync(path.join(target, "important.txt"), "utf8"), "keep");
   });
 });
