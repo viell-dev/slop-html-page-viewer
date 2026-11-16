@@ -1,5 +1,6 @@
 // Helpers for driving the plugin's view in Obsidian.
 
+import fs from "node:fs";
 import path from "node:path";
 import { browser } from "@wdio/globals";
 import { type Color, decodePng } from "./pixels.ts";
@@ -64,11 +65,15 @@ export async function clickToolbarButton(text: string): Promise<void> {
   await button.click();
 }
 
-export async function saveScreenshot(name: string): Promise<void> {
+/** Where the run's screenshots, logs, and diagnoses go, as wdio.conf.mts says. */
+function outputDir(): string {
   const root = path.resolve(import.meta.dirname, "../../..");
-  const output = process.env.E2E_OUTPUT_DIR?.trim() || path.join(root, "test-results", "e2e");
+  return process.env.E2E_OUTPUT_DIR?.trim() || path.join(root, "test-results", "e2e");
+}
+
+export async function saveScreenshot(name: string): Promise<void> {
   const version = browser.getObsidianVersion();
-  await browser.saveScreenshot(path.join(output, "screenshots", `${version}-${name}.png`));
+  await browser.saveScreenshot(path.join(outputDir(), "screenshots", `${version}-${name}.png`));
 }
 
 /** The vault's folder on disk. */
@@ -107,6 +112,138 @@ export async function framePixels(color: Color): Promise<number> {
   const frame = await browser.$(`${ACTIVE} iframe.html-page-viewer__frame`);
   const shot = await browser.takeElementScreenshot(await frame.elementId);
   return decodePng(Buffer.from(shot, "base64")).count(color);
+}
+
+/** The frames in Obsidian's window, and the origins its main process records for them. */
+export interface RecordedFrames {
+  /** How many frames the window's document holds. */
+  readonly frames: number;
+  /** The origin that Obsidian's main process records for each of its child frames. */
+  readonly origins: string[];
+}
+
+/**
+ * The origins that Obsidian's main process records for the window's frames.
+ * It serves vault files to a frame by this origin, not by the one that the
+ * frame's page has (#83), so a frame with scripts on must be "null" here.
+ * Given a toolbar button's label, it clicks that button first and reads the
+ * record in the same task, before the page in the frame it renders commits.
+ */
+export async function recordedFrames(clickFirst?: string): Promise<RecordedFrames> {
+  return browser.execute(
+    (active, clickFirst) => {
+      if (clickFirst !== null) {
+        const button = [
+          ...document.querySelectorAll<HTMLButtonElement>(
+            `${active} .html-page-viewer__toolbar button`,
+          ),
+        ].find((candidate) => candidate.textContent === clickFirst);
+        if (!button) throw new Error(`No toolbar button labelled ${clickFirst}`);
+        button.click();
+      }
+      // Obsidian exposes Electron's remote module to its window, which reads
+      // the main process's objects.
+      interface Remote {
+        getCurrentWebContents(): { mainFrame: { frames: { origin: string }[] } };
+      }
+      const load = (window as unknown as { require(name: string): unknown }).require;
+      const remote =
+        (load("electron") as { remote?: Remote }).remote ?? (load("@electron/remote") as Remote);
+      return {
+        frames: document.querySelectorAll("iframe").length,
+        origins: remote.getCurrentWebContents().mainFrame.frames.map((frame) => frame.origin),
+      };
+    },
+    ACTIVE,
+    clickFirst ?? null,
+  );
+}
+
+/**
+ * What the active tab shows, for a test that saw what it should not: the
+ * view, the plugin's settings, the frames with the origins that the main
+ * process records for them, and, from inside the frame, its page and images.
+ */
+async function frameDiagnosis(): Promise<Record<string, unknown>> {
+  const attempt = async (read: () => Promise<unknown>): Promise<unknown> => {
+    try {
+      return await read();
+    } catch (error) {
+      return `could not read: ${(error as Error).message.slice(0, 300)}`;
+    }
+  };
+  const view = await attempt(() =>
+    browser.executeObsidian(
+      ({ app }, active, id) => {
+        const leaf = app.workspace.getMostRecentLeaf();
+        const view = leaf?.view as { file?: { path: string } | null; getViewType(): string };
+        const plugins = (app as unknown as { plugins: { plugins: Record<string, unknown> } })
+          .plugins.plugins;
+        const security = document.querySelector(`${active} .html-page-viewer__security`);
+        return {
+          type: view?.getViewType() ?? null,
+          file: view?.file?.path ?? null,
+          security: security
+            ? [...security.children].map((part) => part.textContent ?? "").join(" | ")
+            : null,
+          settings: (plugins[id] as { settings?: unknown } | undefined)?.settings ?? null,
+          frames: [
+            ...document.querySelectorAll<HTMLIFrameElement>(
+              `${active} iframe.html-page-viewer__frame`,
+            ),
+          ].map((frame) => ({
+            sandbox: frame.getAttribute("sandbox"),
+            srcdocLength: frame.srcdoc.length,
+            dataUrls: (frame.srcdoc.match(/data:/g) ?? []).length,
+            reachable: frame.contentDocument !== null,
+          })),
+        };
+      },
+      ACTIVE,
+      PLUGIN_ID,
+    ),
+  );
+  const recorded = await attempt(() => recordedFrames());
+  const page = await attempt(async () => {
+    await browser.switchFrame(await browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+    try {
+      return await browser.execute(() => ({
+        origin: self.origin,
+        url: location.href,
+        readyState: document.readyState,
+        images: [...document.images].map((image) => ({
+          src: (image.getAttribute("src") ?? "").slice(0, 120),
+          complete: image.complete,
+          naturalWidth: image.naturalWidth,
+        })),
+      }));
+    } finally {
+      await browser.switchFrame(null);
+    }
+  });
+  return { view, recorded, page };
+}
+
+/**
+ * Checks that the active tab's frame shows no pixel of `color`. When it does,
+ * it saves a diagnosis of the frame among the run's results, waits, and counts
+ * again, to tell a page that loaded what it should not from one that had not
+ * yet been painted, and fails with both (#83).
+ */
+export async function expectNoPixels(color: Color, what: string): Promise<void> {
+  const seen = await framePixels(color);
+  if (seen === 0) return;
+  const diagnosis = await frameDiagnosis();
+  await browser.pause(1000);
+  const later = await framePixels(color).catch(() => null);
+  const name = `${browser.getObsidianVersion()}-${what.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  const file = path.join(outputDir(), "diagnoses", `${name}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ what, seen, later, ...diagnosis }, null, 2));
+  throw new Error(
+    `The frame showed ${seen} pixels of ${color.join(",")} (${what}), and ${later} a second ` +
+      `later; diagnosis in ${file}: ${JSON.stringify(diagnosis)}`,
+  );
 }
 
 /** Where a link in the active tab's page is, once it has stopped moving. */

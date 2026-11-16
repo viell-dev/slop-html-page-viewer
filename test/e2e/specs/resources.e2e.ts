@@ -5,8 +5,10 @@ import { type Color, decodePng, solidPng } from "../support/pixels.ts";
 import {
   ACTIVE,
   clickToolbarButton,
+  expectNoPixels,
   framePixels,
   openInActiveTab,
+  recordedFrames,
   saveScreenshot,
   vaultFolder,
   waitForPage,
@@ -58,8 +60,30 @@ describe("A page's local files in Obsidian", function () {
     await waitForPage();
     // A known limit: with scripts, the page has an opaque origin, which
     // Obsidian does not serve vault files to.
-    expect(await framePixels(GREEN)).toBe(0);
+    await expectNoPixels(GREEN, "scripts on");
     await clickToolbarButton("Scripts ON");
+  });
+
+  it("gives a frame with scripts on an opaque origin in Obsidian's main process from the start (#83)", async function () {
+    await openInActiveTab("Saved/Example article.html");
+    await waitForPage();
+    // Obsidian serves vault files to a frame by the origin its main process
+    // records, which it updates only once it learns that the frame's page
+    // committed. Read right after the click, the record shows the frame as it
+    // was created, before its page loads.
+    const created = await recordedFrames("Scripts OFF");
+    await waitForPage();
+    const loaded = await recordedFrames();
+    // With scripts off again, the frame keeps Obsidian's origin, which the
+    // record shows; the tab is back as the next test expects it.
+    await clickToolbarButton("Scripts ON");
+    await waitForPage();
+    const scriptsOff = await recordedFrames();
+    expect({ created, loaded, scriptsOff }).toEqual({
+      created: { frames: 1, origins: ["null"] },
+      loaded: { frames: 1, origins: ["null"] },
+      scriptsOff: { frames: 1, origins: ["app://obsidian.md"] },
+    });
   });
 
   describe("on a page that preparing could fail on", function () {

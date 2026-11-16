@@ -58,7 +58,7 @@ if (setting(process.env.PRINT_OBSIDIAN_CACHE_KEY) !== undefined) {
     if (!fs.existsSync(source)) throw new Error(`${source} is missing; run npm run build first.`);
     fs.copyFileSync(source, path.join(pluginDir, file));
   }
-  for (const entry of ["logs", "screenshots"]) {
+  for (const entry of ["logs", "screenshots", "diagnoses"]) {
     fs.rmSync(path.join(outputDir, entry), { recursive: true, force: true });
   }
   for (const entry of fs.existsSync(outputDir) ? fs.readdirSync(outputDir) : []) {
