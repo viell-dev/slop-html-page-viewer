@@ -74,6 +74,10 @@ On 2026-10-21, each of these deliberate breakages failed the check named:
   because the tag points elsewhere, and one with a zip packaged differently refused to change the
   published release.
 
+On 2026-11-16, the earlier preparation of a page, which showed the file as it is when preparing its
+copy failed, and could fail on CSS escapes and on stylesheets that could not be read, failed
+`document.test.ts`, `rendered.test.ts`, and `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1.
+
 ## Limits
 
 - Linux desktop is the supported Obsidian target. Windows provides additional build and unit-test

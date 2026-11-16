@@ -98,8 +98,8 @@ describe("A page's local files in Obsidian", function () {
       await openInActiveTab("Saved/Escape.html");
       await waitForPage();
       await saveScreenshot("escape-past-last-code-point");
-      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(IMAGE_PIXELS * 0.9);
       expect(await framePixels(RED)).toBe(0);
+      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(IMAGE_PIXELS * 0.9);
     });
 
     it("leaves out a stylesheet that cannot be read, and shows only the vault's files", async function () {
@@ -111,8 +111,8 @@ describe("A page's local files in Obsidian", function () {
       await failRead("Saved/Unreadable.css");
       await openInActiveTab("Saved/Unreadable stylesheet.html");
       await waitForPage();
-      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(IMAGE_PIXELS * 0.9);
       expect(await framePixels(RED)).toBe(0);
+      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(IMAGE_PIXELS * 0.9);
     });
 
     it("shows an error instead of a page it cannot prepare, and the page once it can", async function () {
@@ -139,8 +139,8 @@ describe("A page's local files in Obsidian", function () {
         .$(`${ACTIVE} .html-page-viewer__toolbar button[aria-label="Refresh preview"]`)
         .click();
       await waitForPage();
-      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(IMAGE_PIXELS * 0.9);
       expect(await framePixels(RED)).toBe(0);
+      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(IMAGE_PIXELS * 0.9);
     });
   });
 
