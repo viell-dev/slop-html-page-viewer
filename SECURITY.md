@@ -49,7 +49,8 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   that the page links or imports as stylesheets, and the files it copies into a page with scripts
   on. It never writes to vault files, makes no network requests, and does not read or write the
   clipboard. The one file it writes is its own settings, which Obsidian keeps in the plugin's
-  folder.
+  folder. Obsidian saves an open file's view to the file when the file leaves it; the viewer turns
+  that saving off, so Obsidian does not write the files it shows either.
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with

@@ -110,6 +110,8 @@ export class App {
   activeView: unknown = null;
   readonly scope = new Scope();
   readError: Error | null = null;
+  /** The files written through `vault.modify`, as Obsidian's saving writes them, with what was written. */
+  readonly writes: { path: string; data: string }[] = [];
   /** Obsidian's settings, as `vault.getConfig` reads them, with Obsidian's defaults. */
   readonly config = new Map<string, unknown>([["readableLineLength", true]]);
   readonly vaultListeners = new Map<string, ((...data: unknown[]) => void)[]>();
@@ -139,6 +141,11 @@ export class App {
       this.reads.push(file.path);
       if (this.readError) throw this.readError;
       return this.files.get(file.path) ?? "";
+    },
+    /** Writes a file; only Obsidian's own saving, which TextFileView inherits, calls it. */
+    modify: async (file: TFile, data: string): Promise<void> => {
+      this.writes.push({ path: file.path, data });
+      this.files.set(file.path, data);
     },
   };
 
@@ -381,12 +388,23 @@ export class TextComponent {
   }
 }
 
-export class TextFileView {
+/**
+ * Obsidian's TextFileView, with the file lifecycle it gives every view that
+ * extends it, as Obsidian 1.5.3 and 1.15.1 implement it (#90). It reads a file
+ * when the file opens in the view, and saves the view's data to the file
+ * through `save`: when another file opens in the view or the view closes, when
+ * Obsidian quits, and after `requestSave`. A save writes `getViewData()`
+ * whenever it differs from what the view last read from or wrote to the file.
+ */
+export abstract class TextFileView {
   readonly app: App;
   readonly leaf: WorkspaceLeaf;
   readonly contentEl: HTMLElement;
   file: TFile | null = null;
   data = "";
+  /** What the view last read from or wrote to its file; null until a file loads. */
+  lastSavedData: string | null = null;
+  dirty = false;
 
   readonly events: unknown[] = [];
 
@@ -394,6 +412,66 @@ export class TextFileView {
     this.leaf = leaf;
     this.app = leaf.app;
     this.contentEl = document.createElement("div");
+  }
+
+  abstract getViewData(): string;
+  abstract setViewData(data: string, clear: boolean): void;
+  abstract clear(): void;
+
+  /** Asks for a save. Obsidian saves after two seconds without another request; the stand-in saves at once. */
+  requestSave = (): void => {
+    this.dirty = true;
+    void this.save();
+  };
+
+  /** Saves the view's data to its file, as Obsidian does; given `clear`, then clears the view. */
+  async save(clear = false): Promise<void> {
+    this.dirty = false;
+    const file = this.file;
+    if (!file) return;
+    const data = this.getViewData();
+    if (this.lastSavedData === data || this.lastSavedData === null) return;
+    this.data = data;
+    this.lastSavedData = data;
+    await this.app.vault.modify(file, data);
+    if (clear) {
+      this.lastSavedData = null;
+      this.clear();
+    }
+  }
+
+  /** Reads the file that opens in the view, and gives the view its contents. */
+  async onLoadFile(file: TFile): Promise<void> {
+    const data = await this.app.vault.read(file);
+    this.lastSavedData = data;
+    this.data = data;
+    this.setViewData(data, true);
+  }
+
+  /** Saves before the view leaves its file. */
+  async onUnloadFile(file: TFile): Promise<void> {
+    if (file === this.file) await this.save(true);
+  }
+
+  /**
+   * Opens a file in the view, or none, as Obsidian's FileView does when another
+   * file opens in the tab or the view closes: the file it showed unloads first.
+   */
+  async loadFile(file: TFile | null): Promise<void> {
+    const previous = this.file;
+    if (previous === file) return;
+    if (previous) await this.onUnloadFile(previous);
+    this.file = null;
+    if (file) {
+      this.file = file;
+      await this.onLoadFile(file);
+    }
+  }
+
+  /** Closes the view, as when its tab closes or shows another kind of view, such as a note. */
+  async onClose(): Promise<void> {
+    this.contentEl.empty();
+    await this.loadFile(null);
   }
 
   /** Called by Obsidian when the view is added to the workspace. */

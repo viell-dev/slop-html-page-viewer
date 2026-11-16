@@ -180,6 +180,13 @@ class HtmlPageViewerView extends TextFileView {
   private findBar: HTMLElement | null = null;
   private findTimer: number | null = null;
 
+  /**
+   * Counts the changes of what the view shows: each time Obsidian gives it a
+   * file's contents, and each refresh. A refresh applies its result only while
+   * it is the latest and the view still shows its file (#90).
+   */
+  private contentsVersion = 0;
+
   constructor(
     leaf: WorkspaceLeaf,
     private readonly plugin: HtmlPageViewerPlugin,
@@ -262,6 +269,7 @@ class HtmlPageViewerView extends TextFileView {
   }
 
   setViewData(data: string, clear: boolean): void {
+    this.contentsVersion += 1;
     // Obsidian sets `clear` when a different file opens in this view, which
     // must start with scripts as the settings say, like a new tab.
     if (clear) this.clear();
@@ -272,6 +280,25 @@ class HtmlPageViewerView extends TextFileView {
   getViewData(): string {
     return this.data;
   }
+
+  /*
+   * The viewer never writes the file it shows. TextFileView, which gives this
+   * view Obsidian's file loading, also saves `getViewData()` to the file
+   * whenever it differs from what Obsidian last read: when another file opens
+   * in the tab, when the view closes or the tab shows another view, when
+   * Obsidian quits, and after `requestSave`. A refresh changes the view's data
+   * without Obsidian knowing, so any of those would write it (#90). In
+   * Obsidian 1.5.3 and 1.15.1, all of them go through `save`, which therefore
+   * does nothing; `requestSave` does nothing either, so that Obsidian never
+   * takes the view for changed.
+   */
+  override save(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  override requestSave = (): void => {
+    // Nothing to save: see `save`.
+  };
 
   clear(): void {
     this.data = "";
@@ -928,15 +955,24 @@ class HtmlPageViewerView extends TextFileView {
   }
 
   private async reloadFile(): Promise<void> {
-    if (!this.file) {
+    const file = this.file;
+    if (!file) {
       new Notice("No HTML file to refresh");
       return;
     }
 
+    // Another file, the same file opened again, or a later refresh may take
+    // the view while the file is read; then this read's result, or its error,
+    // belongs to contents that the view no longer shows.
+    const version = ++this.contentsVersion;
+    const current = (): boolean => this.contentsVersion === version && this.file === file;
     try {
-      this.data = await this.app.vault.read(this.file);
+      const data = await this.app.vault.read(file);
+      if (!current()) return;
+      this.data = data;
       this.render();
     } catch (error) {
+      if (!current()) return;
       // The message replaces the find bar too.
       this.closeFind();
       this.contentEl.empty();

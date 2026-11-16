@@ -36,7 +36,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | With scripts on, a page cannot reach the vault's files, apart from those copied into it                                                                                            | `document.test.ts`, `settings.test.ts`                                                                             | `resources.e2e.ts`, `settings.e2e.ts`                                                                     |
 | Only the vault's files load; a stylesheet comes only from a `.css` file; notes are never copied                                                                                    | `document.test.ts`: `vaultPath`, `pagePolicy`, stylesheets, locating by name                                       | `resources.e2e.ts`: nothing from outside the vault                                                        |
 | A page whose copy cannot be prepared shows an error, never the file; an unreadable stylesheet is left out                                                                          | `rendered.test.ts`; `document.test.ts`: CSS escapes, unreadable files                                              | `resources.e2e.ts`: nothing from outside the vault on such pages either                                   |
-| The plugin never writes to vault files, makes no network requests, and does not use the clipboard                                                                                  | `policy.test.ts` reads the built bundle                                                                            |                                                                                                           |
+| The plugin never writes to vault files, makes no network requests, and does not use the clipboard                                                                                  | `policy.test.ts` reads the built bundle; `refresh.test.ts`: Obsidian's saving, which the bundle lacks              | `read-only.e2e.ts`: files are unchanged once they leave the view, also after refreshes                    |
 | A page shows its local images, stylesheets, and fonts; references resolve by path or by name                                                                                       | `document.test.ts`                                                                                                 | `resources.e2e.ts`, `corpus.e2e.ts`                                                                       |
 | HTML and SVG links, including nested anchors, stay in the copy; fragments follow id/name/top precedence                                                                            | `links.test.ts`                                                                                                    | `links.e2e.ts`                                                                                            |
 | Pages without styles follow Obsidian's theme and Readable line length                                                                                                              | `reading.test.ts`                                                                                                  | `theme.e2e.ts`                                                                                            |
@@ -84,6 +84,15 @@ On 2026-11-16, the earlier preparation of a page, which showed the file as it is
 copy failed, and could fail on CSS escapes and on stylesheets that could not be read, failed
 `document.test.ts`, `rendered.test.ts`, and `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1.
 
+On 2026-11-16, these failed the check named (#90):
+
+- Leaving out the view's `save` override: `refresh.test.ts`; in Obsidian 1.5.3 and 1.15.1,
+  `read-only.e2e.ts`, where leaving a tab after a refresh wrote the refreshed contents to the file.
+- Leaving out the refresh's check that it is the latest and its file is still shown:
+  `refresh.test.ts`; in Obsidian, with the `save` override left out too, `read-only.e2e.ts`, where
+  the second file was overwritten with the first's contents, and the first file's read error
+  replaced the third page.
+
 ## Limits
 
 - Linux desktop is the supported Obsidian target. Windows provides additional build and unit-test
@@ -92,6 +101,10 @@ copy failed, and could fail on CSS escapes and on stylesheets that could not be 
 - Obsidian 1.5.0 to 1.5.2, which the manifest allows, were Insider builds that need an account to
   download; 1.5.3 is the oldest version tested. The versions between 1.5.3 and the latest are not
   tested.
+- The bundle check in `policy.test.ts` sees only the plugin's own code. Obsidian's TextFileView,
+  which the view extends, saves a view's data to its file from Obsidian's own code. The unit tests
+  model that saving as Obsidian 1.5.3 and 1.15.1 implement it, and `read-only.e2e.ts` checks in
+  Obsidian that it never writes, so its weekly run would see a release that saves another way.
 - Screen readers are not tested; the tests check the labels and attributes that they read.
 - The 15 s limit for a corpus page is a ceiling against a page that hangs, not a measure of speed.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against

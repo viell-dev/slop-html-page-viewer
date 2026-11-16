@@ -34,6 +34,10 @@ describe("plugin code", () => {
     });
   }
 
+  // The bundle holds only the plugin's own code. Obsidian's code writes files
+  // too: TextFileView, which the view extends, saves the view's data to its
+  // file. Those writes are not in the bundle; refresh.test.ts models them, and
+  // test/e2e/specs/read-only.e2e.ts checks in Obsidian that none happens.
   it("does not write to vault files", () => {
     assert.deepEqual(writesToVault(bundle), []);
   });
@@ -48,6 +52,11 @@ describe("plugin code", () => {
       'vault["delete"](file)',
       "const { delete: remove } = this.app.vault",
       "this.app.vault.adapter.write(path, text)",
+      "this.app.vault.append(file, text)",
+      "vault.process(file, change)",
+      "this.app.vault.createBinary(path, data)",
+      "this.app.vault.adapter.remove(path)",
+      "files.writeFile(path, text)",
       "this.app.fileManager.renameFile(file, path)",
       "this.app.fileManager.processFrontMatter(file, change)",
       "trashSystem(file)",
@@ -85,8 +94,9 @@ const VAULT_READS = new Set([
  * names nothing else shares are refused anywhere; the vault adapter and the
  * file manager, which write, are not used at all; and the vault is only held
  * as a local named `vault` and used through the reads above, so that every use
- * of it can be seen by its name. Names such as `delete`, `remove`, and
- * `append` belong to the DOM, sets, and maps too, as the find bar uses them.
+ * of it can be seen by its name. Names such as `create`, `delete`, `remove`,
+ * and `append` belong to the DOM, sets, and maps too, as the view and the find
+ * bar use them, so they are refused only as members of the vault.
  */
 function writesToVault(code: string): string[] {
   const found: string[] = [];
@@ -94,7 +104,7 @@ function writesToVault(code: string): string[] {
     for (const match of code.matchAll(pattern)) found.push(match[0]);
   };
   refuse(
-    /\.\s*(modify|process|trash|rename|mkdir|rmdir|createBinary|createFolder|createNewMarkdownFile|writeBinary)\w*\s*\(/g,
+    /\.\s*(modify|process|trash|rename|mkdir|rmdir|createBinary|createFolder|createNewMarkdownFile|write)\w*\s*\(/g,
   );
   refuse(/\btrash\w*\s*\(/g);
   refuse(/\b(adapter|fileManager)\b/g);
