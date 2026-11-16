@@ -38,7 +38,10 @@ Track its defects, offered changes, and maintainer responses through
   `upstream-sync-<date>` and open a pull request into `main`. If it conflicts, create that branch
   from `main` instead, merge `upstream/main` into it, and resolve the conflicts there. Upstream's
   releases change `main.js`, which this fork deleted; resolve that conflict by keeping it deleted.
-  Move entries that upstream adds to `CHANGELOG.md` under its **Upstream releases** section.
+  Move entries that upstream adds to `CHANGELOG.md` under its **Upstream releases** section, and
+  add their versions to `versions.json`. Leave out the records of upstream's own release
+  verification, such as `docs/obsidian-1.15.1.md` and the screenshot it shows: they describe
+  upstream's builds, not the fork's.
 
 ## Branches and merging
 

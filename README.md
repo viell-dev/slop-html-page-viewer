@@ -76,16 +76,15 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 - Its plugin id is `viell-html-page-viewer` and its name "HTML Page Viewer (viell)", so that
   Obsidian never replaces it with an upstream release. Both plugins open `.html` and `.htm` files,
   so enable only one of them.
-- Scripts are off again for each file that opens in a tab, as upstream's README promises, unless
-  the settings start every page with them on.
-- Its source view shows every character of the file and highlights it as HTML reads it, also where a
-  tag or a comment continues over several lines. Upstream's leaves out the space after an attribute
-  without a value, and highlights only the first line of such a tag.
+- Each file that opens in a tab starts as the **Scripts when a page opens** setting says, with
+  scripts off unless it is on, and the toolbar's scripts button changes only the open page.
+  Upstream instead remembers the scripts choice for each file, also after Obsidian restarts.
 - It has settings, a find bar, and a split view of the source beside the page.
 
 Changes that could serve upstream's users are kept separate from fork-only ones and offered
 upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
-[CHANGELOG.md](CHANGELOG.md) lists the fork's releases, and upstream's before them.
+Upstream's source view came from the fork, so the two show and highlight the source alike.
+[CHANGELOG.md](CHANGELOG.md) lists the fork's releases, and upstream's own after them.
 
 ## Install
 
