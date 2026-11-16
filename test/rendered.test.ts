@@ -265,6 +265,87 @@ describe("rendered view", () => {
   });
 });
 
+describe("pages that cannot be prepared", () => {
+  function policy(iframe: HTMLIFrameElement): string | null {
+    const page = new DOMParser().parseFromString(iframe.srcdoc, "text/html");
+    return (
+      page.head
+        .querySelector(':scope > meta[http-equiv="Content-Security-Policy"]:first-child')
+        ?.getAttribute("content") ?? null
+    );
+  }
+
+  function sourceText(view: HtmlView): string {
+    return [...view.contentEl.querySelectorAll(".html-page-viewer__source-code")]
+      .map((line) => line.textContent)
+      .join("\n");
+  }
+
+  it("shows a page whose CSS escapes name no character with the vault policy", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "page.html", `<style>p { background: url(\\110000.png) }</style><p>x</p>`);
+    await settle();
+
+    const iframe = frame(view);
+    assert.ok(iframe);
+    assert.match(policy(iframe) ?? "", /img-src app:\/\/test-vault\/ /);
+  });
+
+  it("leaves out a linked stylesheet that cannot be read, and shows the page with the vault policy", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.app.files.set("style.css", "p { color: green }");
+    harness.app.vault.cachedRead = () => Promise.reject(new Error("synthetic read failure"));
+    harness.open(view, "page.html", `<link rel="stylesheet" href="style.css"><p>x</p>`);
+    await settle();
+
+    const iframe = frame(view);
+    assert.ok(iframe);
+    assert.match(policy(iframe) ?? "", /img-src app:\/\/test-vault\/ /);
+    assert.doesNotMatch(iframe.srcdoc, /color: green/);
+  });
+
+  it("shows an error instead of the page, and recovers on refresh", async (t) => {
+    const logged = t.mock.method(console, "error", () => undefined);
+    const harness = await Harness.load();
+    const view = harness.newView();
+    const locate = harness.app.metadataCache.getFirstLinkpathDest;
+    harness.app.metadataCache.getFirstLinkpathDest = () => {
+      throw new Error("synthetic failure");
+    };
+    const data = `<!doctype html>\n<p>Kept text</p>\n<img src="missing.png">`;
+    harness.open(view, "page.html", data);
+    await settle();
+
+    assert.equal(frame(view), null, "the page is not shown without its protections");
+    assert.equal(
+      message(view),
+      "Unable to prepare this page, so it is not shown: synthetic failure",
+    );
+    assert.equal(logged.mock.callCount(), 1);
+    assert.ok(button(view, "Refresh preview"), "the toolbar stays");
+
+    button(view, "Split").click();
+    await settle();
+    assert.equal(frame(view), null);
+    assert.equal(sourceText(view), data, "the source keeps the file's text");
+    assert.ok(view.contentEl.querySelector(".html-page-viewer__split .html-page-viewer__message"));
+
+    button(view, "Source").click();
+    assert.equal(sourceText(view), data);
+
+    button(view, "Rendered").click();
+    harness.app.metadataCache.getFirstLinkpathDest = locate;
+    button(view, "Refresh preview").click();
+    await settle();
+    const iframe = frame(view);
+    assert.ok(iframe, "the page shows once it can be prepared");
+    assert.match(policy(iframe) ?? "", /img-src app:\/\/test-vault\/ /);
+    assert.equal(message(view), null);
+  });
+});
+
 describe("view messages", () => {
   it("says when no file is attached", async () => {
     const harness = await Harness.load();
