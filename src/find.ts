@@ -19,19 +19,29 @@ export const FIND_STYLE = [
 ].join("\n");
 
 /** Elements whose text a page does not show as its text. */
-const UNSHOWN = new Set(["script", "style", "template", "textarea", "select", "head", "title"]);
+const UNSHOWN = new Set([
+  "script",
+  "style",
+  "template",
+  "textarea",
+  "select",
+  "head",
+  "title",
+  "canvas",
+  "video",
+  "audio",
+]);
 
 /** Whether this entire subtree is hidden; visibility is checked per text owner below. */
-function isHidden(element: Element): boolean {
+function isHidden(element: Element, style: CSSStyleDeclaration | undefined): boolean {
   if (element.hasAttribute("hidden")) return true;
-  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
-  if (style?.display === "none" || style?.opacity === "0") return true;
-  // Chromium 114 uses checkOpacity; newer hosts also accept opacityProperty.
-  // Do not check visibility here: descendants can override visibility:hidden.
-  // eslint-disable-next-line @typescript-eslint/unbound-method -- called on its element below
-  const check = element.checkVisibility;
-  if (!check || check.call(element, { checkOpacity: true, opacityProperty: true })) return false;
-  return style?.display !== "contents";
+  if (style?.display === "none" || style?.contentVisibility === "hidden") return true;
+  // display:contents has no box of its own, but shows its children; opacity has no effect.
+  if (style?.display === "contents") return false;
+  if (style?.opacity === "0") return true;
+  // The top-down traversal already prunes zero-opacity ancestors. Visibility can
+  // be overridden by descendants, so neither option belongs in checkVisibility.
+  return element.checkVisibility ? !element.checkVisibility() : false;
 }
 
 /** Elements that start a block of their own, so that a match never runs from one into the next. */
@@ -125,8 +135,9 @@ export function pageRuns(doc: Document): TextRun[] {
     nodes = [];
   };
   const visit = (element: Element): void => {
-    if (isHidden(element)) return;
-    const visibility = element.ownerDocument.defaultView?.getComputedStyle(element).visibility;
+    const style = doc.defaultView?.getComputedStyle(element);
+    if (isHidden(element, style)) return;
+    const visibility = style?.visibility;
     const textVisible = visibility !== "hidden" && visibility !== "collapse";
     // A closed details element shows only its summary.
     const closed = element.localName === "details" && !element.hasAttribute("open");
@@ -143,7 +154,11 @@ export function pageRuns(doc: Document): TextRun[] {
       }
     }
   };
-  if (doc.body) visit(doc.body);
+  if (
+    doc.body &&
+    !isHidden(doc.documentElement, doc.defaultView?.getComputedStyle(doc.documentElement))
+  )
+    visit(doc.body);
   end();
   return runs;
 }

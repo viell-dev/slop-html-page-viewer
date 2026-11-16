@@ -31,7 +31,7 @@ describe("finding text in a page", () => {
   it("leaves out text the page does not show", () => {
     const html = [
       "<p>shown</p><script>var shown;</script><style>.shown {}</style><template>shown</template>",
-      "<div hidden>shown</div><details><summary>Open</summary>shown<p>shown</p></details>",
+      "<canvas>shown</canvas><video>shown</video><audio>shown</audio><div hidden>shown</div><details><summary>Open</summary>shown<p>shown</p></details>",
     ].join("");
     assert.deepEqual(texts(html, "shown"), ["shown"]);
     assert.deepEqual(texts("<details><summary>Open</summary>more</details>", "open"), ["Open"]);
@@ -41,24 +41,12 @@ describe("finding text in a page", () => {
   });
 
   it("uses computed styles when checkVisibility is unavailable", () => {
-    const doc = document.implementation.createHTMLDocument();
+    const doc = parse(
+      `<p style="visibility:hidden">hidden<span style="visibility:visible">shown</span></p><div style="opacity:0"><span style="opacity:1">hidden</span></div><div style="display:none">hidden</div><div style="display:contents">shown</div><div style="display:contents;opacity:0">shown<span>shown</span></div><div style="content-visibility:hidden">hidden<p>hidden</p></div>`,
+    );
     Object.defineProperty(doc, "defaultView", { value: window });
-    doc.body.innerHTML = `<p style="visibility:hidden">hidden<span style="visibility:visible">shown</span></p><div style="opacity:0"><span style="opacity:1">hidden</span></div><div style="display:none">hidden</div><div style="display:contents">shown</div>`;
     assert.deepEqual(findRanges(pageRuns(doc), "hidden").ranges, []);
-    assert.equal(findRanges(pageRuns(doc), "shown").ranges.length, 2);
-  });
-
-  it("requests opacity checking with both Chromium option names", () => {
-    const doc = parse("<p>shown</p>");
-    const paragraph = doc.querySelector("p")!;
-    Object.defineProperty(paragraph, "checkVisibility", {
-      value: (options: { checkOpacity?: boolean; opacityProperty?: boolean }) => {
-        assert.equal(options.checkOpacity, true);
-        assert.equal(options.opacityProperty, true);
-        return false;
-      },
-    });
-    assert.deepEqual(pageRuns(doc), []);
+    assert.equal(findRanges(pageRuns(doc), "shown").ranges.length, 4);
   });
 
   it("finds the text of noscript, which a page with scripts off shows", () => {
