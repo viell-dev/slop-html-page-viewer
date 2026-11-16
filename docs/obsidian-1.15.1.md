@@ -4,8 +4,10 @@ Maintenance patch `0.1.5`. Runtime code is unchanged. The actual desktop host ex
 
 ## Exercised behavior
 
-- Real fixture-specific rendered values and the existing relevant view actions.
-- Available malformed/empty fallback states, unchanged input hashes, extension/command unregister and reload content.
+- Checked fixture-specific expected rendered values for `fixtures/html-page-viewer/static.html`.
+- Executed the `Source` control and asserted changed output.
+- Opened 1 further fixtures as smoke checks for nonempty content and no plugin-load failure; their exact semantic output was not asserted.
+- Verified unchanged hashes for every opened input, removed extension/command registrations after detaching leaves, and reloaded the primary fixture with its expected values.
 
 ## Environment and validation
 
