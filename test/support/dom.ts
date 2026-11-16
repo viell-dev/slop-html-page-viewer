@@ -82,10 +82,12 @@ define(window.Node.prototype, {
     info?: ElementInfo | string,
     callback?: (el: HTMLElement) => void,
   ): HTMLElement {
+    // As Obsidian's does, it sets the attributes and runs the callback before
+    // it inserts the element.
     const el = window.document.createElement(tag);
     applyInfo(el, info);
-    this.appendChild(el);
     callback?.(el);
+    this.appendChild(el);
     return el;
   },
   createDiv(this: Node, info?: ElementInfo | string): HTMLElement {

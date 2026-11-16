@@ -679,14 +679,21 @@ class HtmlPageViewerView extends TextFileView {
     }
 
     const frameWrap = parent.createDiv({ cls: "html-page-viewer__frame-wrap" });
+    // The sandbox must be on the frame before it joins the document; createEl
+    // sets attributes before it inserts the element. Obsidian's main process
+    // serves vault files to a frame by the origin it last recorded for it. A
+    // frame inserted without a sandbox is recorded with Obsidian's origin
+    // until the main process learns that the page in it committed, and on
+    // Obsidian 1.5 the page keeps that record, so a request from a page with
+    // scripts on that the main process handled first would be served (#83).
     const iframe = frameWrap.createEl("iframe", {
       cls: "html-page-viewer__frame",
       attr: {
+        sandbox: sandboxValue(this.scriptsEnabled),
         title: file.name,
         referrerpolicy: "no-referrer",
       },
     });
-    iframe.setAttribute("sandbox", sandboxValue(this.scriptsEnabled));
     this.iframe = iframe;
     void this.loadPage(file, this.data, iframe);
   }
