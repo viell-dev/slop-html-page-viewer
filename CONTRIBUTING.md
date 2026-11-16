@@ -73,10 +73,14 @@ test covers. Update it with a change that adds a promise or changes its tests.
 ### Tests in Obsidian
 
 Whether pages load and behave correctly depends on Obsidian itself, so `test/e2e/` runs the built
-plugin in real Obsidian with WebdriverIO and `wdio-obsidian-service`, against the synthetic vault in
-`test/e2e/vaults/pages/`. The tools have their own package, `test/e2e/package.json`, because their
-dependencies carry advisories that should not hide the root package's
+plugin in real Obsidian with WebdriverIO 10 and `wdio-obsidian-service` 3.5, against the synthetic
+vault in `test/e2e/vaults/pages/`. The tools have their own package, `test/e2e/package.json`, with a
+separate dependency audit
 ([#21](https://github.com/viell-dev/slop-html-page-viewer/issues/21)).
+
+Update every `@wdio/*` package together; the service and reporter must support that major. Follow
+the [v10 migration guide](https://webdriver.io/docs/v10-migration), including strict selectors
+and namespaced capability spec lists. The Docker image installs `unzip` for driver downloads.
 
 With Docker, on any system, Windows included:
 

@@ -44,8 +44,7 @@ jobs:
         run: npm audit --audit-level=high
 
   # The plugin in real Obsidian, on the oldest public release the manifest
-  # allows and the latest. The test tools' own advisories are not audited here;
-  # see CONTRIBUTING.md.
+  # allows and the latest. Audit its isolated tool dependencies separately.
   e2e:
     name: e2e
     runs-on: ubuntu-latest
@@ -63,6 +62,7 @@ jobs:
             test/e2e/package-lock.json
       - run: npm ci
       - run: npm ci --prefix test/e2e
+      - run: npm audit --prefix test/e2e --audit-level=high
       - run: npx --prefix test/e2e tsc -p test/e2e
       - run: npm run build
       - name: Resolve the Obsidian versions

@@ -5,7 +5,7 @@
 # of the plugin. It never holds Obsidian: Obsidian's terms do not allow
 # redistributing it, so the tests download it into the volume mounted at /cache.
 # Its Node.js major version is the one in `.nvmrc`; change the two together.
-FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
+FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 
 RUN apt-get update \
   && apt-get install --yes --no-install-recommends \
@@ -13,7 +13,7 @@ RUN apt-get update \
     libasound2 libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libgtk-3-0 \
     libnotify4 libnss3 libpango-1.0-0 libsecret-1-0 libx11-xcb1 \
     libxcomposite1 libxdamage1 libxkbcommon0 libxrandr2 libxshmfence1 \
-    libxss1 libxtst6 x11-xserver-utils xauth xvfb \
+    libxss1 libxtst6 unzip x11-xserver-utils xauth xvfb \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir /cache /out \
   && chown node:node /cache /out
