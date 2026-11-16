@@ -125,6 +125,8 @@ export const config: WebdriverIO.Config = {
   cacheDir,
   outputDir: path.join(outputDir, "logs"),
   injectGlobals: false,
+  // WebdriverIO 10 rejects ambiguous single-element queries.
+  strictSelectors: true,
   mochaOpts: { ui: "bdd", timeout: 60_000 },
   // A failed test leaves a screenshot of Obsidian's window among the results
   // that CI keeps, named for the Obsidian version and the test (#77).

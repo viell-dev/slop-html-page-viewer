@@ -12,11 +12,11 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
   (`npm run lint`), and **formatting** (`npm run format:check`) keep the versions, changelog,
   release notes, documented settings, labels, CI jobs, end-to-end suites, and documents' links in
   agreement. They are required in CI.
-- **Tests in Obsidian** (`test/e2e/`) run the built plugin in real Obsidian, 1.5.3 and the latest
-  release, on Linux. They are required for every pull request and also run weekly, so that a new
-  Obsidian release is tested within a week. Their logs and screenshots, with one of Obsidian's
-  window for each failed test, are kept as a CI artifact for 30 days. Anything about loading,
-  origins, focus, or keys is measured here.
+- **Tests in Obsidian** (`test/e2e/`) use WebdriverIO 10 to run the built plugin in real Obsidian,
+  1.5.3 and the latest release, on Linux. They are required for every pull request and also run
+  weekly, so that a new Obsidian release is tested within a week. Their logs and screenshots, with
+  one of Obsidian's window for each failed test, are kept as a CI artifact for 30 days. Anything
+  about loading, origins, focus, or keys is measured here.
 - **The archive corpus** (`test/e2e/corpus/`) opens every page of a synthetic vault of archived web
   pages in Obsidian, and compares the result with the frozen prototype build.
 
@@ -81,5 +81,6 @@ On 2026-10-21, each of these deliberate breakages failed the check named:
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request
   records.
-- The end-to-end test tools carry advisories that wait on a dependency (#21). They run only in CI
-  and in disposable containers, against the repository's own fixtures.
+- The end-to-end test tools retain moderate advisories (#21). Both dependency packages have a
+  required CI audit at the high-severity threshold. The tools run only in CI and in disposable
+  containers, against the repository's own fixtures.
