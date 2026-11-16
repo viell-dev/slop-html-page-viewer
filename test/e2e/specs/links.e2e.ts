@@ -141,10 +141,21 @@ describe("Links in a page in Obsidian", function () {
         });
         return count;
       });
+    const shown = async () =>
+      browser.executeObsidian(({ app }) => {
+        let found = false;
+        app.workspace.iterateRootLeaves((leaf) => {
+          const view = leaf.view as unknown as { file?: { path: string } | null };
+          if (view.file?.path === "Mirror/about.html") found = true;
+        });
+        return found;
+      });
     const before = await tabs();
     await clickInPage('a[href="about.html"]', [CONTROL]);
-    await browser.waitUntil(async () => (await tabs()) === before + 1, {
-      timeoutMsg: "no new tab opened",
+    // The new tab exists before its file has opened. Wait for the file as well,
+    // so that the opening cannot finish in the next test's tab (#111).
+    await browser.waitUntil(async () => (await tabs()) === before + 1 && (await shown()), {
+      timeoutMsg: "no new tab opened Mirror/about.html",
     });
   });
 
