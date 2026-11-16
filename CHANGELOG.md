@@ -66,6 +66,20 @@ The release candidate of 0.2.0, with the same plugin.
 upstream recorded them. The fork's releases take their changes from upstream's `main` as it syncs,
 not by version.
 
+### 0.1.5 - 2026-11-16
+
+- Maintenance verification for Obsidian 1.15.1 on macOS desktop.
+- Add reproducible official Obsidian lint checks; no runtime code change.
+
+### 0.1.4 - 2026-11-11
+
+- Preserve source whitespace and highlighting across multiline tags, attribute values, and comments.
+- Handle quoted tag delimiters and script/style content in source view.
+
+### 0.1.3 - 2026-11-10
+
+- Remember the Scripts toggle per HTML file across note changes and Obsidian restarts. Scripts start off for files without permission.
+
 ### 0.1.2 - 2026-10-25
 
 - Cross-platform production build.
