@@ -92,6 +92,11 @@ and pending human requests before preparing a version.
      is new and fixed, and lists the known limits and how the release was tested.
    - Move the **Unreleased** entries of `CHANGELOG.md` under
      `## [<version>](.github/release-notes/<version>.md) - <date>`.
+   - Review README, SECURITY, and TESTING against the release candidate. Promote the applicable
+     `**Unreleased (#N):**` notices into released guidance, remove their markers, and update the
+     README's documented version. Keep notices for changes
+     excluded from this release in **Unreleased**. State affected versions for compatibility and
+     security changes; check defaults and compatibility against manifests, settings, and tests.
 3. `npm test` checks that these files agree, and `node scripts/release.ts check <version>` checks
    the version as the workflow will.
 4. The pull request gets an in-depth independent review of everything since the previous release,
@@ -151,6 +156,10 @@ Run it on `main`. The `prepare` job does what the dry run does. The `publish` jo
    `prepare` built.
 
 Afterwards, `npm run check:github` confirms that the release's text matches its notes file.
+Check the live latest-release installation link, README, SECURITY, TESTING, changelog, and release
+notes against the published version. Record the documentation commit and these checks in the
+release PR. If publication fails, keep the latest installable version clear in the public guidance;
+use a documentation correction PR as needed, without moving the software tag.
 
 ## When a step fails
 

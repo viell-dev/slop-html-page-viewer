@@ -1,15 +1,70 @@
 # HTML Page Viewer (viell)
 
+[![CI](https://github.com/viell-dev/slop-html-page-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/viell-dev/slop-html-page-viewer/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A personal fork of [HTML Page Viewer](https://github.com/viggomeesters/obsidian-html-page-viewer),
 the Obsidian plugin by Viggo Meesters that opens HTML files in a vault, for reading saved web pages
 and other local HTML in Obsidian.
 
-[![CI](https://github.com/viell-dev/slop-html-page-viewer/actions/workflows/ci.yml/badge.svg)](https://github.com/viell-dev/slop-html-page-viewer/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-
 The fork is not in Obsidian's community plugin directory. It is built for its owner's vaults; its
 [releases](https://github.com/viell-dev/slop-html-page-viewer/releases) are for installing by hand,
 and anyone may use it under the license.
+
+This guide describes **0.5.2**, the latest installable release, on **Linux desktop**.
+See [troubleshooting](#troubleshooting) for help and [the security model](#security-model) for
+what a page can access.
+
+## Install
+
+1. Download `viell-html-page-viewer-<version>.zip` from the newest
+   [release](https://github.com/viell-dev/slop-html-page-viewer/releases/latest).
+2. Unzip it into your vault's `.obsidian/plugins/` folder, so that
+   `.obsidian/plugins/viell-html-page-viewer/` holds `main.js`, `manifest.json`, and `styles.css`.
+3. In **Settings → Community plugins**, turn off upstream's HTML Page Viewer if it is installed,
+   and turn on **HTML Page Viewer (viell)**; if it is not listed yet, reload the list of installed
+   plugins.
+
+To build it from a checkout instead, with Node.js 24 and npm, run `npm ci` and `npm run build`, and
+copy the same three files from the checkout's root.
+
+**Compatibility.** The fork supports Linux desktop with Obsidian 1.5.0 or later. Each change is
+tested in Obsidian 1.5.3, the oldest public release that this allows, and in the latest release.
+Windows is a development host with extra build and unit-test coverage; Linux Obsidian also runs
+in Docker there. Windows Obsidian is not a supported target. macOS and mobile are out of scope,
+and the plugin is marked desktop-only. Wider platform support can be reconsidered if the fork
+moves beyond personal use.
+
+**Update.** Install the newer release the same way, replacing the three files, then turn the
+plugin off and on again in **Settings → Community plugins**, or restart Obsidian. Its settings are
+kept. To go back to an earlier version, install that release the same way.
+
+**Remove.** Uninstall the plugin in **Settings → Community plugins**. That deletes its folder,
+`.obsidian/plugins/viell-html-page-viewer/`, with its settings, the only file it writes; turning it
+off instead keeps them. It never changes the pages it opens.
+
+## Try a saved page
+
+In a test vault, create a `Saved` folder. Download the synthetic
+[Example article.html](test/e2e/vaults/pages/Saved/Example%20article.html) and its
+[figure.png](test/e2e/vaults/pages/Saved/2026-01-15/figure.png) (use GitHub's **Download raw file**),
+and arrange them like this:
+
+```text
+Saved/
+  Example article.html
+  2026-01-15/
+    figure.png
+```
+
+In Obsidian's file list, expand **Saved** and click **Example article.html**. With the default
+settings, the rendered view shows an **Example article** heading, a green square with its caption,
+a small table, and text in Obsidian's theme. The toolbar says **Scripts OFF**; scripts cannot run.
+The image loads from the folder beside the page. The example's links to another saved page and a
+note need those files too; they are not needed to view this page and image.
+
+Use **Source** to read the HTML or **Split** to see it beside the preview. Neither view edits the
+file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before enabling them.
 
 ## What it does
 
@@ -90,34 +145,6 @@ Changes that could serve upstream's users are kept separate from fork-only ones 
 upstream; [issue #2](https://github.com/viell-dev/slop-html-page-viewer/issues/2) tracks them.
 Upstream's source view came from the fork, so the two show and highlight the source alike.
 [CHANGELOG.md](CHANGELOG.md) lists the fork's releases, and upstream's own after them.
-
-## Install
-
-1. Download `viell-html-page-viewer-<version>.zip` from the newest
-   [release](https://github.com/viell-dev/slop-html-page-viewer/releases).
-2. Unzip it into your vault's `.obsidian/plugins/` folder, so that
-   `.obsidian/plugins/viell-html-page-viewer/` holds `main.js`, `manifest.json`, and `styles.css`.
-3. In **Settings → Community plugins**, turn off upstream's HTML Page Viewer if it is installed,
-   and turn on **HTML Page Viewer (viell)**; if it is not listed yet, reload the list of installed
-   plugins.
-
-To build it from a checkout instead, with Node.js 24 and npm, run `npm ci` and `npm run build`, and
-copy the same three files from the checkout's root.
-
-**Compatibility.** The fork supports Linux desktop with Obsidian 1.5.0 or later. Each change is
-tested in Obsidian 1.5.3, the oldest public release that this allows, and in the latest release.
-Windows is a development host with extra build and unit-test coverage; Linux Obsidian also runs
-in Docker there. Windows Obsidian is not a supported target. macOS and mobile are out of scope,
-and the plugin is marked desktop-only. Wider platform support can be reconsidered if the fork
-moves beyond personal use.
-
-**Update.** Install the newer release the same way, replacing the three files, then turn the
-plugin off and on again in **Settings → Community plugins**, or restart Obsidian. Its settings are
-kept. To go back to an earlier version, install that release the same way.
-
-**Remove.** Uninstall the plugin in **Settings → Community plugins**. That deletes its folder,
-`.obsidian/plugins/viell-html-page-viewer/`, with its settings, the only file it writes; turning it
-off instead keeps them. It never changes the pages it opens.
 
 ## Keyboard
 

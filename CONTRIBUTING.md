@@ -204,3 +204,22 @@ investigations, progress, and verification receipts; do not append their history
 instructions. Read configuration from its checked-in source and release state from tags and
 releases. Preserve changelogs, version-specific release notes, compatibility and upgrade guidance,
 active restrictions, and unresolved work.
+
+The public default, including the README, `SECURITY.md`, and installation links, describes the
+latest installable release rather than `main`. Keep its version explicit in the
+README. Contributor commands and `TESTING.md` describe the current checkout; distinguish evidence
+for unreleased behavior from evidence for the installed release.
+
+When a change exists only on `main`, preserve the released instructions and add a visibly labelled
+`**Unreleased (#123):**` paragraph beside the affected guidance in README, SECURITY, or TESTING,
+using the actual issue number. Reference that issue in the changelog's **Unreleased** entry too.
+The consistency test requires each such notice to have a matching issue reference in that list;
+a changelog-only change need not add a notice. Plans belong in issues, not unreleased notices.
+State affected versions for compatibility and security changes, including the first fixed version
+when known. Manifests, settings, and tests are authoritative for comparable facts; review prose
+for meaning as well.
+
+At release time, follow [RELEASING.md](RELEASING.md#prepare-the-release) to promote notices and
+check the published guidance. Correct inaccurate current documentation through a pull request,
+keeping historical version qualifications. For a published release's notes, use RELEASING.md's
+[wrong-text recovery route](RELEASING.md#when-a-step-fails); never move its tag or replace assets.
