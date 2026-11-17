@@ -175,6 +175,127 @@ it("imports the name that a hex escape before a line continuation makes", async 
   assert.ok(!result.html.includes("GHOST"));
 });
 
+describe("<style> text that Chromium applies (#143)", () => {
+  // Chromium applies an HTML or SVG <style>'s own text nodes, joined, and
+  // nothing inside an SVG <style>'s child elements, in a MathML <style>, or
+  // from a <link> inside SVG or MathML, which is an element of theirs.
+  const shadow = (html: string) => `<div><template shadowrootmode="open">${html}</template></div>`;
+  const places = [(html: string) => html, shadow];
+
+  /** Prepares a page without and with copying files, recording what each reads and copies. */
+  async function prepared(html: string) {
+    const results = [];
+    for (const copying of [false, true]) {
+      const ctx = context({
+        "Saved/real.css": "REAL{}",
+        "Saved/ghost.css": "GHOST{}",
+        "Saved/markup.css": 'a::after { content: "</svg></math><p id=escaped>x</p>" }',
+      });
+      const copies: string[] = [];
+      const result = await preparePage(html, ctx, {
+        copyFiles: copying
+          ? {
+              size: () => 1,
+              async readBinary(path) {
+                copies.push(path);
+                return new Uint8Array([1]).buffer;
+              },
+            }
+          : undefined,
+      });
+      const page = parse(result.html);
+      const root = page.querySelector("template")?.content ?? page;
+      results.push({ copying, reads: ctx.reads, copies, html: result.html, root });
+    }
+    return results;
+  }
+
+  it("reads and copies nothing that only an SVG <style>'s child elements or a MathML <style> name", async () => {
+    for (const html of [
+      '<svg><style><desc>@import "ghost.css";</desc>circle { fill: red }<desc>a { b: url(ghost.png) }</desc></style></svg>',
+      '<math><style>@import "ghost.css"; a { b: url(ghost.png) }</style></math>',
+    ]) {
+      for (const place of places) {
+        for (const { copying, reads, copies, html: copy } of await prepared(place(html))) {
+          const what = `${place(html)}, copying: ${copying}`;
+          assert.deepEqual({ reads, copies }, { reads: [], copies: [] }, what);
+          assert.ok(copy.includes(html), what);
+        }
+      }
+    }
+  });
+
+  it("rewrites only an SVG <style>'s own text, joined, keeping its child elements", async () => {
+    // CSS reads the text on either side of the <g> as one, so it names real.png.
+    const html =
+      '<svg><style>@import "real.css";<desc>a { b: url(ghost.png) }</desc> c { d: url(re<g></g>al.png) }</style></svg>';
+    for (const place of places) {
+      for (const { copying, reads, copies, root } of await prepared(place(html))) {
+        const style = root.querySelector("style")!;
+        const url = copying ? "data:image/png;base64,AQ==" : `${VAULT}Saved/real.png`;
+        assert.deepEqual(
+          {
+            reads,
+            copies,
+            nodes: [...style.childNodes].map((node) => node.nodeName),
+            text: style.firstChild!.textContent,
+            desc: style.querySelector("desc")!.textContent,
+          },
+          {
+            reads: ["Saved/real.css"],
+            copies: copying ? ["Saved/real.png"] : [],
+            nodes: ["#text", "desc", "g"],
+            text: `REAL{} c { d: url("${url}") }`,
+            desc: "a { b: url(ghost.png) }",
+          },
+          `${place(html)}, copying: ${copying}`,
+        );
+      }
+    }
+  });
+
+  it("keeps the text that it puts in an SVG <style> there when the copy is parsed again", async () => {
+    // The copy's serialization escapes markup in an SVG <style>'s text, which
+    // the HTML parser reads as markup there, not as text.
+    for (const place of places) {
+      for (const { root } of await prepared(
+        place('<svg><style>@import "markup.css";</style></svg>'),
+      )) {
+        assert.equal(root.querySelector("#escaped"), null);
+        assert.equal(
+          root.querySelector("svg style")!.textContent,
+          'a::after { content: "</svg></math><p id=escaped>x</p>" }',
+        );
+      }
+    }
+  });
+
+  it("turns only HTML stylesheet links into <style> elements", async () => {
+    for (const html of [
+      '<svg><link rel="stylesheet" href="markup.css"></svg>',
+      '<math><link rel="stylesheet" href="markup.css"></math>',
+    ]) {
+      for (const place of places) {
+        for (const { copying, reads, root } of await prepared(place(html))) {
+          const what = `${place(html)}, copying: ${copying}`;
+          assert.deepEqual(reads, [], what);
+          assert.equal(root.querySelector("#escaped"), null, what);
+          assert.equal(root.querySelectorAll("link").length, 1, what);
+        }
+      }
+    }
+    // HTML inside SVG has HTML elements, as the frame parses them.
+    const html =
+      '<svg><foreignObject><link rel="stylesheet" href="real.css"></foreignObject></svg>';
+    for (const place of places) {
+      for (const { reads, root } of await prepared(place(html))) {
+        assert.deepEqual(reads, ["Saved/real.css"]);
+        assert.equal(root.querySelector("foreignObject > style")!.textContent, "REAL{}");
+      }
+    }
+  });
+});
+
 it("leaves a style element that needs no change as it is", async () => {
   // An SVG <style> can hold elements, which assigning its text would remove.
   const ctx = context({});
@@ -772,6 +893,7 @@ describe("preparePage", () => {
 
     for (const [name, html] of [
       ["a <style> element", "<style>p { margin: 0 }</style><p>x</p>"],
+      ["an SVG <style> element", "<svg><style>p { margin: 0 }</style></svg><p>x</p>"],
       ["a linked vault stylesheet", `<link rel="stylesheet" href="style.css"><p>x</p>`],
       [
         "a stylesheet from the web",
@@ -786,6 +908,19 @@ describe("preparePage", () => {
         assert.equal(parse(prepared.html).getElementById(READING_STYLE_ID), null);
       });
     }
+
+    it("is added to a page whose only styles Chromium does not apply (#143)", async () => {
+      for (const html of [
+        "<math><style>p { margin: 0 }</style></math><p>x</p>",
+        `<svg><link rel="stylesheet" href="style.css"></svg><p>x</p>`,
+      ]) {
+        const prepared = await preparePage(html, context({ "Saved/style.css": "p {}" }), {
+          readingStyle: READING,
+        });
+        assert.equal(prepared.ownStyles, false, html);
+        assert.notEqual(parse(prepared.html).getElementById(READING_STYLE_ID), null, html);
+      }
+    });
 
     it("is not added when the view does not ask for it", async () => {
       const prepared = await preparePage("<p>x</p>", context({}));

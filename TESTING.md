@@ -56,7 +56,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | HTML and SVG links, also nested and in shadow roots, stay in the copy, which no other navigation leaves and which acts only once watched; fragments follow id/name/top precedence  | `links.test.ts`; `document.test.ts`: shadow roots, inert copy; `rendered.test.ts`: only with scripts off                                                                  | `links.e2e.ts`, also after the tab moves to another tab group or window                                                                |
 | **Unreleased (#141):** A vault link opens in its page's tab, or with a modifier beside it, as a link in a note in that tab does, also while another tab is active                  | `links.test.ts`: the view's own tab, a pinned one, and each modifier                                                                                                      | `links.e2e.ts`: real clicks while another tab group's tab is active, and in a pinned tab; a click dispatched in a page in a new window |
 | Hovering a link shows where it leads, and an image its alt text, also in shadow DOM; an SVG link only when nothing inside it names it, which keeps that name                       | `document.test.ts`: tooltips                                                                                                                                              | `links.e2e.ts`: the titles that Chromium shows, and the names that it gives the links                                                  |
-| Pages without styles follow Obsidian's theme and Readable line length                                                                                                              | `reading.test.ts`                                                                                                                                                         | `theme.e2e.ts`                                                                                                                         |
+| Pages without styles follow Obsidian's theme and Readable line length                                                                                                              | `reading.test.ts`; **Unreleased (#143):** `document.test.ts`, for pages whose only styles do not apply                                                                    | `theme.e2e.ts`                                                                                                                         |
 | Settings, their defaults, and their immediate effect                                                                                                                               | `settings.test.ts`, `extensions.test.ts`, `plugin.test.ts`; the README's defaults: `consistency.test.ts`                                                                  | `settings.e2e.ts`, in Obsidian's own settings window                                                                                   |
 | The source view shows every character of the file, highlighted as HTML reads it                                                                                                    | `source.test.ts`, including random markup                                                                                                                                 | `viewer.e2e.ts`                                                                                                                        |
 | The find bar finds in the source and the page, and moves with Enter, Shift+Enter, and Escape                                                                                       | `find.test.ts`: close paths, no-`checkVisibility` fallback, `content-visibility`                                                                                          | `find.e2e.ts`: Ctrl+F; finds exactly the words that the page paints                                                                    |
@@ -101,6 +101,18 @@ their cycle and eight-file depth limits, also in a shadow root. `resources.e2e.t
 content beside an applied local stylesheet in real Obsidian, in the document and in a shadow root.
 `scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300 KB and 4 MB
 stylesheets, as observations rather than a check.
+
+**Unreleased (#143):** `document.test.ts` checks, in the document and in a shadow root, with and
+without copying files, that the plugin reads and copies only for an HTML or SVG `<style>`'s own text
+nodes, joined, and for HTML stylesheet links, also inside SVG's `<foreignObject>`. Rewriting an SVG
+`<style>` keeps its child elements, and text put into it stays text when the copy is parsed again.
+Nothing that a MathML `<style>`, an SVG `<style>`'s child elements, or a `<link>` inside SVG or
+MathML names is read or copied, and a MathML `<style>` or such a `<link>` does not keep the reading
+style out. `resources.e2e.ts` shows in Obsidian 1.5.3 and the latest release what Chromium applies,
+in the document and in a shadow root, with scripts off and with them on and copying files: an SVG
+`<style>`'s own text, joined across a child element, and nothing inside that element, in a MathML
+`<style>`, or from a `<link>` inside SVG, to which Chromium gives no stylesheet. It also checks that
+the copy holds neither those stylesheets' text nor their files.
 
 ## Shown to fail
 
@@ -242,6 +254,22 @@ with `display: contents`, which kept its place only as a share of the body's hei
   name there: `document.test.ts`.
 - Assigning every `<style>` element's text, even unchanged, which removed an SVG `<style>`
   element's children: `document.test.ts`.
+
+**Unreleased (#143):** On 2026-11-17, the preparation of `<style>` elements and links as `main` had
+it at `f329f7f` failed four tests in `document.test.ts`, and both tests of `<style>` text in
+`resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1. There, a rule inside an SVG `<style>`'s `<desc>`
+applied once the copy rewrote the `<style>`, which lost its `<desc>`. A `<link>` inside SVG applied,
+as an SVG `<style>` that the copy put in its place. The copy held the text of both stylesheets that
+nothing applies and, with scripts on, six copied images where the applied CSS names two. Each of
+these breakages failed the check named in `document.test.ts`:
+
+- Processing a MathML `<style>`: the reads and copies test, and the reading style test.
+- Reading an SVG `<style>`'s `textContent`: the reads and copies test, and the rewriting test.
+- Assigning a rewritten `<style>`'s `textContent`, which removes its child elements: the rewriting
+  test.
+- Turning a `<link>` inside SVG or MathML into a `<style>`: the links test, and the reading style
+  test.
+- Counting any `<style>` as the page's own styles: the reading style test.
 
 ## Limits
 

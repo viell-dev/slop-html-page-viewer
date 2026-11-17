@@ -61,6 +61,159 @@ describe("A page's local files in Obsidian", function () {
     }
   });
 
+  describe("with <style> text that Chromium does not apply (#143)", function () {
+    const COLOR = "rgb(46, 125, 50)";
+    // Chromium applies an SVG <style>'s own text, joined across its child
+    // elements, and nothing inside those elements, in a MathML <style>, or
+    // from a <link> inside SVG. The first <style> imports a file, so the copy
+    // rewrites it. The document and a shadow root each have all of them.
+    const tree = [
+      `<div class="square" style="width: 64px; height: 64px"></div>`,
+      `<p><span id="plain">Plain</span> <span id="own">Own</span>`,
+      ` <span id="imported">Imported</span> <span id="joined">Joined</span>`,
+      ` <span id="child">Child</span> <span id="math">MathML</span> <span id="link">Link</span></p>`,
+      `<svg width="0" height="0"><style>@import "Style text.css"; #own { color: ${COLOR} }`,
+      ` .square { background: url("2026-01-15/figure.png") }`,
+      `<desc>#child { color: ${COLOR}; background: url("2026-01-15/figure.png") }</desc></style>`,
+      `<style>#jo<desc>#child { color: ${COLOR} }</desc>ined { color: ${COLOR} }</style></svg>`,
+      `<math><style>@import "Style ghost.css"; #math { color: ${COLOR};`,
+      ` background: url("2026-01-15/figure.png") }</style></math>`,
+      `<svg width="0" height="0"><link rel="stylesheet" href="Style link.css"></svg>`,
+    ].join("");
+    const page = [
+      `<!doctype html>`,
+      `<html lang="en"><head><meta charset="utf-8"><title>Style text</title></head><body>`,
+      tree,
+      `<div id="host"><template shadowrootmode="open">${tree}</template></div>`,
+      `</body></html>`,
+    ].join("\n");
+    const files: Record<string, string> = {
+      "Saved/Style text.css": `#imported { color: ${COLOR} }`,
+      "Saved/Style ghost.css": `#math { color: ${COLOR} } .ghost-marker {}`,
+      "Saved/Style link.css": `#link { color: ${COLOR} } .ghost-marker {}`,
+      "Saved/Style text.html": page,
+    };
+    const FRAME = `${ACTIVE} iframe.html-page-viewer__frame`;
+
+    before(async function () {
+      for (const [path, text] of Object.entries(files)) await writeVaultFile(path, text);
+    });
+
+    after(async function () {
+      await browser.executeObsidian(async ({ app }, paths) => {
+        for (const path of paths) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file);
+        }
+      }, Object.keys(files));
+    });
+
+    /**
+     * What the frame shows, in the document and in its shadow root: the colors
+     * of the labelled text, which <style> and <link> elements Chromium gives a
+     * stylesheet, and how many <desc> elements in SVG <style> elements the
+     * copy kept. Read inside the frame when scripts are on.
+     */
+    async function shown(scriptsOn: boolean) {
+      const read = (selector: string) => {
+        const frame = document.querySelector<HTMLIFrameElement>(selector);
+        const doc = frame === null ? document : frame.contentDocument!;
+        const names: Record<string, string> = {
+          "http://www.w3.org/2000/svg": "SVG",
+          "http://www.w3.org/1998/Math/MathML": "MathML",
+          "http://www.w3.org/1999/xhtml": "HTML",
+        };
+        const tree = (root: Document | ShadowRoot) => ({
+          colors: Object.fromEntries(
+            [...root.querySelectorAll("span[id]")].map((span) => [
+              span.id,
+              doc.defaultView!.getComputedStyle(span).color,
+            ]),
+          ),
+          elements: [...root.querySelectorAll("style, link")].map(
+            (element) =>
+              `${names[element.namespaceURI ?? ""] ?? element.namespaceURI} ${element.localName}` +
+              ((element as Element & { sheet?: StyleSheet | null }).sheet
+                ? " with a stylesheet"
+                : ""),
+          ),
+          kept: root.querySelectorAll("svg style > desc").length,
+        });
+        return { page: tree(doc), shadow: tree(doc.querySelector("#host")!.shadowRoot!) };
+      };
+      if (!scriptsOn) return browser.execute(read, FRAME);
+      await browser.switchFrame(browser.$(FRAME));
+      try {
+        return await browser.execute(read, FRAME);
+      } finally {
+        await browser.switchFrame(null);
+      }
+    }
+
+    /** Whether the copy holds the text of a stylesheet that nothing applies, and how many files it holds. */
+    async function copy(): Promise<{ ghost: boolean; files: number }> {
+      const srcdoc = await browser.execute(
+        (selector) => document.querySelector<HTMLIFrameElement>(selector)!.srcdoc,
+        FRAME,
+      );
+      return {
+        ghost: srcdoc.includes("ghost-marker"),
+        files: srcdoc.match(/data:image\/png/g)?.length ?? 0,
+      };
+    }
+
+    function expected(plain: string, files: number) {
+      const tree = {
+        colors: {
+          plain,
+          own: COLOR,
+          imported: COLOR,
+          joined: COLOR,
+          child: plain,
+          math: plain,
+          link: plain,
+        },
+        elements: [
+          "SVG style with a stylesheet",
+          "SVG style with a stylesheet",
+          "MathML style",
+          "SVG link",
+        ],
+        kept: 2,
+      };
+      // The square shows its image in the document and in the shadow root.
+      return { page: tree, shadow: tree, copy: { ghost: false, files }, squares: true };
+    }
+
+    async function squares(): Promise<boolean> {
+      return (await framePixels(GREEN)) >= 2 * IMAGE_PIXELS * 0.9;
+    }
+
+    it("applies only an HTML or SVG <style>'s own text, and reads nothing else", async function () {
+      await openInActiveTab("Saved/Style text.html");
+      await waitForPage();
+      await saveScreenshot("style-text");
+      const result = { ...(await shown(false)), copy: await copy(), squares: await squares() };
+      expect(result).toEqual(expected(result.page.colors.plain, 0));
+    });
+
+    it("copies only the files that applied <style> text names into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Style text.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("style-text-scripts-on");
+        const result = { ...(await shown(true)), copy: await copy(), squares: await squares() };
+        // The square's image, copied once for the document and once for the shadow root.
+        expect(result).toEqual(expected(result.page.colors.plain, 2));
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   before(async function () {
     // An image just outside the vault, which a page must not be able to show.
     const outside = path.join(path.dirname(await vaultFolder()), "outside.png");
