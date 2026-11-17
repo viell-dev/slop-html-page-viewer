@@ -399,9 +399,11 @@ export async function inlineStylesheet(
     const located = absolute === null ? null : locatedUrl(reference, absolute, context);
     const target = located ?? absolute;
     const path = target === null ? null : vaultPath(target, context.vaultUrl);
-    // Keep the end as written: a newline there ends a bad string, and a space
-    // after a backslash keeps it from escaping what follows.
-    const conditions = media.trimStart();
+    // Trim only CSS whitespace, only at the start. JavaScript's whitespace also
+    // covers characters such as U+FEFF that CSS reads as part of a name. Keep
+    // the end as written: a newline there ends a bad string, and a space after
+    // a backslash keeps it from escaping what follows.
+    const conditions = media.replace(/^[\t\n\f\r ]+/, "");
     let text =
       target === null
         ? rule

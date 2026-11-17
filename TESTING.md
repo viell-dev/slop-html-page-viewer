@@ -236,7 +236,8 @@ with `display: contents`, which kept its place only as a share of the body's hei
 - Removing a string's line continuations before decoding its escapes, so that `"gh\6\` and a
   newline before `fst.css"` named `ghost.css`: `css.test.ts` and `document.test.ts`.
 - Trimming the end of an import's media list, which removed the newline that ends a bad string
-  there: `document.test.ts`.
+  there, or trimming JavaScript's whitespace at its start, which removed a U+FEFF that starts a
+  name there: `document.test.ts`.
 - Assigning every `<style>` element's text, even unchanged, which removed an SVG `<style>`
   element's children: `document.test.ts`.
 

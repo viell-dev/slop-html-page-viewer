@@ -141,6 +141,8 @@ it("does not read or copy literal resources after malformed quoted functions", a
     'a { b: url("ghost.pn\\6\\\n7") }',
     // The newline that ends the media list's bad string must stay in the copy.
     '@import "https://example.com/x.css" "bad\n; p::after { content: "url(ghost.png)" }',
+    // To CSS, U+FEFF starts a name here, not space, so this is no URL.
+    '@import "https://example.com/x.css" ﻿url("ghost.png");',
   ]) {
     const sheets = [`<style>${css}</style>`, '<link rel="stylesheet" href="sheet.css">'];
     // A shadow root's stylesheets are prepared as the document's (#124).
@@ -398,6 +400,11 @@ describe("inlineStylesheet", () => {
       [
         '@import "https://example.com/x.css" screen\\ ;',
         '@import url("https://example.com/x.css") screen\\ ;',
+      ],
+      // Only CSS whitespace is trimmed at the start: U+00A0 and U+FEFF are name characters.
+      [
+        '@import "https://example.com/x.css"  ﻿url("x.png");',
+        '@import url("https://example.com/x.css")  ﻿url("x.png");',
       ],
     ])
       assert.equal(await inlineStylesheet(source, `${VAULT}main.css`, ctx), result);
