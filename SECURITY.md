@@ -59,7 +59,7 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   ([#127](https://github.com/viell-dev/slop-html-page-viewer/issues/127)). With scripts on, the view cannot
   reach the page, and a link navigates the frame, which keeps its sandbox.
 - **Unreleased (#91):** CSS resources. Resource-like text inside CSS strings and comments, in the
-  page's stylesheets and in its shadow DOM's alike, causes no file reads. It causes no copying
+  page's stylesheets and in its shadow DOM's alike, causes no stylesheet reads, and no copying
   either, except after an imported stylesheet that ends inside an open string, comment, or unquoted
   `url(` ([#139](https://github.com/viell-dev/slop-html-page-viewer/issues/139)). URL arguments
   and top-level stylesheet import sources, including their quoted forms, name resources; the scan

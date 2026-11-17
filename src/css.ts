@@ -4,9 +4,11 @@
 /**
  * A CSS escape: up to six hexadecimal digits with one whitespace after them,
  * or any other character but a newline, or nothing at the end. A backslash
- * before a newline is not an escape.
+ * before a newline is not an escape but a line continuation, which only a
+ * string holds and which stands for nothing. Matching both in one pass keeps
+ * a short hex escape from running on into the text after a continuation.
  */
-const CSS_ESCAPE = /\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[\t\n\f\r ])?|([^\n\f\r])|$)/gu;
+const CSS_ESCAPE = /\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[\t\n\f\r ])?|(\r\n|[\n\f\r])|([^\n\f\r])|$)/gu;
 
 /** U+FFFD, which stands for a character that text cannot hold. */
 const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd);
@@ -20,7 +22,8 @@ const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd);
 function unescapeCss(value: string): string {
   if (!value.includes("\\") && !value.includes("\0")) return value;
   const text = value.replaceAll("\0", REPLACEMENT_CHARACTER);
-  return text.replace(CSS_ESCAPE, (_, hex?: string, char?: string) => {
+  return text.replace(CSS_ESCAPE, (_, hex?: string, continuation?: string, char?: string) => {
+    if (continuation !== undefined) return "";
     if (hex === undefined) return char ?? REPLACEMENT_CHARACTER;
     const code = Number.parseInt(hex, 16);
     const valid = code !== 0 && (code < 0xd800 || code > 0xdfff) && code <= 0x10ffff;
@@ -109,7 +112,7 @@ function stringEnd(css: string, start: number): { end: number; closed: boolean; 
     end = css[end] === "\\" ? escapeEnd(css, end) : end + 1;
   }
   const closed = css[end] === css[start];
-  const value = unescapeCss(css.slice(start + 1, end).replace(/\\(?:\r\n|[\n\r\f])/g, ""));
+  const value = unescapeCss(css.slice(start + 1, end));
   return { end: end + (closed ? 1 : 0), closed, value };
 }
 

@@ -399,7 +399,9 @@ export async function inlineStylesheet(
     const located = absolute === null ? null : locatedUrl(reference, absolute, context);
     const target = located ?? absolute;
     const path = target === null ? null : vaultPath(target, context.vaultUrl);
-    const conditions = media.trim();
+    // Keep the end as written: a newline there ends a bad string, and a space
+    // after a backslash keeps it from escaping what follows.
+    const conditions = media.trimStart();
     let text =
       target === null
         ? rule
@@ -489,11 +491,13 @@ async function inlineStylesheets(
   for (const style of originalStyles) {
     const css = style.textContent ?? "";
     const tokens = cssTokens(css);
-    style.textContent = styleElementText(
+    const text = styleElementText(
       cssImports(tokens).length > 0
         ? await inlineStylesheet(css, baseUrl, context, new Set(), tokens)
         : locateCssUrls(css, baseUrl, context, tokens),
     );
+    // Assigning replaces the element's children, such as those of an SVG <style>.
+    if (text !== css) style.textContent = text;
   }
 }
 

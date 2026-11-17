@@ -31,6 +31,16 @@ it("distinguishes bad strings, EOF strings and newline recovery", () => {
   assert.deepEqual(cssTokens('"EOF'), [{ start: 0, end: 4, kind: "string", value: "EOF" }]);
 });
 
+it("ends a hex escape before a line continuation, which stands for nothing", () => {
+  for (const [css, value] of [
+    ['"gh\\6\\\nfst.css"', "gh\u0006fst.css"],
+    ['"gh\\6\\\r\nfst.css"', "gh\u0006fst.css"],
+    ['"gh\\6 \\\nfst.css"', "gh\u0006fst.css"],
+    ['"a\\\nb\\\fc\\\rd"', "abcd"],
+  ])
+    assert.equal(cssTokens(css)[0].value, value, JSON.stringify(css));
+});
+
 it("reads only 0-9, A-F and a-f as hexadecimal escape digits", () => {
   for (let code = 0; code <= 0xffff; code++) {
     const char = String.fromCharCode(code);

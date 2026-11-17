@@ -137,6 +137,10 @@ it("does not read or copy literal resources after malformed quoted functions", a
     'a { b: (}); @import "ghost.css"; }',
     'a { b: [}]; @import "ghost.css"; }',
     'a { b: calc(}); @import "ghost.css"; }',
+    // "\6" is U+0006, and the line continuation after it stands for nothing.
+    'a { b: url("ghost.pn\\6\\\n7") }',
+    // The newline that ends the media list's bad string must stay in the copy.
+    '@import "https://example.com/x.css" "bad\n; p::after { content: "url(ghost.png)" }',
   ]) {
     const sheets = [`<style>${css}</style>`, '<link rel="stylesheet" href="sheet.css">'];
     // A shadow root's stylesheets are prepared as the document's (#124).
@@ -159,6 +163,24 @@ it("does not read or copy literal resources after malformed quoted functions", a
       assert.ok(!result.html.includes("GHOST"), css);
     }
   }
+});
+
+it("imports the name that a hex escape before a line continuation makes", async () => {
+  // "\6" is U+0006, and the continuation after it stands for nothing.
+  const ctx = context({ "Saved/ghost.css": "GHOST{}" });
+  const result = await preparePage('<style>@import "gh\\6\\\nfst.css";</style>', ctx);
+  assert.deepEqual(ctx.reads, ["Saved/gh\u0006fst.css"]);
+  assert.ok(!result.html.includes("GHOST"));
+});
+
+it("leaves a style element that needs no change as it is", async () => {
+  // An SVG <style> can hold elements, which assigning its text would remove.
+  const ctx = context({});
+  const result = await preparePage(
+    '<svg><style>circle { fill: red }<g id="kept"></g></style></svg>',
+    ctx,
+  );
+  assert.ok(parse(result.html).querySelector("svg style #kept"), result.html);
 });
 
 it("leaves a NUL before url( in a linked stylesheet a function name, as CSS reads it", async () => {
@@ -362,6 +384,23 @@ describe("inlineStylesheet", () => {
     const ctx = context({ "print.css": "body { color: black }" });
     const css = await inlineStylesheet(`@import "print.css" print;`, `${VAULT}main.css`, ctx);
     assert.equal(css, "@media print {\nbody { color: black }\n}");
+  });
+
+  it("keeps the end of an import's media list as written", async () => {
+    // A newline there ends a bad string, and a space keeps a backslash from escaping the ";".
+    const ctx = context({ "print.css": "body { color: black }" });
+    for (const [source, result] of [
+      ['@import "print.css" "bad\n;', '@media "bad\n {\nbody { color: black }\n}'],
+      [
+        '@import "https://example.com/x.css" "bad\n;',
+        '@import url("https://example.com/x.css") "bad\n;',
+      ],
+      [
+        '@import "https://example.com/x.css" screen\\ ;',
+        '@import url("https://example.com/x.css") screen\\ ;',
+      ],
+    ])
+      assert.equal(await inlineStylesheet(source, `${VAULT}main.css`, ctx), result);
   });
 
   it("leaves imports it cannot inline as absolute imports", async () => {
