@@ -80,6 +80,9 @@ export class WorkspaceLeaf {
   readonly viewStates: ViewState[] = [];
   readonly openedFiles: string[] = [];
   pane: false | string = false;
+  /** The active tab when `getLeaf` created this one, from which Obsidian places it. */
+  openedFrom: WorkspaceLeaf | null = null;
+  pinned = false;
 
   constructor(app: App) {
     this.app = app;
@@ -104,7 +107,12 @@ export class App {
   readonly reads: string[] = [];
   /** The files read as bytes, as the view copies them into a page (#11). */
   readonly binaryReads: string[] = [];
+  /** The tabs that `getLeaf` created. */
   readonly leaves: WorkspaceLeaf[] = [];
+  /** The tabs that have been active, the active one first, from which `getLeaf` chooses. */
+  readonly recentLeaves: WorkspaceLeaf[] = [];
+  /** The options of each `setActiveLeaf` call, in order. */
+  readonly activations: ({ focus?: boolean } | undefined)[] = [];
   activeFile: TFile | null = null;
   /** The view that has focus, as `getActiveViewOfType` finds it. */
   activeView: unknown = null;
@@ -207,9 +215,27 @@ export class App {
     getActiveFile: (): TFile | null => this.activeFile,
     getActiveViewOfType: <T>(type: abstract new (...args: never[]) => T): T | null =>
       this.activeView instanceof type ? this.activeView : null,
+    setActiveLeaf: (leaf: WorkspaceLeaf, params?: { focus?: boolean }): void => {
+      this.activations.push(params);
+      const index = this.recentLeaves.indexOf(leaf);
+      if (index !== -1) this.recentLeaves.splice(index, 1);
+      this.recentLeaves.unshift(leaf);
+    },
+    /**
+     * A simplification of how Obsidian chooses, as measured in 1.5.3 and
+     * 1.15.1 (#141): without a pane, the most recently active tab that is not
+     * pinned, and otherwise, or without one, a new one that it places from the
+     * active tab: beside it, for a new tab or split. Obsidian also chooses only
+     * among the tabs of the active tab's window that their tab group shows,
+     * places new tabs and splits away from the sidebars, and in 1.15.1 makes
+     * the chosen tab active; this stand-in does none of that.
+     */
     getLeaf: (pane: false | string = false): WorkspaceLeaf => {
+      const unpinned = this.recentLeaves.find((leaf) => !leaf.pinned);
+      if (pane === false && unpinned) return unpinned;
       const leaf = new WorkspaceLeaf(this);
       leaf.pane = pane;
+      leaf.openedFrom = this.recentLeaves[0] ?? null;
       this.leaves.push(leaf);
       return leaf;
     },

@@ -176,6 +176,123 @@ async function waitForMovedPage(): Promise<void> {
   expect(state).toMatchObject({ readyState: "interactive" });
 }
 
+/** The tab that the tests of where a link opens show the page in. */
+const PAGE_TAB = '.workspace-leaf[data-e2e-tab="page"]';
+
+/**
+ * Marks the active tab, which shows a page, for `PAGE_TAB` and `shownTabs`,
+ * and pins it if asked.
+ */
+async function markPageTab(pinned = false): Promise<void> {
+  await browser.executeObsidian(({ app }, pinned) => {
+    const page = app.workspace.getMostRecentLeaf()!;
+    page.view.containerEl.closest<HTMLElement>(".workspace-leaf")!.dataset.e2eTab = "page";
+    if (pinned) page.setPinned(true);
+  }, pinned);
+}
+
+/**
+ * Waits until the page's tab, in whichever window it is, shows the page again
+ * after a move, and the view watches it, so that its links work.
+ */
+async function waitForPageInTab(): Promise<void> {
+  await browser.waitUntil(
+    async () =>
+      browser.executeObsidian(({ app }) => {
+        let ready = false;
+        app.workspace.iterateAllLeaves((leaf) => {
+          const tab = leaf.view.containerEl.closest<HTMLElement>(".workspace-leaf");
+          if (tab?.dataset.e2eTab !== "page") return;
+          const doc = tab.querySelector<HTMLIFrameElement>(
+            "iframe.html-page-viewer__frame",
+          )?.contentDocument;
+          ready =
+            doc?.URL === "about:srcdoc" &&
+            doc.documentElement.dataset.e2eBefore === undefined &&
+            doc.readyState === "complete" &&
+            !doc.documentElement.hasAttribute("inert") &&
+            doc.querySelector('a[href="Other%20page.html"]') !== null;
+        });
+        return ready;
+      }),
+    { timeoutMsg: "the page's tab did not show its page again" },
+  );
+}
+
+/**
+ * Opens `Saved/Example article.html` in the active tab, pinned if asked, and a
+ * note in a tab of a new tab group beside it, which becomes Obsidian's active
+ * tab, as when the reader last worked in the note. Splitting moves the page's
+ * tab, whose frame then shows the page again.
+ */
+async function pageBesideActiveNote(pinned = false): Promise<void> {
+  await openInActiveTab("Saved/Example article.html");
+  await waitForPage();
+  await markPageTab(pinned);
+  await browser.executeObsidian(async ({ app }) => {
+    const note = app.workspace.getLeaf("split", "vertical");
+    note.view.containerEl.closest<HTMLElement>(".workspace-leaf")!.dataset.e2eTab = "note";
+    await note.openFile(app.vault.getAbstractFileByPath("Notes/Topic.md") as never);
+    app.workspace.setActiveLeaf(note, { focus: true });
+  });
+  await waitForPageInTab();
+}
+
+interface ShownTab {
+  /** The mark that the test gave the tab, if any. */
+  tab: string | null;
+  file: string | null;
+  /** The tab's tab group, numbered in the order in which Obsidian lists the tabs. */
+  group: number;
+  inWindow: boolean;
+}
+
+/** What each tab outside the sidebars shows, also in other windows, in Obsidian's order. */
+async function shownTabs(): Promise<ShownTab[]> {
+  return browser.executeObsidian(({ app }) => {
+    const groups: unknown[] = [];
+    const shown: ShownTab[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      const root = leaf.getRoot();
+      if (root === app.workspace.leftSplit || root === app.workspace.rightSplit) return;
+      if (!groups.includes(leaf.parent)) groups.push(leaf.parent);
+      const tab = leaf.view.containerEl.closest<HTMLElement>(".workspace-leaf");
+      shown.push({
+        tab: tab?.dataset.e2eTab ?? null,
+        file: (leaf.view as { file?: { path: string } | null }).file?.path ?? null,
+        group: groups.indexOf(leaf.parent),
+        inWindow: leaf.view.containerEl.ownerDocument !== document,
+      });
+    });
+    return shown;
+  });
+}
+
+/** Waits until a tab shows `file`, and returns what each tab shows then. */
+async function waitForTabShowing(file: string): Promise<ShownTab[]> {
+  let tabs: ShownTab[] = [];
+  try {
+    await browser.waitUntil(async () => {
+      tabs = await shownTabs();
+      return tabs.some((each) => each.file === file);
+    });
+  } catch {
+    throw new Error(`No tab showed ${file}: ${JSON.stringify(tabs)}`);
+  }
+  return tabs;
+}
+
+/** Closes the tabs in windows other than Obsidian's main window, which closes those windows. */
+async function closeOtherWindows(): Promise<void> {
+  await browser.executeObsidian(({ app }) => {
+    const away: { detach(): void }[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view.containerEl.ownerDocument !== document) away.push(leaf);
+    });
+    for (const leaf of away) leaf.detach();
+  });
+}
+
 describe("Links in a page in Obsidian", function () {
   beforeEach(async function () {
     await restoreWindowOpen();
@@ -462,6 +579,88 @@ describe("Links in a page in Obsidian", function () {
     });
   });
 
+  // A click in a page reaches only the page's own document, so it never makes
+  // its tab Obsidian's active one, which Obsidian opens links from (#141).
+  it("opens a link in its own tab while a tab in another tab group is active (#141)", async function () {
+    await pageBesideActiveNote();
+    await clickInPage('a[href="Other%20page.html"]', [], PAGE_TAB);
+    expect(await waitForTabShowing("Saved/Other page.html")).toEqual([
+      { tab: "page", file: "Saved/Other page.html", group: 0, inWindow: false },
+      { tab: "note", file: "Notes/Topic.md", group: 1, inWindow: false },
+    ]);
+  });
+
+  it("opens a link in a new tab beside its own with Ctrl while a tab in another tab group is active (#141)", async function () {
+    await pageBesideActiveNote();
+    await clickInPage('a[href="Other%20page.html"]', [CONTROL], PAGE_TAB);
+    expect(await waitForTabShowing("Saved/Other page.html")).toEqual([
+      { tab: "page", file: "Saved/Example article.html", group: 0, inWindow: false },
+      { tab: null, file: "Saved/Other page.html", group: 0, inWindow: false },
+      { tab: "note", file: "Notes/Topic.md", group: 1, inWindow: false },
+    ]);
+  });
+
+  // Obsidian opens a link from a pinned tab, as from a pinned note, in the
+  // tab that was active most recently among those not pinned.
+  it("keeps a pinned tab's page and opens its link where a pinned note's link opens (#141)", async function () {
+    await pageBesideActiveNote(true);
+    await clickInPage('a[href="Other%20page.html"]', [], PAGE_TAB);
+    expect(await waitForTabShowing("Saved/Other page.html")).toEqual([
+      { tab: "page", file: "Saved/Example article.html", group: 0, inWindow: false },
+      { tab: "note", file: "Saved/Other page.html", group: 1, inWindow: false },
+    ]);
+  });
+
+  for (const ctrl of [false, true]) {
+    it(`opens a link ${ctrl ? "in a new tab beside its own with Ctrl" : "in its own tab"} in a new window while the main window's tab is active (#141)`, async function () {
+      await openInActiveTab("Saved/Example article.html");
+      await waitForPage();
+      await markPageTab();
+      try {
+        await moveActiveTab("window");
+        await waitForPageInTab();
+        // WebDriver drives Obsidian's main window, so the click is dispatched
+        // in the page, where the view's listeners treat it as any click.
+        await browser.executeObsidian(({ app }, ctrl) => {
+          // The empty tab that Obsidian leaves in the main window.
+          const main = app.workspace
+            .getLeavesOfType("empty")
+            .find((leaf) => leaf.view.containerEl.ownerDocument === document);
+          app.workspace.setActiveLeaf(main!, { focus: true });
+          // Obsidian, 1.5.3 and 1.15.1 alike, opens a new tab in the tab group
+          // of the tab that became active last by Date.now(), and in the main
+          // window's on a tie, so the click comes in a later millisecond, as a
+          // reader's does: the view makes its tab active at the click (#141).
+          const activated = Date.now();
+          while (Date.now() === activated) {
+            // The next millisecond.
+          }
+          app.workspace.iterateAllLeaves((leaf) => {
+            const tab = leaf.view.containerEl.closest<HTMLElement>(".workspace-leaf");
+            if (tab?.dataset.e2eTab !== "page") return;
+            tab
+              .querySelector<HTMLIFrameElement>("iframe.html-page-viewer__frame")!
+              .contentDocument!.querySelector('a[href="Other%20page.html"]')!
+              .dispatchEvent(
+                new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: ctrl }),
+              );
+          });
+        }, ctrl);
+        expect(await waitForTabShowing("Saved/Other page.html")).toEqual([
+          { tab: null, file: null, group: 0, inWindow: false },
+          ...(ctrl
+            ? [
+                { tab: "page", file: "Saved/Example article.html", group: 1, inWindow: true },
+                { tab: null, file: "Saved/Other page.html", group: 1, inWindow: true },
+              ]
+            : [{ tab: "page", file: "Saved/Other page.html", group: 1, inWindow: true }]),
+        ]);
+      } finally {
+        await closeOtherWindows();
+      }
+    });
+  }
+
   it("scrolls to a part of the page", async function () {
     await openInActiveTab("Saved/Long page.html");
     await waitForPage();
@@ -588,14 +787,7 @@ describe("Links in a page in Obsidian", function () {
             { timeoutMsg: "the link did not open its page in the new window" },
           );
         } finally {
-          // Closing the window's tabs closes the window.
-          await browser.executeObsidian(({ app }) => {
-            const away: { detach(): void }[] = [];
-            app.workspace.iterateAllLeaves((leaf) => {
-              if (leaf.view.containerEl.ownerDocument !== document) away.push(leaf);
-            });
-            for (const leaf of away) leaf.detach();
-          });
+          await closeOtherWindows();
         }
       },
     );

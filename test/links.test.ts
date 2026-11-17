@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import { JSDOM } from "jsdom";
 import "./support/dom";
 import { type LinkActions, linkTarget, paneFor, type PaneChoice, watchLinks } from "../src/links";
+import { Harness, loadFrame, settle } from "./support/harness";
+import { WorkspaceLeaf } from "./support/obsidian";
 
 const VAULT = "app://vault-id/home/user/Vault/";
 const PAGE = `${VAULT}Saved/Example%20article.html`;
@@ -272,5 +274,91 @@ describe("watchLinks", () => {
     assert.equal(click("plain"), false);
     assert.equal(click("external", { button: 2 }), false);
     assert.deepEqual(calls, []);
+  });
+});
+
+describe("the tab that a vault link opens in", () => {
+  const ARTICLE = `<!doctype html><title>Article</title>
+<p><a id="other" href="Other%20page.html">another page</a>
+<a id="by-name" href="Topic.md">a note named by its file name</a></p>`;
+
+  /**
+   * A page in a view whose tab is not Obsidian's active one, as when another
+   * tab group or window is, and a click on one of its links.
+   */
+  async function setUp(): Promise<{
+    harness: Harness;
+    own: WorkspaceLeaf;
+    active: WorkspaceLeaf;
+    click: (id: string, init?: MouseEventInit) => void;
+  }> {
+    const harness = await Harness.load();
+    const own = new WorkspaceLeaf(harness.app);
+    const view = harness.newView(own);
+    harness.app.files.set("Saved/Other page.html", "<p>Other page</p>");
+    harness.app.files.set("Notes/Topic.md", "# Topic");
+    harness.open(view, "Saved/Article.html", ARTICLE);
+    const page = await loadFrame(view);
+    const active = new WorkspaceLeaf(harness.app);
+    harness.app.workspace.setActiveLeaf(active);
+    const click = (id: string, init: MouseEventInit = {}): void => {
+      const win = page.defaultView!;
+      const event = new win.MouseEvent((init.button ?? 0) === 0 ? "click" : "auxclick", {
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      page.getElementById(id)!.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, true);
+    };
+    return { harness, own, active, click };
+  }
+
+  it("is the view's own tab, not Obsidian's active one (#141)", async () => {
+    const { harness, own, active, click } = await setUp();
+    click("other");
+    await settle();
+    assert.deepEqual(own.openedFiles, ["Saved/Other page.html"]);
+    assert.deepEqual(active.openedFiles, []);
+    assert.deepEqual(harness.app.leaves, []);
+    // The view changes only which tab is active, and leaves the focus where it is.
+    assert.deepEqual(harness.app.activations.at(-1), { focus: false });
+  });
+
+  it("is the view's own tab for a file that the link names by name only (#141)", async () => {
+    const { own, active, click } = await setUp();
+    click("by-name");
+    await settle();
+    assert.deepEqual(own.openedFiles, ["Notes/Topic.md"]);
+    assert.deepEqual(active.openedFiles, []);
+  });
+
+  it("is the tab that Obsidian chooses for a pinned tab, never the pinned view's own (#141)", async () => {
+    const { own, active, click } = await setUp();
+    own.pinned = true;
+    click("other");
+    await settle();
+    assert.deepEqual(own.openedFiles, []);
+    assert.deepEqual(active.openedFiles, ["Saved/Other page.html"]);
+  });
+
+  it("is a new tab, split, or window that Obsidian places from the view's own tab with a modifier (#141)", async () => {
+    const { harness, own, active, click } = await setUp();
+    click("other", { ctrlKey: true });
+    click("other", { button: 1 });
+    click("other", { ctrlKey: true, altKey: true });
+    click("other", { ctrlKey: true, altKey: true, shiftKey: true });
+    await settle();
+    assert.deepEqual(
+      harness.app.leaves.map((leaf) => [leaf.pane, leaf.openedFrom === own, leaf.openedFiles]),
+      [
+        ["tab", true, ["Saved/Other page.html"]],
+        ["tab", true, ["Saved/Other page.html"]],
+        ["split", true, ["Saved/Other page.html"]],
+        ["window", true, ["Saved/Other page.html"]],
+      ],
+    );
+    assert.deepEqual(own.openedFiles, []);
+    assert.deepEqual(active.openedFiles, []);
   });
 });

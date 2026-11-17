@@ -294,73 +294,86 @@ export async function expectNoPixels(color: Color, what: string): Promise<void> 
   );
 }
 
-/** Where a link in the active tab's page is, once it has stopped moving. */
-async function stablePoint(selector: string): Promise<{ x: number; y: number }> {
-  return browser.executeObsidian(async ({ app }, selector) => {
-    const frame = document.querySelector<HTMLIFrameElement>(
-      ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
-    );
-    const target = frame?.contentDocument?.querySelector(selector);
-    if (!frame || !target) {
-      // Say what the tab shows instead, so that a failure in CI tells a page
-      // that has not loaded from a tab that has moved on.
-      const view = app.workspace.getMostRecentLeaf()?.view as
-        { file?: { path: string } | null; getViewType(): string } | undefined;
-      const doc = frame?.contentDocument;
-      const page = !frame
-        ? "no frame"
-        : !doc
-          ? "a page it cannot reach"
-          : `a page with base ${doc.baseURI} (${doc.readyState})`;
-      throw new Error(
-        `No ${selector} in the page: the tab shows ${view?.getViewType() ?? "nothing"} ` +
-          `${view?.file?.path ?? "without a file"}, with ${page}`,
+/** Where a link in the page of the tab that `tab` selects is, once it has stopped moving. */
+async function stablePoint(selector: string, tab: string): Promise<{ x: number; y: number }> {
+  return browser.executeObsidian(
+    async ({ app }, selector, tab) => {
+      const frame = document.querySelector<HTMLIFrameElement>(
+        `${tab} iframe.html-page-viewer__frame`,
       );
-    }
-    target.scrollIntoView({ block: "center" });
-    const measure = () => {
-      const outer = frame.getBoundingClientRect();
-      const inner = target.getBoundingClientRect();
-      return {
-        x: Math.round(outer.left + inner.left + 4),
-        y: Math.round(outer.top + inner.top + inner.height / 2),
+      const target = frame?.contentDocument?.querySelector(selector);
+      if (!frame || !target) {
+        // Say what the tab shows instead, so that a failure in CI tells a page
+        // that has not loaded from a tab that has moved on.
+        const view = app.workspace.getMostRecentLeaf()?.view as
+          { file?: { path: string } | null; getViewType(): string } | undefined;
+        const doc = frame?.contentDocument;
+        const page = !frame
+          ? "no frame"
+          : !doc
+            ? "a page it cannot reach"
+            : `a page with base ${doc.baseURI} (${doc.readyState})`;
+        throw new Error(
+          `No ${selector} in the page: the tab shows ${view?.getViewType() ?? "nothing"} ` +
+            `${view?.file?.path ?? "without a file"}, with ${page}`,
+        );
+      }
+      target.scrollIntoView({ block: "center" });
+      const measure = () => {
+        const outer = frame.getBoundingClientRect();
+        const inner = target.getBoundingClientRect();
+        return {
+          x: Math.round(outer.left + inner.left + 4),
+          y: Math.round(outer.top + inner.top + inner.height / 2),
+        };
       };
-    };
-    // Text can reflow while fonts load; wait until two measurements agree.
-    let point = measure();
-    for (let tries = 0; tries < 30; tries += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const next = measure();
-      if (next.x === point.x && next.y === point.y) break;
-      point = next;
-    }
-    return point;
-  }, selector);
+      // Text can reflow while fonts load; wait until two measurements agree.
+      let point = measure();
+      for (let tries = 0; tries < 30; tries += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const next = measure();
+        if (next.x === point.x && next.y === point.y) break;
+        point = next;
+      }
+      return point;
+    },
+    selector,
+    tab,
+  );
 }
 
 /**
  * Clicks a link in the active tab's page, as a user does, with optional
- * modifier keys. It checks that the click reached the link, and clicks again
+ * modifier keys, or in the page of the tab in Obsidian's main window that
+ * `tab` selects. It checks that the click reached the link, and clicks again
  * when the page moved under the pointer.
  */
-export async function clickInPage(selector: string, modifiers: string[] = []): Promise<number> {
+export async function clickInPage(
+  selector: string,
+  modifiers: string[] = [],
+  tab = ACTIVE,
+): Promise<number> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const point = await stablePoint(selector);
+    const point = await stablePoint(selector, tab);
     const before = await activeFile();
-    await browser.execute((selector) => {
-      const frame = document.querySelector<HTMLIFrameElement>(
-        ".workspace-leaf.mod-active iframe.html-page-viewer__frame",
-      );
-      const state = window as unknown as { e2eHit?: boolean };
-      state.e2eHit = false;
-      const record = (event: Event) => {
-        state.e2eHit ||= (event.target as Element | null)?.closest?.(selector) != null;
-      };
-      // The window sees the event before the view's listeners on the document,
-      // which may replace the frame while the event is still being delivered.
-      frame?.contentWindow?.addEventListener("click", record, true);
-      frame?.contentWindow?.addEventListener("auxclick", record, true);
-    }, selector);
+    await browser.execute(
+      (selector, tab) => {
+        const frame = document.querySelector<HTMLIFrameElement>(
+          `${tab} iframe.html-page-viewer__frame`,
+        );
+        const state = window as unknown as { e2eHit?: boolean };
+        state.e2eHit = false;
+        const record = (event: Event) => {
+          state.e2eHit ||= (event.target as Element | null)?.closest?.(selector) != null;
+        };
+        // The window sees the event before the view's listeners on the document,
+        // which may replace the frame while the event is still being delivered.
+        frame?.contentWindow?.addEventListener("click", record, true);
+        frame?.contentWindow?.addEventListener("auxclick", record, true);
+      },
+      selector,
+      tab,
+    );
     if (modifiers.length > 0) await browser.action("key").down(modifiers[0]).perform(true);
     await browser.action("pointer").move(point).down().up().perform();
     if (modifiers.length > 0) await browser.action("key").up(modifiers[0]).perform();
