@@ -90,6 +90,30 @@ async function release(outcome: { data?: string; error?: string } = {}): Promise
   }, outcome);
 }
 
+/** Marks the watched view's frame, for {@link waitForNewFrame}. */
+async function markFrame(): Promise<void> {
+  await browser.execute(() => {
+    const view = (window as unknown as Held).e2eView;
+    view?.contentEl.querySelector("iframe")?.setAttribute("data-e2e-before", "");
+  });
+}
+
+/**
+ * Waits until the watched view shows its page in a frame that replaced the
+ * marked one, as it does when it shows contents again, and the page has loaded.
+ */
+async function waitForNewFrame(what: string, timeout?: number): Promise<void> {
+  await browser.waitUntil(
+    async () =>
+      browser.execute(() => {
+        const frame = (window as unknown as Held).e2eView?.contentEl.querySelector("iframe");
+        return frame !== null && frame !== undefined && !frame.hasAttribute("data-e2e-before");
+      }),
+    { timeout, timeoutMsg: `${what} did not replace the page` },
+  );
+  await waitForPage();
+}
+
 async function refresh(): Promise<void> {
   await browser
     .$(`${ACTIVE} .html-page-viewer__toolbar button[aria-label="Refresh preview"]`)
@@ -150,20 +174,9 @@ describe("The viewer never writes the files it shows", function () {
   });
 
   it("refreshes the page, and leaves the file as it is when the tab opens a note", async function () {
-    await browser.execute(() => {
-      const view = (window as unknown as Held).e2eView;
-      view?.contentEl.querySelector("iframe")?.setAttribute("data-e2e-before", "");
-    });
+    await markFrame();
     await refresh();
-    await browser.waitUntil(
-      async () =>
-        browser.execute(() => {
-          const frame = (window as unknown as Held).e2eView?.contentEl.querySelector("iframe");
-          return frame !== null && frame !== undefined && !frame.hasAttribute("data-e2e-before");
-        }),
-      { timeoutMsg: "the refresh did not replace the page" },
-    );
-    await waitForPage();
+    await waitForNewFrame("the refresh");
     expect((await shown()).page).toBe("first original");
 
     // As when the file changed on disk without Obsidian noticing: the refresh
@@ -201,6 +214,43 @@ describe("The viewer never writes the files it shows", function () {
     });
   });
 
+  it("reads its file itself when it changes on disk, and shows the new contents (#115)", async function () {
+    // Written past Obsidian, which sees the change, as a sync client's would be.
+    const file = path.join(await vaultFolder(), FIRST);
+    const changed = "<p>first, changed on disk</p>";
+    let view: Awaited<ReturnType<typeof shown>> | undefined;
+    try {
+      await markFrame();
+      fs.writeFileSync(file, changed);
+      await waitForNewFrame("the change on disk", 10_000);
+      view = await shown();
+    } finally {
+      fs.writeFileSync(file, fixture(FIRST));
+      // Obsidian's reload of the restored file must not meet a later test's held read.
+      await browser.waitUntil(
+        async () =>
+          (await browser.executeObsidian(
+            ({ app }, filePath) =>
+              (app.vault.getAbstractFileByPath(filePath) as { stat?: { size: number } } | null)
+                ?.stat?.size ?? -1,
+            FIRST,
+          )) === Buffer.byteLength(fixture(FIRST)),
+        { timeout: 10_000, timeoutMsg: "Obsidian did not see the file restored" },
+      );
+    }
+    expect(view).toEqual({
+      data: changed,
+      title: "First page.html",
+      message: null,
+      page: "first, changed on disk",
+    });
+
+    await openInActiveTab("Notes/Topic.md");
+    await waitForUnload();
+    expect(await writes()).toEqual([]);
+    expect(await onDisk(FIRST)).toBe(fixture(FIRST));
+  });
+
   it("shows the file that the tab shows when Obsidian's reload of a changed file finishes after another opened (#115)", async function () {
     // Obsidian reads a file again when the vault reports that it changed, as
     // when it changes on disk; here the report comes without a change.
@@ -210,10 +260,10 @@ describe("The viewer never writes the files it shows", function () {
     }, FIRST);
     await openInActiveTab(SECOND);
     await waitForPage();
+    await markFrame();
     await release({ data: "<p>first, changed on disk</p>" });
-    // The view reads the file that it shows again.
-    await browser.pause(500);
-    await waitForPage();
+    // The view reads the file that it shows again, and shows it in a new frame.
+    await waitForNewFrame("the view's own read");
     const view = await shown();
 
     await openInActiveTab("Notes/Topic.md");
