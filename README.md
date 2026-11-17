@@ -136,7 +136,11 @@ hotkey of its own; one can be set in **Settings → Hotkeys**.
   with scripts on**, and then only within its limits. Files outside the vault never load. A
   reference that resolves to no vault file, by path or by name, shows nothing.
 - **A page shows without its styles**: stylesheets from the web do not apply, apart from Google
-  Fonts, and a local stylesheet applies only from a `.css` file.
+  Fonts, and a local stylesheet applies only from a `.css` file. A stylesheet that cannot be read is
+  left out, as a missing one is.
+- **The view says it is unable to prepare a page**: the viewer could not make the copy of the page
+  that it shows, and says why rather than show the file without the copy's protections. The source
+  view still shows the file, and **Refresh preview** tries again. Report a defect with the message.
 - **Find in page finds nothing in the page**, or **the split view's sides scroll apart**: with
   scripts on, the viewer cannot reach the page. Turn scripts off. The split view also follows only a
   page that scrolls as a whole.
@@ -147,9 +151,9 @@ If none of these explains it, [report a defect](CONTRIBUTING.md#report-a-defect)
 
 ## Security model
 
-The view shows a copy of the page, never the file itself, in a sandboxed frame. Scripts are off
-unless the toolbar or the settings turn them on, and scripts and same-origin access are never
-granted together:
+The view shows a copy of the page, never the file itself, in a sandboxed frame; a page whose copy
+cannot be prepared shows an error instead. Scripts are off unless the toolbar or the settings turn
+them on, and scripts and same-origin access are never granted together:
 
 - **Scripts off:** the sandbox grants only `allow-same-origin`, so that the page can load the
   vault's files. It cannot run scripts, submit forms, open popups, or navigate Obsidian.

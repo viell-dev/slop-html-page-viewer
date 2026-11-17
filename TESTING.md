@@ -35,6 +35,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | Scripts and same-origin access are never granted together; scripts start off for each file                                                                                         | `rendered.test.ts`                                                                                                 | `viewer.e2e.ts`: the frame cannot run scripts, and gets only `allow-scripts` with them on                 |
 | With scripts on, a page cannot reach the vault's files, apart from those copied into it                                                                                            | `document.test.ts`, `settings.test.ts`                                                                             | `resources.e2e.ts`, `settings.e2e.ts`                                                                     |
 | Only the vault's files load; a stylesheet comes only from a `.css` file; notes are never copied                                                                                    | `document.test.ts`: `vaultPath`, `pagePolicy`, stylesheets, locating by name                                       | `resources.e2e.ts`: nothing from outside the vault                                                        |
+| A page whose copy cannot be prepared shows an error, never the file; an unreadable stylesheet is left out                                                                          | `rendered.test.ts`; `document.test.ts`: CSS escapes, unreadable files                                              | `resources.e2e.ts`: nothing from outside the vault on such pages either                                   |
 | The plugin never writes to vault files, makes no network requests, and does not use the clipboard                                                                                  | `policy.test.ts` reads the built bundle                                                                            |                                                                                                           |
 | A page shows its local images, stylesheets, and fonts; references resolve by path or by name                                                                                       | `document.test.ts`                                                                                                 | `resources.e2e.ts`, `corpus.e2e.ts`                                                                       |
 | Links open as Obsidian opens them                                                                                                                                                  | `links.test.ts`                                                                                                    | `links.e2e.ts`                                                                                            |
@@ -72,6 +73,10 @@ On 2026-10-21, each of these deliberate breakages failed the check named:
   `release.test.ts`. Against GitHub's real state, a dry run of 0.5.0 from a later commit refused
   because the tag points elsewhere, and one with a zip packaged differently refused to change the
   published release.
+
+On 2026-11-16, the earlier preparation of a page, which showed the file as it is when preparing its
+copy failed, and could fail on CSS escapes and on stylesheets that could not be read, failed
+`document.test.ts`, `rendered.test.ts`, and `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1.
 
 ## Limits
 

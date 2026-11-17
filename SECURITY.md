@@ -17,7 +17,8 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
 
 - **A copy in a sandboxed frame.** The view parses the file, prepares a copy of it, and shows the
   copy through the `srcdoc` of an `iframe` with a `sandbox` attribute. Parsing runs nothing, and the
-  file is never changed.
+  file is never changed. If the copy cannot be prepared, the view shows an error in its place, never
+  the file itself, which has none of the copy's protections; the source view still shows the file.
 - **Scripts off, by default.** The sandbox grants only `allow-same-origin`. The page then has
   Obsidian's origin, which a page needs in Obsidian to load the vault's files. Without
   `allow-scripts`, nothing in the page can use that origin: no script runs, including event handler

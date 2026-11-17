@@ -664,8 +664,10 @@ class HtmlPageViewerView extends TextFileView {
 
   /**
    * Shows a copy of the page in the frame, prepared so that its references to
-   * vault files load (see document.ts). The frame shows the file as it is if
-   * preparing the copy fails, and nothing if the view moved on meanwhile.
+   * vault files load and its protections apply (see document.ts), and nothing
+   * if the view moved on meanwhile. If preparing the copy fails, the view says
+   * so in the frame's place: the file as it is has none of the copy's
+   * protections, so it is never shown instead.
    */
   private async loadPage(file: TFile, data: string, iframe: HTMLIFrameElement): Promise<void> {
     const pageUrl = withoutQuery(this.app.vault.getResourcePath(file));
@@ -701,7 +703,8 @@ class HtmlPageViewerView extends TextFileView {
       shownStyle = ownStyles ? null : (readingStyle ?? null);
     } catch (error) {
       console.error("HTML Page Viewer: could not prepare the page", error);
-      page = data;
+      if (this.iframe === iframe) this.showPreparationError(iframe, error);
+      return;
     }
     if (this.iframe !== iframe) return;
     this.shownStyle = shownStyle;
@@ -766,6 +769,19 @@ class HtmlPageViewerView extends TextFileView {
       win.setTimeout(poll, 15);
     };
     poll();
+  }
+
+  /**
+   * Shows why the page could not be prepared, in place of its frame. The
+   * toolbar stays, so Refresh tries again and the source view shows the file.
+   */
+  private showPreparationError(iframe: HTMLIFrameElement, error: unknown): void {
+    this.iframe = null;
+    const wrap = iframe.parentElement;
+    const parent = wrap?.parentElement;
+    if (!wrap || !parent) return;
+    const text = `Unable to prepare this page, so it is not shown: ${getErrorMessage(error)}`;
+    wrap.replaceWith(renderMessage(parent, text));
   }
 
   /**
@@ -898,15 +914,10 @@ class HtmlPageViewerView extends TextFileView {
     };
     return {
       size: (path) => fileAt(path)?.stat.size ?? null,
+      // preparePage leaves out a file whose read fails, as one that went away.
       readBinary: async (path) => {
         const file = fileAt(path);
-        if (file === null) return null;
-        try {
-          return await vault.readBinary(file);
-        } catch {
-          // The file went away after the view saw it.
-          return null;
-        }
+        return file === null ? null : vault.readBinary(file);
       },
     };
   }
@@ -1202,8 +1213,8 @@ function createTextButton(parent: HTMLElement, label: string): HTMLButtonElement
   });
 }
 
-function renderMessage(parent: HTMLElement, message: string): void {
-  parent.createDiv({ cls: "html-page-viewer__message", text: message });
+function renderMessage(parent: HTMLElement, message: string): HTMLElement {
+  return parent.createDiv({ cls: "html-page-viewer__message", text: message });
 }
 
 function getErrorMessage(error: unknown): string {

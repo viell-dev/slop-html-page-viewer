@@ -196,7 +196,8 @@
 }
 
 .html-page-viewer__split > .html-page-viewer__source,
-.html-page-viewer__split > .html-page-viewer__frame-wrap {
+.html-page-viewer__split > .html-page-viewer__frame-wrap,
+.html-page-viewer__split > .html-page-viewer__message {
   flex: 1 1 0;
   min-width: 0;
 }

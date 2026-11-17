@@ -10,6 +10,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 - **Rendered**, **Source**, and **Split** form a labelled group, and the selected one says it is
   pressed, so that screen readers announce which view mode a tab shows.
+- A page that cannot be prepared for display shows an error, with Refresh and the source view still
+  available, instead of being shown without its protections. Escapes in a page's CSS decode as CSS
+  specifies, and a stylesheet that cannot be read is left out, as a missing one is.
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 

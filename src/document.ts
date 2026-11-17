@@ -21,7 +21,10 @@ export interface PageContext {
   readonly pageUrl: string;
   /** The vault root's resource URL, ending in a slash. */
   readonly vaultUrl: string;
-  /** Reads a vault file's text by its vault path, or returns null if there is none. */
+  /**
+   * Reads a vault file's text by its vault path, or returns null if there is
+   * none. A file whose read fails is left out, as one that is missing.
+   */
   read(path: string): Promise<string | null>;
   /** Whether a file or folder exists at a vault path. */
   exists?(path: string): boolean;
@@ -44,6 +47,19 @@ const MAX_IMPORT_DEPTH = 8;
  */
 function isStylesheetFile(path: string): boolean {
   return /\.css$/i.test(path);
+}
+
+/**
+ * A stylesheet's text, or null if it cannot be read: a page leaves out a
+ * stylesheet that it cannot load, so one that cannot be read is left out too,
+ * rather than failing the whole page.
+ */
+async function readStylesheet(context: PageContext, path: string): Promise<string | null> {
+  try {
+    return await context.read(path);
+  } catch {
+    return null;
+  }
 }
 
 /** Removes a URL's query and fragment. */
@@ -140,10 +156,27 @@ function cssString(value: string): string {
   return `"${value.replace(/["\\\n\r\f]/g, (char) => `\\${char.charCodeAt(0).toString(16)} `)}"`;
 }
 
+/**
+ * A CSS escape: up to six hexadecimal digits with one whitespace after them,
+ * or any other character but a newline, or nothing at the end. A backslash
+ * before a newline is not an escape.
+ */
+const CSS_ESCAPE = /\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[\t\n\f\r ])?|([^\n\f\r])|$)/gu;
+
+/** U+FFFD, which stands for a character that text cannot hold. */
+const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd);
+
+/**
+ * Decodes the escapes in CSS text as CSS Syntax 3 consumes an escaped code
+ * point: a number that is zero, a surrogate, or past U+10FFFF, and an escape
+ * at the end, stand for U+FFFD. It never throws, whatever a page holds.
+ */
 function unescapeCss(value: string): string {
-  return value.replace(/\\([0-9a-fA-F]{1,6}\s?|[^\n\r\f0-9a-fA-F])/g, (_, escape: string) => {
-    const hex = escape.trim();
-    return /^[0-9a-fA-F]+$/.test(hex) ? String.fromCodePoint(Number.parseInt(hex, 16)) : escape;
+  return value.replace(CSS_ESCAPE, (_, hex?: string, char?: string) => {
+    if (hex === undefined) return char ?? REPLACEMENT_CHARACTER;
+    const code = Number.parseInt(hex, 16);
+    const valid = code !== 0 && (code < 0xd800 || code > 0xdfff) && code <= 0x10ffff;
+    return valid ? String.fromCodePoint(code) : REPLACEMENT_CHARACTER;
   });
 }
 
@@ -308,7 +341,7 @@ export async function inlineStylesheet(
     const readable =
       path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
     if (target !== null && path !== null && readable && wrappable) {
-      const imported = await context.read(path);
+      const imported = await readStylesheet(context, path);
       if (imported !== null) {
         const inner = await inlineStylesheet(imported, target, context, new Set([...seen, path]));
         text = conditions === "" ? inner : `@media ${conditions} {\n${inner}\n}`;
@@ -344,7 +377,10 @@ function isStylesheetLink(element: Element): element is HTMLLinkElement {
 export interface LocalFiles {
   /** A vault file's size in bytes, or null if there is no file at the path. */
   size(path: string): number | null;
-  /** A vault file's bytes, or null if there is no file at the path. */
+  /**
+   * A vault file's bytes, or null if there is no file at the path. A file
+   * whose read fails is left out, as one that is missing.
+   */
   readBinary(path: string): Promise<ArrayBuffer | null>;
 }
 
@@ -508,7 +544,13 @@ class FileCopier {
   };
 
   private async read(path: string, type: string): Promise<string | null> {
-    const bytes = await this.files.readBinary(path);
+    let bytes: ArrayBuffer | null;
+    try {
+      bytes = await this.files.readBinary(path);
+    } catch {
+      // As when the file went away after the first pass saw it.
+      return null;
+    }
     return bytes === null ? null : `data:${type};base64,${base64(new Uint8Array(bytes))}`;
   }
 
@@ -652,7 +694,7 @@ export async function preparePage(
     const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
     const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
     if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
-    const css = await context.read(path);
+    const css = await readStylesheet(context, path);
     if (css === null) continue;
     // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const style = doc.createElement("style");

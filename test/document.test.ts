@@ -105,6 +105,31 @@ describe("absoluteUrls", () => {
       `a { background: url("${VAULT}Mirror/css/we%22ird.png") }`,
     );
   });
+
+  it("decodes escapes as CSS does, as U+FFFD where they name no character", () => {
+    const css = [
+      `a { background: url(\\110000.png) }`,
+      `b { background: url("\\0 x\\D800 y\\DFFF.png") }`,
+      `c { background: url(\\FFFFFF.png) }`,
+      `d { background: url(\\10FFFF.png) }`,
+      `e { background: url("\\41 b\\26 c\\(1\\).png") }`,
+      `f { background: url('\\0000411.png') }`,
+      `g { background: url("\\41\tb.png") }`,
+    ].join("\n");
+    const replacement = "%EF%BF%BD";
+    assert.equal(
+      absoluteUrls(css, sheet),
+      [
+        `a { background: url("${VAULT}Mirror/css/${replacement}.png") }`,
+        `b { background: url("${VAULT}Mirror/css/${replacement}x${replacement}y${replacement}.png") }`,
+        `c { background: url("${VAULT}Mirror/css/${replacement}.png") }`,
+        `d { background: url("${VAULT}Mirror/css/%F4%8F%BF%BF.png") }`,
+        `e { background: url("${VAULT}Mirror/css/Ab&c(1).png") }`,
+        `f { background: url("${VAULT}Mirror/css/A1.png") }`,
+        `g { background: url("${VAULT}Mirror/css/Ab.png") }`,
+      ].join("\n"),
+    );
+  });
 });
 
 describe("inlineStylesheet", () => {
@@ -156,6 +181,19 @@ describe("inlineStylesheet", () => {
     const ctx = context({});
     await inlineStylesheet(`@import "../../../etc/style.css";`, `${VAULT}Mirror/main.css`, ctx);
     assert.deepEqual(ctx.reads, []);
+  });
+
+  it("leaves an import whose file cannot be read as an absolute import, as a missing one", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      read: () => Promise.reject(new Error("synthetic read failure")),
+    };
+    const css = await inlineStylesheet(
+      `@import "unreadable.css"; a { x: 1 }`,
+      `${VAULT}main.css`,
+      ctx,
+    );
+    assert.equal(css, `@import url("${VAULT}unreadable.css"); a { x: 1 }`);
   });
 
   it("reads only CSS files, and leaves imports of other files as absolute imports", async () => {
@@ -226,6 +264,47 @@ describe("preparePage", () => {
     const page = parse(await prepare(html, ctx));
     assert.equal(page.querySelectorAll("link").length, 5);
     assert.deepEqual(ctx.reads, ["Saved/missing.css"]);
+  });
+
+  it("leaves out a stylesheet that cannot be read, as one that is missing", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      read: (path) =>
+        path === "Saved/readable.css"
+          ? Promise.resolve(`@import "unreadable.css"; p { margin: 0 }`)
+          : Promise.reject(new Error("synthetic read failure")),
+    };
+    const html = `<link rel="stylesheet" href="unreadable.css"><link rel="stylesheet" href="readable.css">`;
+    const page = parse(await prepare(html, ctx));
+    assert.equal(
+      page.head.firstElementChild?.getAttribute("http-equiv"),
+      "Content-Security-Policy",
+    );
+    assert.deepEqual(
+      [...page.querySelectorAll("link")].map((link) => link.getAttribute("href")),
+      ["unreadable.css"],
+    );
+    assert.equal(
+      page.querySelector("style")?.textContent,
+      `@import url("${VAULT}Saved/unreadable.css"); p { margin: 0 }`,
+    );
+  });
+
+  it("prepares a page whose CSS escapes name no character, in each place it reads CSS", async () => {
+    const ctx: PageContext = { ...context({}), exists: () => false, locate: () => null };
+    const copyFiles: LocalFiles = { size: () => null, readBinary: async () => null };
+    const html = [
+      `<style>@import "\\D800.css"; p { background: url(\\110000.png) }</style>`,
+      `<p style="background: url('\\FFFFFF.png')">Text</p>`,
+    ].join("");
+    const page = parse(await prepare(html, ctx, { copyFiles }));
+    const [policy, base] = [...page.head.children];
+    assert.equal(policy.getAttribute("content"), pagePolicy(VAULT));
+    assert.equal(base.getAttribute("href"), ctx.pageUrl);
+    assert.equal(
+      page.querySelector("style")?.textContent,
+      `@import url("${VAULT}Saved/%EF%BF%BD.css"); p { background: url("${VAULT}Saved/%EF%BF%BD.png") }`,
+    );
   });
 
   it("copies only CSS files, never another vault file that a page links as a stylesheet", async () => {
@@ -711,6 +790,21 @@ describe("copying local files (#11)", () => {
     const copy: LocalFiles = { size: () => 1, readBinary: async () => null };
     const prepared = await preparePage(`<img src="gone.png">`, context({}), { copyFiles: copy });
     assert.equal(parse(prepared.html).querySelector("img")?.getAttribute("src"), "gone.png");
+    assert.deepEqual(prepared.copiedFiles, { copied: 0, leftOut: 0 });
+  });
+
+  it("leaves a reference as it is when reading its file fails", async () => {
+    const copy: LocalFiles = {
+      size: () => 1,
+      readBinary: () => Promise.reject(new Error("synthetic read failure")),
+    };
+    const html = `<img src="unreadable.png"><img src="unreadable.png">`;
+    const prepared = await preparePage(html, context({}), { copyFiles: copy });
+    const page = parse(prepared.html);
+    assert.deepEqual(
+      [...page.querySelectorAll("img")].map((image) => image.getAttribute("src")),
+      ["unreadable.png", "unreadable.png"],
+    );
     assert.deepEqual(prepared.copiedFiles, { copied: 0, leftOut: 0 });
   });
 
