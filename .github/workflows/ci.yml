@@ -42,7 +42,7 @@ jobs:
       - run: npm test
       - run: npm run test:stress
       - if: runner.os == 'Linux'
-        run: npm audit --audit-level=high
+        run: npm run check:audit
 
   # The plugin in real Obsidian, on the oldest public release the manifest
   # allows and the latest. Audit its isolated tool dependencies separately.
@@ -63,7 +63,7 @@ jobs:
             test/e2e/package-lock.json
       - run: npm ci
       - run: npm ci --prefix test/e2e
-      - run: npm audit --prefix test/e2e --audit-level=high
+      - run: npm run check:audit -- test/e2e
       - run: npx --prefix test/e2e tsc -p test/e2e
       - run: npm run build
       - name: Resolve the Obsidian versions

@@ -154,10 +154,22 @@ to be missing or stored elsewhere.
 ### CI
 
 GitHub Actions runs the type check, build, and tests on Linux and Windows with the Node.js version
-in `.nvmrc`, and the lint and format checks and an `npm audit` on Linux; `main` requires both
+in `.nvmrc`, and the lint and format checks and the dependency audit on Linux; `main` requires both
 platforms. The `e2e` job runs the tests in Obsidian on Linux for every pull request, and weekly, so
 that a new Obsidian release is tested within a week. The Docker image is built and run weekly and
 on request.
+
+The dependency audit, `npm run check:audit` for the root package and
+`npm run check:audit -- test/e2e` for the test tools, fails on any advisory above moderate severity
+unless [`.github/audit-exceptions.json`](.github/audit-exceptions.json) lists it for the affected
+dependency and that package directory. It also fails on a severity that npm does not define and on
+a report that it cannot fully read. Moderate, low, and informational advisories are listed but do
+not fail it. An exception is only for an advisory that no release fixes yet and that cannot affect
+the project. It links an issue that shows why and says when to remove it, and the pinned
+dependency overview ([#2](https://github.com/viell-dev/slop-html-page-viewer/issues/2)) lists that
+issue. The audit fails on an exception that it no longer needs, so that the entry goes: when a
+lockfile update adopts a fix, that update fails until it also removes the entry, and when GitHub
+withdraws, downgrades, or narrows the advisory, every branch fails until the entry is removed.
 
 ## Branches
 
