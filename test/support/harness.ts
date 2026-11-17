@@ -18,6 +18,8 @@ export interface HtmlView {
   onClose(): Promise<void>;
   save(clear?: boolean): Promise<void>;
   requestSave(): void;
+  /** Whether Obsidian takes the view for changed and due to be saved. */
+  readonly dirty: boolean;
 }
 
 /** A loaded plugin in a stand-in Obsidian, with helpers to open views. */

@@ -192,6 +192,7 @@ describe("Obsidian's saving", () => {
     assert.equal(view.getViewData(), "<p>changed on disk</p>");
 
     view.requestSave();
+    assert.equal(view.dirty, false, "Obsidian never takes the view for changed");
     await view.save();
     await view.save(true);
     await harness.openFile(view, "other.html", SECOND);
