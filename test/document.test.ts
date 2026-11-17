@@ -435,6 +435,39 @@ describe("preparePage", () => {
     assert.doesNotMatch(await prepare(html, context({})), new RegExp(SHADOW_ROOT_MARK));
   });
 
+  it("changes a page's own comments with the mark's text, so that only marks have it (#124)", async () => {
+    const html = [
+      `<div><!--${SHADOW_ROOT_MARK}--><p>light</p>`,
+      `<template shadowrootmode="open"><span><!--${SHADOW_ROOT_MARK}--></span></template>`,
+      `<!-- ${SHADOW_ROOT_MARK} --></div>`,
+    ].join("");
+    const comments = (output: string): string[] => {
+      const found: string[] = [];
+      const visit = (root: Document | DocumentFragment): void => {
+        const doc = root.ownerDocument ?? root;
+        const walker = doc.createTreeWalker(root, window.NodeFilter.SHOW_COMMENT);
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode())
+          found.push((node as Comment).data);
+        for (const template of root.querySelectorAll("template"))
+          if (template instanceof window.HTMLTemplateElement) visit(template.content);
+      };
+      visit(parse(output));
+      return found;
+    };
+    assert.deepEqual(comments(await prepare(html, context({}), { openShadowRoots: true })), [
+      `${SHADOW_ROOT_MARK} `,
+      SHADOW_ROOT_MARK,
+      ` ${SHADOW_ROOT_MARK} `,
+      `${SHADOW_ROOT_MARK} `,
+    ]);
+    // With scripts on, nothing is marked, and the page's scripts may read its comments.
+    assert.deepEqual(comments(await prepare(html, context({}))), [
+      SHADOW_ROOT_MARK,
+      ` ${SHADOW_ROOT_MARK} `,
+      SHADOW_ROOT_MARK,
+    ]);
+  });
+
   it("makes the copy's root inert only when asked, and leaves a page's own inert root", async () => {
     const asked = await preparePage("<p>x</p>", context({}), { inertUntilWatched: true });
     assert.equal(asked.madeInert, true);
@@ -803,6 +836,29 @@ describe("tooltips", () => {
         ["use", null, null],
         ["unlabelled", "https://example.com/", null],
         ["own-label", "https://example.com/", null],
+      ]);
+    });
+
+    it("leaves a link around HTML content, whose names the copy cannot see", async () => {
+      const html = [
+        `<a id="shadow-text" href="https://example.com/"><foreignObject><div>`,
+        `<template shadowrootmode="open"><span>Home</span></template></div></foreignObject></a>`,
+        `<a id="shadow-label" href="https://example.com/"><foreignObject><div>`,
+        `<template shadowrootmode="open"><span role="img" aria-label="Home"></span></template>`,
+        `</div></foreignObject></a>`,
+        `<a id="control" href="https://example.com/"><foreignObject>`,
+        `<input type="submit"></foreignObject></a>`,
+        `<style>.home::before { content: "Home" }</style>`,
+        `<a id="generated" href="https://example.com/"><foreignObject>`,
+        `<span class="home"></span></foreignObject></a>`,
+        `<a id="empty" href="https://example.com/"><foreignObject></foreignObject></a>`,
+      ].join("");
+      assert.deepEqual(await svgTitles(html), [
+        ["shadow-text", null, null],
+        ["shadow-label", null, null],
+        ["control", null, null],
+        ["generated", null, null],
+        ["empty", null, null],
       ]);
     });
   });

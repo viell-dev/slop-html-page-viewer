@@ -181,6 +181,16 @@ scrolling the source to paragraph 30's line moved a page whose body has a shadow
 89, and scrolling it to paragraph 15's line left a page that declares its shadow root after 30
 paragraphs at paragraph 1.
 
+**Unreleased (#124):** on 2026-11-17, after the follow-up review, these failed against the version
+before it. Giving a tooltip to an SVG link around HTML in a `<foreignObject>` failed the new tooltip
+test in `document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around
+text in a shadow root declared there was named by its URL instead (#117). The split view's pairing,
+which took any comment with its mark's text for the mark, and also the mark of a declaration that
+stayed a template, failed `split.test.ts` and `document.test.ts`, and `split.e2e.ts` in both
+versions: with a comment of the page's own with that text before its first paragraph, scrolling the
+source to paragraph 15's line left a page that declares its shadow root after 30 paragraphs at
+paragraph 1.
+
 ## Limits
 
 - On Chromium 135 to 141, which some Obsidian versions between the tested ones use, a page's own
@@ -206,6 +216,9 @@ paragraphs at paragraph 1.
   do not reach. The tests check the attributes that Chromium shows as tooltips. On 2026-11-17,
   moving the display's own pointer over the links and capturing the whole screen showed them in
   Obsidian 1.5.3 and 1.15.1.
+- Obsidian 1.5.3 and 1.15.1 name an SVG link from nothing inside a `<foreignObject>`, which
+  Chrome 157 includes. The viewer gives such a link no tooltip, which would replace that name, so
+  on those versions a link around HTML without a label of its own has neither (#117).
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`

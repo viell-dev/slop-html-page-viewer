@@ -14,6 +14,7 @@ const globals = [
   "window",
   "document",
   "Node",
+  "NodeFilter",
   "Element",
   "HTMLElement",
   "HTMLIFrameElement",

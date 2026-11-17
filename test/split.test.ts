@@ -13,7 +13,7 @@ import {
   syncPoints,
   topOfLine,
 } from "../src/split";
-import { preparePage } from "../src/document";
+import { preparePage, SHADOW_ROOT_MARK } from "../src/document";
 import { startTags } from "../src/main";
 import { button, Harness } from "./support/harness";
 
@@ -86,9 +86,10 @@ describe("pairing a page's elements with their source lines", () => {
      * The page as the frame shows it with scripts off: the view's copy, parsed
      * as Chromium parses it, which jsdom does not. A template that declares a
      * shadow root gives its content to its parent, if that can host one and
-     * has none yet, and is left out.
+     * has none yet, and is left out. Chromium 150 reads only `shadowrootmode`;
+     * with `legacy`, as Chromium 114 does, `shadowroot` as well.
      */
-    async function framed(source: string): Promise<Document> {
+    async function framed(source: string, legacy = false): Promise<Document> {
       const context = {
         pageUrl: "app://vault-id/vault/page.html",
         vaultUrl: "app://vault-id/vault/",
@@ -100,8 +101,10 @@ describe("pairing a page's elements with their source lines", () => {
         for (const template of root.querySelectorAll("template")) {
           if (!(template instanceof window.HTMLTemplateElement)) continue;
           const host = template.parentElement;
-          if (!host || host.shadowRoot || template.getAttribute("shadowrootmode") !== "open")
-            continue;
+          const declares =
+            template.getAttribute("shadowrootmode") === "open" ||
+            (legacy && template.getAttribute("shadowroot") === "open");
+          if (!host || host.shadowRoot || !declares) continue;
           try {
             host.attachShadow({ mode: "open" }).append(template.content);
           } catch {
@@ -115,9 +118,9 @@ describe("pairing a page's elements with their source lines", () => {
       return doc;
     }
 
-    async function pairedInFrame(lines: string[]): Promise<[string, number][]> {
+    async function pairedInFrame(lines: string[], legacy = false): Promise<[string, number][]> {
       const source = lines.join("\n");
-      const doc = await framed(source);
+      const doc = await framed(source, legacy);
       return anchorElements(doc.body, startTags(source)).map(({ element, line }) => [
         element.id || element.localName,
         line,
@@ -195,6 +198,54 @@ describe("pairing a page's elements with their source lines", () => {
           ["light-4", 12],
         ],
       );
+    });
+
+    it("passes over a comment of the page's own with the mark's text", async () => {
+      assert.deepEqual(
+        await pairedInFrame([
+          "<body>",
+          "<article>",
+          `<!--${SHADOW_ROOT_MARK}-->`,
+          `<p id="light">Light</p>`,
+          `<template shadowrootmode="open">`,
+          `<p id="shadow">Shadow</p>`,
+          "</template>",
+          "</article>",
+        ]),
+        [
+          ["article", 2],
+          ["light", 4],
+          ["shadow", 6],
+        ],
+      );
+    });
+
+    it("passes over the mark of a declaration that stayed a template", async () => {
+      const lines = [
+        "<body>",
+        "<article>",
+        `<template shadowroot="open"><p id="legacy">Legacy</p></template>`,
+        `<p id="light">Light</p>`,
+        `<template shadowrootmode="open">`,
+        `<p id="shadow">Shadow</p>`,
+        "</template>",
+        "</article>",
+      ];
+      // Chromium 150 leaves the first declaration a template and attaches the second.
+      assert.deepEqual(await pairedInFrame(lines), [
+        ["article", 2],
+        ["template", 3],
+        ["light", 4],
+        ["shadow", 6],
+      ]);
+      // Chromium 114 attaches the first and leaves the second a template.
+      assert.deepEqual(await pairedInFrame(lines, true), [
+        ["article", 2],
+        ["legacy", 3],
+        ["light", 4],
+        ["template", 5],
+        ["shadow", 6],
+      ]);
     });
 
     it("takes a shadow root that the copy has not marked to come first", () => {

@@ -3,7 +3,7 @@
 // page's elements is paired with the source line of its start tag, and a
 // position between two such elements maps to the lines between theirs.
 
-import { SHADOW_ROOT_MARK } from "./document";
+import { declaresShadowRoot, SHADOW_ROOT_MARK } from "./document";
 
 /** A start tag in the source: its element's name, lowercased, and its line, from 1. */
 export interface StartTag {
@@ -41,9 +41,17 @@ const LOOKAHEAD = 16;
 
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 
-/** Whether a node is the comment that marks where a shadow root was declared. */
-function isShadowRootMark(node: Node): boolean {
-  return node.nodeType === Node.COMMENT_NODE && (node as Comment).data === SHADOW_ROOT_MARK;
+/**
+ * Whether a node is the comment that marks where its parent's shadow root was
+ * declared. The copy marks every declaration, but one that the host did not
+ * attach, such as a second one or one by an attribute name that this
+ * Chromium no longer reads, stays a template just after its mark.
+ */
+function marksAttachedRoot(node: Node): boolean {
+  if (node.nodeType !== Node.COMMENT_NODE || (node as Comment).data !== SHADOW_ROOT_MARK)
+    return false;
+  const next = node.nextSibling;
+  return !(next?.nodeType === Node.ELEMENT_NODE && declaresShadowRoot(next as Element));
 }
 
 /** An element's name as the parser gives it for a tag, which reads `image` as `img`. */
@@ -152,12 +160,12 @@ export function anchorElements(body: Element, tags: readonly StartTag[]): Anchor
   // first, where pages usually declare it.
   const collect = (parent: ParentNode, shadow: ShadowRoot | null): void => {
     let pending = shadow;
-    if (pending !== null && ![...parent.childNodes].some(isShadowRootMark)) {
+    if (pending !== null && ![...parent.childNodes].some(marksAttachedRoot)) {
       collect(pending, null);
       pending = null;
     }
     for (const node of pending === null ? parent.children : parent.childNodes) {
-      if (pending !== null && isShadowRootMark(node)) {
+      if (pending !== null && marksAttachedRoot(node)) {
         collect(pending, null);
         pending = null;
       }

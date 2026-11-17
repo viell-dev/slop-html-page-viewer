@@ -677,7 +677,7 @@ describe("Links in a page in Obsidian", function () {
   });
 
   it("shows where links in shadow roots and SVG links lead on hover (#117, #124)", async function () {
-    const SVG_LINKS = ["shape", "legacy", "text", "own", "labelled", "icon", "own-label"];
+    const SVG_LINKS = ["shape", "legacy", "text", "own", "labelled", "icon", "own-label", "html"];
     await openInActiveTab("Saved/Link titles.html");
     await waitForPage();
     const shown = await browser.execute(
@@ -704,8 +704,11 @@ describe("Links in a page in Obsidian", function () {
       SVG_LINKS,
     );
     // Chromium also reads an SVG link's tooltip as its name, before the name
-    // its content gives it, so a link whose text, labelled shape, or icon names
-    // it gets no tooltip. A link's own label comes before the tooltip.
+    // its content gives it, so a link whose text, labelled shape, icon, or
+    // HTML content names it gets no tooltip. A link's own label comes before
+    // the tooltip. Obsidian 1.5.3 and 1.15.1 name an SVG link from nothing in
+    // a <foreignObject>, so the link around HTML has no name there, but Chrome
+    // 157 names it by its shadow root's text; either way, not by the tooltip.
     await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
     const names: string[] = [];
     try {
@@ -724,6 +727,7 @@ describe("Links in a page in Obsidian", function () {
         ["labelled", null],
         ["icon", null],
         ["own-label", "https://example.com/own-label"],
+        ["html", null],
       ],
       titleAttributes: 0,
       names: [
@@ -735,6 +739,7 @@ describe("Links in a page in Obsidian", function () {
         "A shape with a label",
         "An icon with its own title",
         "A link with its own label",
+        expect.not.stringContaining("example.com"),
       ],
     });
   });

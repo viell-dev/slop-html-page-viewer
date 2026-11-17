@@ -266,7 +266,8 @@ describe("The split view in Obsidian", function () {
   it("keeps in step with a shadow root declared after some of its host's content (#124)", async function () {
     // Paragraph N is on line 8 + N before the declaration, on line 11 + N in
     // the shadow root, and on line 13 + N after it; the slots show them in
-    // that order.
+    // that order. Before paragraph 1, the page has a comment with the text of
+    // the view's mark, which must not be taken for one.
     await openInActiveTab("Saved/Shadow late.html");
     await clickToolbarButton("Split");
     await waitForPage();

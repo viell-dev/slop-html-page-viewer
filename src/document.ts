@@ -289,6 +289,9 @@ function linkTooltip(reference: string, absolute: string, context: PageContext):
 /** Attributes that give an element in a link a name, which becomes part of the link's. */
 const NAMING_ATTRIBUTES = ["aria-label", "aria-labelledby", "alt", "title"];
 
+/** Elements in an SVG link that may give it a name, which `keepsSvgLink` does not compute. */
+const NAMING_ELEMENTS = new Set(["title", "use", "foreignObject"]);
+
 /**
  * Whether an SVG link keeps what it has: a title of its own, or content that
  * may name it. Chromium shows an SVG link's `xlink:title`, or else its
@@ -296,15 +299,18 @@ const NAMING_ATTRIBUTES = ["aria-label", "aria-labelledby", "alt", "title"];
  * as the link's name, before the name that its content gives it (SVG-AAM).
  * That name can come from text, from the labels and titles of the elements
  * inside, and from what a `<use>` shows, which is not followed here; any of
- * them keeps the link as it is. The link's own `aria-label` or
- * `aria-labelledby` names it before a title does, so a link with one still
- * gets the tooltip.
+ * them keeps the link as it is. HTML, which enters SVG only through a
+ * `<foreignObject>`, can name it in ways that its tree does not show here:
+ * with a shadow root that it declares, a form control's default label, or
+ * CSS generated content. So a `<foreignObject>` inside keeps it too. The
+ * link's own `aria-label` or `aria-labelledby` names it before a title does,
+ * so a link with one still gets the tooltip.
  */
 function keepsSvgLink(link: Element): boolean {
   if (link.hasAttribute("title") || link.hasAttributeNS(XLINK_NAMESPACE, "title")) return true;
   if ((link.textContent ?? "").trim() !== "") return true;
   for (const element of link.querySelectorAll("*")) {
-    if (element.localName === "title" || element.localName === "use") return true;
+    if (NAMING_ELEMENTS.has(element.localName)) return true;
     if (NAMING_ATTRIBUTES.some((name) => element.hasAttribute(name))) return true;
   }
   return false;
@@ -799,27 +805,59 @@ function templates(root: ParentNode, found: HTMLTemplateElement[] = []): HTMLTem
  * template that declares one. Parsing the copy for the frame attaches the
  * template's content to its host and leaves the template out, so that only
  * the comment shows where among the host's own content the source has the
- * shadow root's tags. Comments match no selector, and the page has no
- * scripts to see them.
+ * shadow root's tags. A declaration that the host does not attach stays a
+ * template, just after its mark. Comments match no selector, and the page has
+ * no scripts to see them.
  */
 export const SHADOW_ROOT_MARK = "html-page-viewer: shadow root";
 
 /**
+ * The names of the attribute that declares a template's content a shadow
+ * root. `shadowroot` is the earlier name, which the Chromium in older
+ * Obsidian installers still reads and newer ones ignore.
+ */
+const SHADOW_ROOT_ATTRIBUTES = ["shadowrootmode", "shadowroot"];
+
+/**
+ * Whether an element is an HTML template that declares a shadow root, by
+ * either name of the attribute, which a host may attach.
+ */
+export function declaresShadowRoot(element: Element): boolean {
+  if (element.localName !== "template" || element.namespaceURI !== HTML_NAMESPACE) return false;
+  return SHADOW_ROOT_ATTRIBUTES.some((name) =>
+    /^(open|closed)$/i.test(element.getAttribute(name) ?? ""),
+  );
+}
+
+/**
+ * Adds a space to each of the page's own comments that has the text of
+ * `SHADOW_ROOT_MARK`, so that only the copy's marks have it. Content without
+ * elements, which preparation skips, has no host among whose children a
+ * comment could be taken for a mark.
+ */
+function changeMarkComments(roots: readonly ParentNode[]): void {
+  for (const root of roots) {
+    const doc = root.ownerDocument ?? (root as Document);
+    const comments = doc.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+    for (let node = comments.nextNode(); node !== null; node = comments.nextNode()) {
+      const comment = node as Comment;
+      if (comment.data === SHADOW_ROOT_MARK) comment.data += " ";
+    }
+  }
+}
+
+/**
  * Turns the page's closed declarative shadow roots into open ones, and marks
  * each declaration with `SHADOW_ROOT_MARK`. Parsing the copy for the frame
- * attaches them, while preparing it leaves them as templates. `shadowroot` is
- * the attribute's earlier name, which the Chromium in older Obsidian
- * installers still reads.
+ * attaches them, while preparing it leaves them as templates.
  */
 function openShadowRoots(found: readonly HTMLTemplateElement[]): void {
   for (const template of found) {
-    let declares = false;
-    for (const name of ["shadowrootmode", "shadowroot"]) {
-      const mode = template.getAttribute(name) ?? "";
-      if (/^closed$/i.test(mode)) template.setAttribute(name, "open");
-      if (/^(open|closed)$/i.test(mode)) declares = true;
+    if (!declaresShadowRoot(template)) continue;
+    for (const name of SHADOW_ROOT_ATTRIBUTES) {
+      if (/^closed$/i.test(template.getAttribute(name) ?? "")) template.setAttribute(name, "open");
     }
-    if (declares) template.before(template.ownerDocument.createComment(SHADOW_ROOT_MARK));
+    template.before(template.ownerDocument.createComment(SHADOW_ROOT_MARK));
   }
 }
 
@@ -870,7 +908,12 @@ export async function preparePage(
   for (const refresh of doc.querySelectorAll("meta[http-equiv]")) {
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
-  if (options.openShadowRoots) openShadowRoots(found);
+  if (options.openShadowRoots) {
+    // A comment's text is in the source as it is, so only a page whose source
+    // has the mark's text can have a comment with it.
+    if (html.includes(SHADOW_ROOT_MARK)) changeMarkComments(roots);
+    openShadowRoots(found);
+  }
   const root = doc.documentElement;
   const madeInert = options.inertUntilWatched === true && !root.hasAttribute("inert");
   if (madeInert) root.setAttribute("inert", "");
