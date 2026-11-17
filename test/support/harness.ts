@@ -24,6 +24,7 @@ export interface HtmlView {
 export class Harness {
   readonly app = new App();
   readonly plugin: Plugin;
+  private readonly vaultFiles = new Map<string, TFile>();
 
   private constructor() {
     this.plugin = new HtmlPageViewerPlugin(this.app as never, {} as never) as unknown as Plugin;
@@ -67,7 +68,10 @@ export class Harness {
    * showed unloads, with the save that Obsidian makes then, and the new file is read.
    */
   async openFile(view: HtmlView, path: string, data: string): Promise<TFile> {
-    const file = new TFile(path);
+    // Obsidian's vault keeps one TFile for each path, so opening a file again
+    // gives the view the same object.
+    const file = this.vaultFiles.get(path) ?? new TFile(path);
+    this.vaultFiles.set(path, file);
     this.app.files.set(path, data);
     await view.loadFile(file);
     return file;
