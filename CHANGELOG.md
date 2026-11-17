@@ -30,6 +30,10 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   blocks are no longer inlined, as browsers ignore them there, while imports written with comments
   or escapes, such as `@import /**/ url(…)` or `@\69mport`, now are. Unquoted URLs with an escaped
   `)` or `"` now resolve, and a linked stylesheet that imports itself no longer repeats its rules.
+- Only stylesheets that browsers apply are read, applied, and copied from. Text inside the elements
+  of an SVG `<style>` no longer applies once the viewer rewrites the `<style>`, which keeps those
+  elements. A MathML `<style>` no longer reads stylesheets or copies files, and a stylesheet
+  `<link>` inside SVG or MathML no longer applies or adds its text to the page as markup (#143).
 - On Obsidian 1.5.3, the **Source** view stays scrolled as far as it was when its tab moves to
   another tab group or window, instead of starting again from its top (#135).
 - A link in a page opens in the page's own tab, and with Ctrl or a middle click in a new tab beside

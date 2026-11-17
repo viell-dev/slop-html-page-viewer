@@ -102,6 +102,18 @@ content beside an applied local stylesheet in real Obsidian, in the document and
 `scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300 KB and 4 MB
 stylesheets, as observations rather than a check.
 
+**Unreleased (#143):** `document.test.ts` checks, in the document and in a shadow root, with and
+without copying files, that the plugin reads and copies only for an HTML or SVG `<style>`'s own text
+nodes, joined, and for HTML stylesheet links, also inside SVG's `<foreignObject>`. Rewriting an SVG
+`<style>` keeps its child elements, and text put into it stays text when the copy is parsed again.
+Nothing that a MathML `<style>`, an SVG `<style>`'s child elements, or a `<link>` inside SVG or
+MathML names is read or copied, and a MathML `<style>` or such a `<link>` does not keep the reading
+style out. `resources.e2e.ts` shows in Obsidian 1.5.3 and the latest release what Chromium applies,
+in the document and in a shadow root, with scripts off and with them on and copying files: an SVG
+`<style>`'s own text, joined across a child element, and nothing inside that element, in a MathML
+`<style>`, or from a `<link>` inside SVG, to which Chromium gives no stylesheet. It also checks that
+the copy holds neither those stylesheets' text nor their files.
+
 ## Shown to fail
 
 On 2026-10-21, each of these deliberate breakages failed the check named:
@@ -242,6 +254,22 @@ with `display: contents`, which kept its place only as a share of the body's hei
   name there: `document.test.ts`.
 - Assigning every `<style>` element's text, even unchanged, which removed an SVG `<style>`
   element's children: `document.test.ts`.
+
+**Unreleased (#143):** On 2026-11-17, the preparation of `<style>` elements and links as `main` had
+it at `f329f7f` failed four tests in `document.test.ts`, and both tests of `<style>` text in
+`resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1. There, a rule inside an SVG `<style>`'s `<desc>`
+applied once the copy rewrote the `<style>`, which lost its `<desc>`. A `<link>` inside SVG applied,
+as an SVG `<style>` that the copy put in its place. The copy held the text of both stylesheets that
+nothing applies and, with scripts on, six copied images where the applied CSS names two. Each of
+these breakages failed the check named in `document.test.ts`:
+
+- Processing a MathML `<style>`: the reads and copies test, and the reading style test.
+- Reading an SVG `<style>`'s `textContent`: the reads and copies test, and the rewriting test.
+- Assigning a rewritten `<style>`'s `textContent`, which removes its child elements: the rewriting
+  test.
+- Turning a `<link>` inside SVG or MathML into a `<style>`: the links test, and the reading style
+  test.
+- Counting any `<style>` as the page's own styles: the reading style test.
 
 ## Limits
 

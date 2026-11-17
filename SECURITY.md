@@ -75,6 +75,13 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   imports, and the files that it names there, read and copied by the same file types, limits, and
   vault-only paths as the rest of the page's.
 
+  **Unreleased (#143):** it reads and copies only for the stylesheets that Chromium applies: an
+  HTML or SVG `<style>` element's own text, and an HTML stylesheet `<link>`. The elements inside
+  an SVG `<style>`, a MathML `<style>`, and a `<link>` inside SVG or MathML cause no reads or
+  copying, and the copy keeps them as the page has them. Such a `<link>` loads nothing; a
+  `<style>` in its place would be parsed as SVG's or MathML's in the frame, which reads its text as
+  markup.
+
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with
 scripts off.

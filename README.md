@@ -82,6 +82,11 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   rules, in shadow DOM too. Text inside CSS strings and comments, such as
   `content: "url(icon.png)"`, stays as the page has it.
 
+  **Unreleased (#143):** only the stylesheets that browsers apply name files: an HTML or SVG
+  `<style>` element's own text, and a stylesheet `<link>` in HTML. The elements inside an SVG
+  `<style>`, a MathML `<style>`, and a `<link>` inside SVG or MathML name none, and stay as the page
+  has them.
+
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
   browser would instead.
