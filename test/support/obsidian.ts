@@ -56,6 +56,8 @@ export function resourcePath(file: TFile): string {
 export class App {
   readonly files = new Map<string, string>();
   readonly reads: string[] = [];
+  /** The files written through `vault.modify`, with what was written. Only Obsidian's own saving calls it. */
+  readonly writes: { path: string; data: string }[] = [];
   readonly leaves: WorkspaceLeaf[] = [];
   activeFile: TFile | null = null;
   readError: Error | null = null;
@@ -73,6 +75,10 @@ export class App {
       this.reads.push(file.path);
       if (this.readError) throw this.readError;
       return this.files.get(file.path) ?? "";
+    },
+    modify: async (file: TFile, data: string): Promise<void> => {
+      this.writes.push({ path: file.path, data });
+      this.files.set(file.path, data);
     },
   };
 
@@ -139,17 +145,88 @@ export class Plugin {
   }
 }
 
-export class TextFileView {
+/**
+ * Obsidian's TextFileView, with the file lifecycle that it gives every view
+ * that extends it, as Obsidian 1.5.3 and 1.15.1 implement it. It reads a file
+ * when the file opens in the view, and saves the view's data to the file
+ * through `save`: when another file opens in the view or the view closes, when
+ * Obsidian quits, and after `requestSave`. A save writes `getViewData()`
+ * whenever it differs from what the view last read from or wrote to the file.
+ */
+export abstract class TextFileView {
   readonly app: App;
   readonly leaf: WorkspaceLeaf;
   readonly contentEl: HTMLElement;
   file: TFile | null = null;
   data = "";
+  /** What the view last read from or wrote to its file; null until a file loads. */
+  lastSavedData: string | null = null;
+  dirty = false;
 
   constructor(leaf: WorkspaceLeaf) {
     this.leaf = leaf;
     this.app = leaf.app;
     this.contentEl = document.createElement("div");
+  }
+
+  abstract getViewData(): string;
+  abstract setViewData(data: string, clear: boolean): void;
+  abstract clear(): void;
+
+  /** Asks for a save. Obsidian saves two seconds after the last request; the stand-in saves at once. */
+  requestSave = (): void => {
+    this.dirty = true;
+    void this.save();
+  };
+
+  /** Saves the view's data to its file if it changed; given `clear`, then clears the view. */
+  async save(clear = false): Promise<void> {
+    this.dirty = false;
+    const file = this.file;
+    if (!file) return;
+    const data = this.getViewData();
+    if (this.lastSavedData === data || this.lastSavedData === null) return;
+    this.data = data;
+    this.lastSavedData = data;
+    await this.app.vault.modify(file, data);
+    if (clear) {
+      this.lastSavedData = null;
+      this.clear();
+    }
+  }
+
+  /** Reads the file that opens in the view, and gives the view its contents. */
+  async onLoadFile(file: TFile): Promise<void> {
+    const data = await this.app.vault.read(file);
+    this.lastSavedData = data;
+    this.data = data;
+    this.setViewData(data, true);
+  }
+
+  /** Saves before the view leaves its file. */
+  async onUnloadFile(_file: TFile): Promise<void> {
+    await this.save(true);
+  }
+
+  /**
+   * Opens a file in the view, or none, as Obsidian's FileView does when another
+   * file opens in the tab or the view closes: the file it showed unloads first.
+   */
+  async loadFile(file: TFile | null): Promise<void> {
+    const previous = this.file;
+    if (previous === file) return;
+    if (previous) await this.onUnloadFile(previous);
+    this.file = null;
+    if (file) {
+      this.file = file;
+      await this.onLoadFile(file);
+    }
+  }
+
+  /** Closes the view, as when its tab closes or shows another kind of view, such as a note. */
+  async onClose(): Promise<void> {
+    this.contentEl.empty();
+    await this.loadFile(null);
   }
 }
 

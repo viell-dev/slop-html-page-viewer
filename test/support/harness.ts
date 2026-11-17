@@ -13,12 +13,20 @@ export interface HtmlView {
   getViewData(): string;
   getDisplayText(): string;
   clear(): void;
+  /** Obsidian's file lifecycle, which the view inherits from TextFileView (see obsidian.ts). */
+  loadFile(file: TFile | null): Promise<void>;
+  onClose(): Promise<void>;
+  save(clear?: boolean): Promise<void>;
+  requestSave(): void;
+  /** Whether Obsidian takes the view for changed and due to be saved. */
+  readonly dirty: boolean;
 }
 
 /** A loaded plugin in a stand-in Obsidian, with helpers to open views. */
 export class Harness {
   readonly app = new App();
   readonly plugin: Plugin;
+  private readonly vaultFiles = new Map<string, TFile>();
 
   private constructor() {
     this.plugin = new HtmlPageViewerPlugin(this.app as never, {} as never) as unknown as Plugin;
@@ -53,6 +61,21 @@ export class Harness {
     this.app.files.set(path, data);
     view.file = file;
     view.setViewData(data, true);
+    return file;
+  }
+
+  /**
+   * Opens a file in a view through Obsidian's file lifecycle: the file that the
+   * view showed unloads, with the save that Obsidian makes then, and the new
+   * file is read.
+   */
+  async openFile(view: HtmlView, path: string, data: string): Promise<TFile> {
+    // Obsidian's vault keeps one TFile for each path, so opening a file again
+    // gives the view the same object.
+    const file = this.vaultFiles.get(path) ?? new TFile(path);
+    this.vaultFiles.set(path, file);
+    this.app.files.set(path, data);
+    await view.loadFile(file);
     return file;
   }
 }
