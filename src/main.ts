@@ -482,7 +482,7 @@ class HtmlPageViewerView extends TextFileView {
 
   /** Closes the find bar; given `refocus`, the keys go back to what the view shows. */
   private closeFind(refocus = false): void {
-    this.cancelFindTimer();
+    this.flushFindInput();
     this.find.open = false;
     this.clearFindMatches();
     this.findBar?.remove();

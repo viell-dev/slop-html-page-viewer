@@ -35,9 +35,10 @@ and anyone may use it under the license.
   pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole.
 - Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
   Ctrl+F while the viewer has focus, or the **Find in page** command opens a find bar, which
-  highlights every match, up to 10,000, and moves between them with Enter and
-  Shift+Enter; Escape closes it. In the page, a match stays within a paragraph or another block, and
-  leaves out text that the page hides. In the split view, it finds in the source, which the page
+  highlights every match, up to 10,000, and moves between them with Enter and Shift+Enter; Escape
+  closes it, and closing keeps the query. In the page, a match stays within a paragraph or another
+  block, and leaves out text that the page hides, such as with `display: none`,
+  `visibility: hidden`, or zero opacity. In the split view, it finds in the source, which the page
   follows.
 - Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
   shows, also after a note in between. A new tab starts rendered.

@@ -18,6 +18,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - A refresh that finishes after another file has opened in the same tab no longer shows the
   earlier file's contents there. Before, Obsidian then saved those contents over the file that the
   tab showed once the tab moved on; the viewer no longer lets Obsidian save the files it shows.
+- Find in the page leaves out text that CSS hides, and closing the find bar keeps a query typed just
+  before it closed.
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 
