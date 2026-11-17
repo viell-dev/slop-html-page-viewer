@@ -15,7 +15,8 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 - **Tests in Obsidian** (`test/e2e/`) use WebdriverIO 10 to run the built plugin in real Obsidian,
   1.5.3 and the latest release, on Linux. They are required for every pull request and also run
   weekly, so that a new Obsidian release is tested within a week. Their logs and screenshots, with
-  one of Obsidian's window for each failed test, are kept as a CI artifact for 30 days. A test
+  one of Obsidian's window for each failed test, are kept as a CI artifact for 30 days. The tests
+  wait until the page has loaded in its frame, asking inside the frame when scripts are on. A test
   that finds a vault file shown in a page with scripts on also keeps a diagnosis of the frame
   there, in `diagnoses/`. Anything about loading, origins, focus, or keys is measured here.
 - **The archive corpus** (`test/e2e/corpus/`) opens every page of a synthetic vault of archived web

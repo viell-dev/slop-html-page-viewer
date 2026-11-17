@@ -83,28 +83,49 @@ export async function vaultFolder(): Promise<string> {
   );
 }
 
-/** Waits until the active tab's frame has rendered its page. */
+/** The active tab's frame. */
+const FRAME = `${ACTIVE} iframe.html-page-viewer__frame`;
+
+/**
+ * Waits until the active tab's frame has loaded its page: the `srcdoc` page
+ * has replaced the blank document that the frame starts with, and it has
+ * loaded, so every file it asked for has been served or refused.
+ */
 export async function waitForPage(): Promise<void> {
-  const frame = await browser.$(`${ACTIVE} iframe.html-page-viewer__frame`);
-  await frame.waitForExist();
-  let state = "none";
+  await browser.$(FRAME).waitForExist();
+  let opaque = false;
   await browser.waitUntil(
     async () => {
-      state = await browser.execute((active) => {
-        const frame = document.querySelector<HTMLIFrameElement>(
-          `${active} iframe.html-page-viewer__frame`,
-        );
+      const state = await browser.execute((selector) => {
+        const frame = document.querySelector<HTMLIFrameElement>(selector);
         if (!frame?.srcdoc) return "none";
         const doc = frame.contentDocument;
         return doc === null ? "opaque" : doc.URL === "about:srcdoc" ? doc.readyState : "none";
-      }, ACTIVE);
-      return state === "complete" || state === "opaque";
+      }, FRAME);
+      opaque = state === "opaque";
+      return opaque ? opaquePageLoaded() : state === "complete";
     },
     { timeout: 20_000, timeoutMsg: "the frame's page did not finish loading" },
   );
-  // A page with an opaque origin (scripts on) cannot be reached to see when it
-  // has loaded, so give its resources a moment.
-  if (state === "opaque") await browser.pause(1000);
+  // Then a moment for what it loaded to be painted, before a test counts
+  // pixels that a page with scripts on must not show.
+  if (opaque) await browser.pause(250);
+}
+
+/**
+ * Whether the page in the active tab's frame has loaded, asked inside the
+ * frame. With scripts on, the window cannot reach the frame's document,
+ * whether it is still the blank one or already the page: both are opaque.
+ */
+async function opaquePageLoaded(): Promise<boolean> {
+  await browser.switchFrame(browser.$(FRAME));
+  try {
+    return await browser.execute(
+      () => location.href === "about:srcdoc" && document.readyState === "complete",
+    );
+  } finally {
+    await browser.switchFrame(null);
+  }
 }
 
 /** How many pixels of the active tab's frame show `color`. */
@@ -169,7 +190,8 @@ async function frameDiagnosis(): Promise<Record<string, unknown>> {
     try {
       return await read();
     } catch (error) {
-      return `could not read: ${(error as Error).message.slice(0, 300)}`;
+      const message = error instanceof Error ? error.message : String(error);
+      return `could not read: ${message.slice(0, 300)}`;
     }
   };
   const view = await attempt(() =>
@@ -205,7 +227,7 @@ async function frameDiagnosis(): Promise<Record<string, unknown>> {
   );
   const recorded = await attempt(() => recordedFrames());
   const page = await attempt(async () => {
-    await browser.switchFrame(await browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+    await browser.switchFrame(browser.$(FRAME));
     try {
       return await browser.execute(() => ({
         origin: self.origin,
@@ -216,6 +238,21 @@ async function frameDiagnosis(): Promise<Record<string, unknown>> {
           complete: image.complete,
           naturalWidth: image.naturalWidth,
         })),
+        // Requests that the document made, and when, in milliseconds from its
+        // start. Chromium lists some requests and not others, and gives no
+        // sizes to a page with an opaque origin, so a missing one proves nothing.
+        requested: performance
+          .getEntriesByType("resource")
+          .slice(0, 50)
+          .map((entry) => {
+            const timing = entry as PerformanceResourceTiming;
+            return {
+              name: timing.name.slice(0, 120),
+              initiatorType: timing.initiatorType,
+              startTime: Math.round(timing.startTime),
+              responseEnd: Math.round(timing.responseEnd),
+            };
+          }),
       }));
     } finally {
       await browser.switchFrame(null);
