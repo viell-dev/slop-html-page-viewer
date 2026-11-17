@@ -19,9 +19,11 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   copy through the `srcdoc` of an `iframe` with a `sandbox` attribute. Parsing runs nothing, and the
   file is never changed. If the copy cannot be prepared, the view shows an error in its place, never
   the file itself, which has none of the copy's protections; the source view still shows the file.
-  The frame has its sandbox from the moment it is created: Obsidian serves vault files to a frame
-  by the origin it records for it, and a frame created without a sandbox would be recorded with
-  Obsidian's origin until its page had loaded.
+  The frame has its sandbox from the moment it is created. Obsidian serves vault files to a frame
+  by the origin that its main process records for the frame, and a frame created without a sandbox
+  is recorded with Obsidian's origin. On some versions, such as 1.5.3, the frame's page commits
+  under that record, which keeps Obsidian's origin until the main process processes the commit;
+  until then, a page with scripts on could load any vault file that it asks for.
 - **Scripts off, by default.** The sandbox grants only `allow-same-origin`. The page then has
   Obsidian's origin, which a page needs in Obsidian to load the vault's files. Without
   `allow-scripts`, nothing in the page can use that origin: no script runs, including event handler
