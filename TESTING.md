@@ -89,15 +89,16 @@ second for every 8 MB copied into a page with scripts on (#58), and about 1.5 s 
 page with 80,009 elements, three times as long as before find left out hidden text (#121).
 
 **Unreleased (#91):** `css.test.ts` checks the scanner's token kinds and spans, bad strings, escapes
-(only 0-9, A-F, and a-f are hex digits), malformed URL recovery, and nesting in import preludes.
-The CSS token boundary cases in `document.test.ts` cover strings, comments, escaped URL names,
-whitespace-terminated hex escapes, U+0000 in linked stylesheets, top-level imports, and the
-local-file copying pass, in `<style>` elements and linked stylesheets, the document's and a shadow
-root's alike (#124). They also check that 20,000 malformed URL openers preserve their text within
-2 s, and that linked stylesheet imports keep their cycle and eight-file depth limits, also in a
-shadow root. `resources.e2e.ts` checks generated content beside an applied local stylesheet in real
-Obsidian, in the document and in a shadow root. `scripts/css-benchmark.mjs` reports a revision's
-time and peak memory for synthetic 300 KB and 4 MB stylesheets, as observations rather than a check.
+(only 0-9, A-F, and a-f are hex digits) and line continuations, malformed URL recovery, and nesting
+in import preludes. The CSS token boundary cases in `document.test.ts` cover strings, comments,
+escaped URL names, whitespace-terminated hex escapes, U+0000 in linked stylesheets, top-level
+imports and the end of their media lists, and the local-file copying pass, in `<style>` elements
+and linked stylesheets, the document's and a shadow root's alike (#124). They also check that
+20,000 malformed URL openers preserve their text within 2 s, and that linked stylesheet imports keep
+their cycle and eight-file depth limits, also in a shadow root. `resources.e2e.ts` checks generated
+content beside an applied local stylesheet in real Obsidian, in the document and in a shadow root.
+`scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300 KB and 4 MB
+stylesheets, as observations rather than a check.
 
 ## Shown to fail
 
@@ -232,6 +233,12 @@ with `display: contents`, which kept its place only as a share of the body's hei
 - Leaving out of the second pass the `<style>` elements that links become only in the document,
   not in a shadow root (#124): `document.test.ts`, where a 20-deep import chain linked from a
   shadow root read 16 files rather than 8.
+- Removing a string's line continuations before decoding its escapes, so that `"gh\6\` and a
+  newline before `fst.css"` named `ghost.css`: `css.test.ts` and `document.test.ts`.
+- Trimming the end of an import's media list, which removed the newline that ends a bad string
+  there: `document.test.ts`.
+- Assigning every `<style>` element's text, even unchanged, which removed an SVG `<style>`
+  element's children: `document.test.ts`.
 
 ## Limits
 
