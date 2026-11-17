@@ -234,6 +234,19 @@ describe("documents", () => {
     path.join(".github", "pull_request_template.md"),
   ];
 
+  it("ties unreleased behavior notices to the changelog's Unreleased list", () => {
+    const unreleased = changelog.split(/^## Unreleased\s*$/m)[1]?.split(/^## /m)[0] ?? "";
+    for (const file of ["README.md", "SECURITY.md", "TESTING.md"]) {
+      for (const match of read(file).matchAll(/\*\*Unreleased \(#(\d+)\):\*\*/g)) {
+        assert.match(
+          unreleased,
+          new RegExp(`(?<![\\w])#${match[1]}(?!\\d)`),
+          `${file}'s unreleased notice #${match[1]} has a changelog entry`,
+        );
+      }
+    }
+  });
+
   it("link only to files and headings that exist", () => {
     let links = 0;
     for (const file of documents) {
