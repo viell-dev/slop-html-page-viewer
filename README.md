@@ -132,8 +132,8 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).
 
-**Unreleased (#91):** CSS resource rewriting preserves quoted strings and comments; only URL tokens and
-stylesheet import rules name resources.
+**Unreleased (#91):** CSS resource rewriting preserves quoted strings and comments; only URL tokens
+and stylesheet import rules name resources.
 
 ### Limits
 

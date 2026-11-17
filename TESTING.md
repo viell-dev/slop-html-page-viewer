@@ -88,21 +88,29 @@ on. Costs that could matter were measured in Obsidian in their pull requests, su
 second for every 8 MB copied into a page with scripts on (#58), and about 1.5 s for a search of a
 page with 80,009 elements, three times as long as before find left out hidden text (#121).
 
-**Unreleased (#91):** The CSS token boundary cases in `document.test.ts` cover strings, comments,
-escaped URL names,
-whitespace-terminated hex escapes, top-level imports, and the local-file copying pass.
-`resources.e2e.ts` checks generated content beside an applied local stylesheet in real Obsidian.
-
-Direct `css.test.ts` checks token kinds, spans, bad strings, and malformed URL recovery.
-`document.test.ts` checks that 20,000 malformed URL openers preserve their text within 2 s,
-and that linked stylesheet imports retain their cycle and eight-file depth limits.
+**Unreleased (#91):** `css.test.ts` checks the scanner's token kinds and spans, bad strings, escapes
+(only 0-9, A-F, and a-f are hex digits), malformed URL recovery, and nesting in import preludes.
+The CSS token boundary cases in `document.test.ts` cover strings, comments, escaped URL names,
+whitespace-terminated hex escapes, U+0000 in linked stylesheets, top-level imports, and the
+local-file copying pass, in `<style>` elements and linked stylesheets. They also check that 20,000
+malformed URL openers preserve their text within 2 s, and that linked stylesheet imports keep their
+cycle and eight-file depth limits. `resources.e2e.ts` checks generated content beside an applied
+local stylesheet in real Obsidian. `scripts/css-benchmark.mjs` reports a revision's time and peak
+memory for synthetic 300 KB and 4 MB stylesheets, as observations rather than a check.
 
 ## Shown to fail
 
-On 2026-11-17, independent review verified that all four original #91 integration tests
-fail against the integration baseline (`9fc4be9` document.ts). The malformed-function read/copy
-regression and linked-import depth regression also fail when bundled against reviewed head
-`0194ecb`, and pass with the fixes.
+**Unreleased (#91):** On 2026-11-17, each of these deliberate breakages failed the check named:
+
+- The regular expressions used before #91, which read URLs and imports inside CSS strings and
+  comments: `document.test.ts`.
+- Counting a string that a newline ends as a string, or reading U+0010 to U+0019 as hex digits:
+  `css.test.ts` and `document.test.ts`.
+- Taking a malformed quoted `url(` as a URL: `css.test.ts` and `document.test.ts`.
+- Counting braces without the parentheses and brackets around them: `css.test.ts` and
+  `document.test.ts`.
+- Reading U+0000 in a linked stylesheet as anything but an identifier character, and processing
+  linked stylesheets again as the page's own styles: `document.test.ts`.
 
 On 2026-10-21, each of these deliberate breakages failed the check named:
 

@@ -86,23 +86,65 @@ it("does not read or copy literal resources after malformed quoted functions", a
     `@import url("x" ")"); p::after { content: "@import 'ghost.css';" }`,
     '@import "ghost.css?\\"\nscreen;',
     'a { b: url("ghost.png?\\"\n ) }',
+    // U+0010 is not a hex digit: the escape ends before the newline, which ends a bad string.
+    'p::after { content: "\\\u0010\n" url(ghost.png) "" }',
+    'p::after { content: "\\\u0010\n" } @import "ghost.css"; p::after { content: "" }',
     'a { b: url(} x); @import "ghost.css"; }',
     '} a { @import "ghost.css"; }',
+    // A brace inside parentheses or brackets belongs to them, not to the rule.
+    'a { b: (}); @import "ghost.css"; }',
+    'a { b: [}]; @import "ghost.css"; }',
+    'a { b: calc(}); @import "ghost.css"; }',
   ]) {
-    const ctx = context({ "Saved/ghost.css": "GHOST{}" });
-    const reads: string[] = [];
-    await preparePage(`<style>${css}</style>`, ctx, {
-      copyFiles: {
-        size: () => 1,
-        async readBinary(path) {
-          reads.push(path);
-          return new Uint8Array([1]).buffer;
+    for (const html of [`<style>${css}</style>`, '<link rel="stylesheet" href="sheet.css">']) {
+      const ctx = context({ "Saved/sheet.css": css, "Saved/ghost.css": "GHOST{}" });
+      const reads: string[] = [];
+      const result = await preparePage(html, ctx, {
+        copyFiles: {
+          size: () => 1,
+          async readBinary(path) {
+            reads.push(path);
+            return new Uint8Array([1]).buffer;
+          },
         },
-      },
-    });
-    assert.deepEqual(ctx.reads, []);
-    assert.deepEqual(reads, []);
+      });
+      assert.deepEqual(ctx.reads, html.startsWith("<link") ? ["Saved/sheet.css"] : [], css);
+      assert.deepEqual(reads, [], css);
+      assert.ok(!result.html.includes("GHOST"), css);
+    }
   }
+});
+
+it("leaves a NUL before url( in a linked stylesheet a function name, as CSS reads it", async () => {
+  // CSS reads U+0000 as U+FFFD, an identifier character; the HTML parser
+  // already does that for <style> text, but linked files keep it.
+  const css = "a { b: \0url(ghost.png) } c { d: url(real\0.png) }";
+  const ctx = context({ "Saved/sheet.css": css });
+  const reads: string[] = [];
+  const result = await preparePage('<link rel="stylesheet" href="sheet.css">', ctx, {
+    copyFiles: {
+      size: () => 1,
+      async readBinary(path) {
+        reads.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    },
+  });
+  assert.deepEqual(reads, ["Saved/real�.png"]);
+  assert.ok(result.html.includes("url(ghost.png)"));
+});
+
+it("ignores closers that do not match the innermost open block in an import's prelude", async () => {
+  // To CSS, the stray ")" is part of the first import's media list, which is
+  // then invalid, and the second import is unaffected.
+  const ctx = context({ "Saved/real.css": "REAL{}", "Saved/ghost.css": "GHOST{}" });
+  const result = await inlineStylesheet(
+    '@import "real.css" ); @import "ghost.css";',
+    ctx.pageUrl,
+    ctx,
+  );
+  assert.deepEqual(ctx.reads, ["Saved/real.css", "Saved/ghost.css"]);
+  assert.equal(result, "@media ) {\nREAL{}\n} GHOST{}");
 });
 
 it("processes linked stylesheet imports once, retaining the eight-file depth limit", async () => {

@@ -31,11 +31,58 @@ it("distinguishes bad strings, EOF strings and newline recovery", () => {
   assert.deepEqual(cssTokens('"EOF'), [{ start: 0, end: 4, kind: "string", value: "EOF" }]);
 });
 
+it("reads only 0-9, A-F and a-f as hexadecimal escape digits", () => {
+  for (let code = 0; code <= 0xffff; code++) {
+    const char = String.fromCharCode(code);
+    // A hex escape takes the newline after it, so the string still closes. Any
+    // other escape leaves the newline to end a bad string, except that a
+    // backslash before CRLF is one line continuation.
+    const closed = /^[0-9A-Fa-f\r]$/.test(char);
+    const kind = cssTokens(`"\\${char}\n"`)[0].kind;
+    if (kind !== (closed ? "string" : "other")) assert.fail(`U+${code.toString(16)}: ${kind}`);
+  }
+});
+
+it("ends a bad string at a newline after any escaped control character", () => {
+  const controls = [
+    ...Array.from({ length: 0x20 }, (_, code) => code).filter((code) => code !== 0x0d),
+    0x7f,
+    ...Array.from({ length: 0x20 }, (_, code) => 0x80 + code),
+  ];
+  for (const char of controls.map((code) => String.fromCharCode(code))) {
+    // To CSS, the resource-like text sits inside the string that starts after the newline.
+    for (const css of [
+      `p::after { content: "\\${char}\n" url(ghost.png) "" }`,
+      `p::after { content: "\\${char}\n" } @import "ghost.css"; p::after { content: "" }`,
+    ]) {
+      const tokens = cssTokens(css);
+      assert.deepEqual(
+        tokens.filter((t) => t.kind === "url"),
+        [],
+      );
+      assert.deepEqual(cssImports(tokens), []);
+    }
+  }
+});
+
 it("uses delimiters only for nesting and prelude boundaries", () => {
-  for (const css of ['a { b: url(} x); @import "ghost.css"; }', '} a { @import "ghost.css"; }'])
+  for (const css of [
+    'a { b: url(} x); @import "ghost.css"; }',
+    '} a { @import "ghost.css"; }',
+    // A closer that does not match the innermost open block belongs to that block.
+    'a { b: (}); @import "ghost.css"; }',
+    'a { b: [}]; @import "ghost.css"; }',
+    '@import "ghost.css" ({);',
+  ])
     assert.deepEqual(cssImports(cssTokens(css)), []);
   const css = '@import "real.css" url(; x) screen;';
   assert.equal(cssImports(cssTokens(css))[0].end, css.length);
+  assert.deepEqual(
+    cssImports(cssTokens('@import "real.css" ); @import "ghost.css" (}); a { }')).map(
+      (rule) => rule.reference,
+    ),
+    ["real.css", "ghost.css"],
+  );
 });
 
 it("decodes real URL tokens and treats backslash-newline as a delimiter", () => {
