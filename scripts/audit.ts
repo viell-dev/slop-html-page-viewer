@@ -19,6 +19,7 @@ import {
   auditProblems,
   exceptionFor,
   exceptionProblems,
+  isGated,
   readReport,
 } from "./audit-lib.ts";
 
@@ -51,6 +52,7 @@ const npm = process.env.npm_execpath;
 if (!npm?.endsWith(".js")) fail("Run the audit through npm: npm run check:audit [-- <directory>]");
 // npm's advisory cache keeps a cached severity while an advisory's versions
 // stay the same, so a raised severity would go unseen; audit with an empty one.
+// An offline npm reports no advisories at all, so the audit never runs offline.
 const cache = fs.mkdtempSync(path.join(os.tmpdir(), "npm-audit-"));
 const run = spawnSync(
   process.execPath,
@@ -59,6 +61,7 @@ const run = spawnSync(
     "audit",
     "--json",
     "--include=dev",
+    "--offline=false",
     "--cache",
     cache,
     ...(directory === "." ? [] : ["--prefix", directory]),
@@ -80,7 +83,7 @@ try {
 }
 
 for (const advisory of report.advisories) {
-  const entry = exceptionFor(advisory, accepted, directory);
+  const entry = isGated(advisory.severity) && exceptionFor(advisory, accepted, directory);
   const note = entry ? `, accepted in ${entry.issue}` : "";
   console.log(
     `${advisory.id} ${advisory.severity}${note}: ${advisory.name} ${advisory.range}, ${advisory.title}`,

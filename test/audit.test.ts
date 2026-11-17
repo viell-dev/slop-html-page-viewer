@@ -11,7 +11,7 @@ import {
 const ISSUE = "https://github.com/viell-dev/slop-html-page-viewer/issues/145";
 
 interface Via {
-  source: number;
+  source?: number;
   name: string;
   title: string;
   url?: string;
@@ -100,6 +100,10 @@ describe("the dependency audit", () => {
       () => readReport({ auditReportVersion: 3, vulnerabilities: {} }),
       /report version 3, not 2/,
     );
+    assert.throws(
+      () => readReport({ auditReportVersion: "2", vulnerabilities: {} }),
+      /report version "2", not 2/,
+    );
     assert.throws(() => readReport({ auditReportVersion: 2 }), /no vulnerabilities/);
     assert.throws(
       () => readReport({ auditReportVersion: 2, vulnerabilities: { x: { name: "x" } } }),
@@ -142,6 +146,22 @@ describe("the dependency audit", () => {
       "GHSA-ffff-ffff-ffff (High) in odd <=1.0.0: odd is vulnerable (https://github.com/advisories/GHSA-ffff-ffff-ffff)",
       "npm-advisory-1099 (high) in unnamed <=1.0.0: unnamed is vulnerable (no URL)",
     ]);
+    // Without a URL or a source, nothing tells two such advisories apart.
+    const anonymous = { ...unnamed, source: undefined };
+    assert.throws(() => readReport(report(anonymous)), /neither a GHSA URL nor a source/);
+  });
+
+  it("counts the copy that gates when a report names an advisory twice for a package", () => {
+    const high = via("GHSA-hhhh-hhhh-hhhh", "twice", "high");
+    const moderate = via("GHSA-hhhh-hhhh-hhhh", "twice", "moderate");
+    for (const copies of [
+      [high, moderate],
+      [moderate, high],
+    ]) {
+      assert.deepEqual(auditProblems(readReport(report(...copies)), [], "."), [
+        "GHSA-hhhh-hhhh-hhhh (high) in twice <=1.0.0: twice is vulnerable (https://github.com/advisories/GHSA-hhhh-hhhh-hhhh)",
+      ]);
+    }
   });
 
   it("fails on a package that npm gates for a reason the report does not give", () => {
@@ -150,11 +170,14 @@ describe("the dependency audit", () => {
       vulnerabilities: {
         lone: { name: "lone", severity: "high", via: ["missing"] },
         loop: { name: "loop", severity: "critical", via: ["loop"] },
+        // npm gives an entry no severity when it cannot classify one.
+        unclassified: { name: "unclassified", severity: null, via: [] },
       },
     };
     assert.deepEqual(auditProblems(readReport(strange), [], "."), [
       "npm gates lone (high), but the report names no gated advisory for it",
       "npm gates loop (critical), but the report names no gated advisory for it",
+      "npm gates unclassified (null), but the report names no gated advisory for it",
     ]);
   });
 

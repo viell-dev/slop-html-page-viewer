@@ -65,7 +65,9 @@ export function readReport(report: unknown): AuditReport {
     throw new Error(`npm audit failed: ${cause ?? "no reason given"}`);
   }
   if (report.auditReportVersion !== 2) {
-    throw new Error(`npm audit gave report version ${String(report.auditReportVersion)}, not 2`);
+    throw new Error(
+      `npm audit gave report version ${JSON.stringify(report.auditReportVersion)}, not 2`,
+    );
   }
   if (!isRecord(report.vulnerabilities)) throw new Error("npm audit gave no vulnerabilities");
 
@@ -85,15 +87,26 @@ export function readReport(report: unknown): AuditReport {
       }
       if (!isRecord(via)) throw new Error(`npm audit gave an unreadable via entry for ${key}`);
       const url = typeof via.url === "string" ? via.url : "";
+      const source = typeof via.source === "number" || typeof via.source === "string";
+      if (!GHSA.test(url) && !source) {
+        throw new Error(
+          `npm audit gave an advisory for ${key} with neither a GHSA URL nor a source`,
+        );
+      }
       const id = GHSA.exec(url)?.[0] ?? `npm-advisory-${String(via.source)}`;
       const name = typeof via.name === "string" ? via.name : key;
-      if (isGated(via.severity)) node.gated = true;
+      const gated = isGated(via.severity);
+      if (gated) node.gated = true;
+      // A report can name an advisory for a package more than once; the copy
+      // that gates is the one that counts.
+      const known = found.get(`${id} ${name}`);
+      if (known && isGated(known.severity) && !gated) continue;
       found.set(`${id} ${name}`, {
         id,
         name,
-        range: String(via.range),
+        range: typeof via.range === "string" ? via.range : "",
         severity: String(via.severity),
-        title: String(via.title),
+        title: typeof via.title === "string" ? via.title : "",
         url,
       });
     }
