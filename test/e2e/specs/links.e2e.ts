@@ -76,16 +76,19 @@ async function recordNavigations(
   }, selector);
 }
 
+/** The navigations recorded so far. A click's navigation is recorded during the click. */
+async function recordedNavigations(): Promise<Navigation[]> {
+  return browser.execute(
+    () => (window as unknown as { e2eNavigations?: Navigation[] }).e2eNavigations ?? [],
+  );
+}
+
 /** Waits until a click has started a navigation, and returns those recorded. */
 async function startedNavigations(): Promise<Navigation[]> {
-  const seen = async () =>
-    browser.execute(
-      () => (window as unknown as { e2eNavigations?: Navigation[] }).e2eNavigations ?? [],
-    );
-  await browser.waitUntil(async () => (await seen()).length > 0, {
+  await browser.waitUntil(async () => (await recordedNavigations()).length > 0, {
     timeoutMsg: "the click started no navigation",
   });
-  return seen();
+  return recordedNavigations();
 }
 
 /**
@@ -403,7 +406,7 @@ describe("Links in a page in Obsidian", function () {
       // starts a navigation that nothing cancels, since the copy has none of
       // the view's listeners. Navigations start in the order of their clicks.
       await browser.action("pointer").move(point).down().up().perform();
-      expect(await startedNavigations()).toEqual([]);
+      expect(await recordedNavigations()).toEqual([]);
       await browser.execute(() => {
         const doc = document.querySelector<HTMLIFrameElement>("#e2e-unwatched")!.contentDocument!;
         doc.documentElement.removeAttribute("inert");
