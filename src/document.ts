@@ -13,7 +13,7 @@
 // vault files to. When the settings ask for it, the page's local images,
 // media, fonts, and scripts are then copied into it as data: URLs (#11).
 
-import { cssTokens, cssImports, type CssToken } from "./css";
+import { cssImports, cssTokens, type CssToken } from "./css";
 import { READING_STYLE_ID } from "./reading";
 
 /** What the view knows about the page and its vault. */
@@ -24,7 +24,10 @@ export interface PageContext {
   readonly vaultUrl: string;
   /**
    * Reads a vault file's text by its vault path, or returns null if there is
-   * none. A file whose read fails is left out, as one that is missing.
+   * none. A file whose read fails is left out, as one that is missing. The
+   * text has no byte order mark, as Obsidian's reads give it and as browsers
+   * decode a stylesheet: CSS would read one as part of a name, which starts a
+   * rule, so a stylesheet's imports after it would not count.
    */
   read(path: string): Promise<string | null>;
   /** Whether a file or folder exists at a vault path. */

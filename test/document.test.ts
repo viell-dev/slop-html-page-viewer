@@ -371,6 +371,78 @@ it("handles repeated malformed URL openers without quadratic work", () => {
   assert.ok(performance.now() - start < 2_000, "80 KB of malformed CSS must finish within 2 s");
 });
 
+/**
+ * Prepares a stylesheet in each place that a page can have one: a <style>, a
+ * linked file, and both of those in a shadow root (#124), each with and
+ * without copying local files. Reports, for each, the stylesheets read apart
+ * from the linked one, the files copied, and the prepared stylesheet's text.
+ */
+async function everyPlace(css: string, files: Record<string, string>) {
+  const results: { place: string; reads: string[]; copies: string[]; text: string }[] = [];
+  const sheets = [`<style>${css}</style>`, '<link rel="stylesheet" href="sheet.css">'];
+  const shadow = (sheet: string) =>
+    `<div><template shadowrootmode="open">${sheet}</template></div>`;
+  for (const html of [...sheets, ...sheets.map(shadow)]) {
+    for (const copying of [false, true]) {
+      const ctx = context({ ...files, "Saved/sheet.css": css });
+      const copies: string[] = [];
+      const copyFiles: LocalFiles = {
+        size: () => 1,
+        async readBinary(path) {
+          copies.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      };
+      const result = await preparePage(html, ctx, copying ? { copyFiles } : {});
+      const doc = parse(result.html);
+      const root = html.includes("<template") ? doc.querySelector("template")!.content : doc;
+      results.push({
+        place: `${html}${copying ? ", copying" : ""}`,
+        reads: ctx.reads.filter((path) => path !== "Saved/sheet.css"),
+        copies,
+        text: root.querySelector("style")!.textContent,
+      });
+    }
+  }
+  return results;
+}
+
+describe("import placement (#136)", () => {
+  it("reads no import that CSS ignores, in every place that a page has a stylesheet", async () => {
+    for (const css of [
+      'a { color: red } @import "ghost.css";',
+      // To CSS, the import is part of the qualified rule's prelude: its selector.
+      'x @import "ghost.css"; a { color: red }',
+      ') @import "ghost.css"; a { color: red }',
+      '} @import "ghost.css";',
+      // A stray ";" starts a qualified rule too.
+      '@import "real.css";; @import "ghost.css";',
+      // An @layer statement after an import ends the imports.
+      '@import "real.css"; @layer a; @import "ghost.css";',
+    ]) {
+      for (const { place, reads, text } of await everyPlace(css, {
+        "Saved/real.css": "REAL{}",
+        "Saved/ghost.css": "GHOST{}",
+      })) {
+        assert.deepEqual(
+          reads,
+          css.includes("real.css") ? ["Saved/real.css"] : [],
+          `${css} in ${place}`,
+        );
+        assert.ok(text.includes('@import "ghost.css";'), `${css} in ${place}: ${text}`);
+      }
+    }
+  });
+
+  it("imports after @charset, @layer statements, and HTML comment markers", async () => {
+    const css = '<!--\n@charset "utf-8"; @layer base; @import "real.css";\n-->';
+    for (const { place, reads, text } of await everyPlace(css, { "Saved/real.css": "REAL{}" })) {
+      assert.deepEqual(reads, ["Saved/real.css"], place);
+      assert.equal(text, '<!--\n@charset "utf-8"; @layer base; REAL{}\n-->', place);
+    }
+  });
+});
+
 function context(
   files: Record<string, string>,
   page = "Saved/Example article.html",

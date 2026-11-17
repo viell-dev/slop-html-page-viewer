@@ -35,7 +35,17 @@ function unescapeCss(value: string): string {
 export interface CssToken {
   start: number;
   end: number;
-  kind: "space" | "comment" | "string" | "name" | "url" | "delim" | "at-keyword" | "other";
+  kind:
+    | "space"
+    | "comment"
+    | "string"
+    | "name"
+    | "url"
+    | "delim"
+    | "at-keyword"
+    | "cdo"
+    | "cdc"
+    | "other";
   value: string;
 }
 
@@ -189,6 +199,13 @@ export function cssTokens(css: string): CssToken[] {
         kind = "string";
         value = string.value;
       }
+    } else if (css.startsWith("<!--", i)) {
+      i += 4;
+      kind = "cdo";
+    } else if (css.startsWith("-->", i)) {
+      // Before names: CSS reads "-->" as one token where a token starts.
+      i += 3;
+      kind = "cdc";
     } else if (
       name(css[i]) ||
       validEscape(css, i) ||
@@ -234,40 +251,98 @@ function nest(blocks: string[], token: CssToken): void {
   else if (token.value === blocks.at(-1)) blocks.pop();
 }
 
-/** Only top-level import rules, with a balanced prelude and a terminating semicolon. */
+/** Tokens that CSS discards between rules at a stylesheet's top level. */
+const betweenRules = (token: CssToken): boolean =>
+  token.kind === "space" ||
+  token.kind === "comment" ||
+  token.kind === "cdo" ||
+  token.kind === "cdc";
+
+/** A top-level rule, from the token that starts it to the token after its end. */
+interface TopLevelRule {
+  start: number;
+  end: number;
+  /** Whether its `;` or its block ended it, or the end of the text did. */
+  ending: ";" | "block" | "end";
+  /** Whether its prelude has a `}` outside any block. */
+  strayCloser: boolean;
+}
+
+/**
+ * Follows a top-level rule as CSS Syntax 3 consumes a stylesheet's contents:
+ * an at-keyword starts an at-rule, which its `;` or its block ends, and any
+ * other token a qualified rule, which its block ends. A `}` outside any block
+ * is part of the prelude there.
+ */
+function topLevelRule(tokens: readonly CssToken[], start: number): TopLevelRule {
+  const atRule = tokens[start].kind === "at-keyword";
+  const blocks: string[] = [];
+  let block = false;
+  let strayCloser = false;
+  for (let i = atRule ? start + 1 : start; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.kind !== "delim") continue;
+    if (blocks.length === 0) {
+      if (atRule && token.value === ";") return { start, end: i + 1, ending: ";", strayCloser };
+      if (token.value === "}") strayCloser = true;
+      if (token.value === "{") block = true;
+    }
+    nest(blocks, token);
+    if (block && blocks.length === 0) return { start, end: i + 1, ending: "block", strayCloser };
+  }
+  return { start, end: tokens.length, ending: "end", strayCloser };
+}
+
+/**
+ * The import rules that CSS applies: only where a top-level rule starts, and
+ * only before every rule but `@charset`, `@supports-condition`, other imports,
+ * and `@layer` statements before the first import (CSS Cascade 5). Browsers
+ * keep importing after a rule that they drop as invalid, but telling which
+ * rules are valid would mean evaluating CSS, so every other rule ends the
+ * imports here: that can only find fewer of them. Each import found has a
+ * string or URL, a balanced prelude, and a terminating semicolon.
+ */
 export function cssImports(tokens: readonly CssToken[]): CssImport[] {
   const imports: CssImport[] = [];
-  const blocks: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
+  let beforeImports = true;
+  for (let i = 0; i < tokens.length;) {
     const token = tokens[i];
-    if (blocks.length > 0 || token.kind !== "at-keyword" || !isKeyword(token.value, "@import")) {
-      nest(blocks, token);
+    if (betweenRules(token)) {
+      i++;
       continue;
     }
-    let j = i + 1;
-    while (tokens[j]?.kind === "space" || tokens[j]?.kind === "comment") j++;
-    const resource = tokens[j];
-    if (!resource || (resource.kind !== "string" && resource.kind !== "url")) continue;
-    const prelude: string[] = [];
-    for (j++; j < tokens.length; j++) {
-      const part = tokens[j];
-      if (prelude.length === 0 && part.kind === "delim") {
-        // A block makes the rule something else, and a stray "}" its media list invalid.
-        if (part.value === "{" || part.value === "}") break;
-        if (part.value === ";") {
-          imports.push({
-            start: token.start,
-            end: part.end,
-            reference: resource.value,
-            mediaStart: resource.end,
-          });
-          break;
-        }
-      }
-      nest(prelude, part);
-    }
-    // Never rescan a malformed import prelude for more imports.
-    i = j - 1;
+    if (token.kind !== "at-keyword") break;
+    const rule = topLevelRule(tokens, i);
+    if (isKeyword(token.value, "@import")) {
+      // Browsers drop a malformed import, so it leaves later imports in place.
+      beforeImports = false;
+      const found = importRule(tokens, rule);
+      if (found !== null) imports.push(found);
+    } else if (isKeyword(token.value, "@layer")) {
+      if (!beforeImports || rule.ending !== ";") break;
+    } else if (
+      !isKeyword(token.value, "@charset") &&
+      !isKeyword(token.value, "@supports-condition")
+    )
+      break;
+    i = rule.end;
   }
   return imports;
+}
+
+/** An import rule that names a string or URL and ends with its `;`, or null. */
+function importRule(tokens: readonly CssToken[], rule: TopLevelRule): CssImport | null {
+  // A stray "}" makes the media list invalid, and would end a block put around it.
+  if (rule.ending !== ";" || rule.strayCloser) return null;
+  let i = rule.start + 1;
+  while (tokens[i]?.kind === "space" || tokens[i]?.kind === "comment") i++;
+  const resource = tokens[i];
+  if (resource.kind !== "string" && resource.kind !== "url") return null;
+  const semicolon = tokens[rule.end - 1];
+  return {
+    start: tokens[rule.start].start,
+    end: semicolon.end,
+    reference: resource.value,
+    mediaStart: resource.end,
+  };
 }

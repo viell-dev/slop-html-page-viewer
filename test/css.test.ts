@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
-import { cssTokens, cssImports } from "../src/css";
+import { describe, it } from "node:test";
+import { cssImports, cssTokens } from "../src/css";
 
 it("keeps malformed quoted functions and subsequent literal strings separate", () => {
   for (const css of [
@@ -104,4 +104,64 @@ it("decodes real URL tokens and treats backslash-newline as a delimiter", () => 
     ["\\\nurl(real.png)", "real.png"],
   ])
     assert.equal(cssTokens(css).find((t) => t.kind === "url")?.value, value);
+});
+
+describe("import placement (#136)", () => {
+  const imported = (css: string) => cssImports(cssTokens(css)).map((rule) => rule.reference);
+
+  it("finds imports only where a top-level rule starts, before other rules", () => {
+    for (const css of [
+      'a { color: red } @import "ghost.css";',
+      // To CSS, an @import inside a qualified rule's prelude is part of its selector.
+      'x @import "ghost.css"; a { color: red }',
+      ') @import "ghost.css"; a { color: red }',
+      '} @import "ghost.css";',
+      '; @import "ghost.css";',
+      '@media print {} @import "ghost.css";',
+      '@namespace svg url(http://www.w3.org/2000/svg); @import "ghost.css";',
+      '@layer base {} @import "ghost.css";',
+      '@font-face { font-family: X } @import "ghost.css";',
+      // Browsers still import after rules that they drop as invalid, which only CSS evaluation tells.
+      '@unknown; @import "ghost.css";',
+      // U+FEFF in a stylesheet's text is a name character, which starts a rule.
+      '\ufeff@import "ghost.css";',
+    ])
+      assert.deepEqual(imported(css), [], JSON.stringify(css));
+    for (const [css, references] of [
+      ['@import "real.css";; @import "ghost.css";', ["real.css"]],
+      ['@import "real.css"; @layer a; @import "ghost.css";', ["real.css"]],
+      ['@import "real.css"; a {} @import "ghost.css";', ["real.css"]],
+    ] as const)
+      assert.deepEqual(imported(css), references, JSON.stringify(css));
+  });
+
+  it("finds imports after @charset, @layer statements, other imports, and HTML comment markers", () => {
+    for (const css of [
+      '@charset "utf-8"; @import "a.css"; @import url(b.css);',
+      '@layer reset, base; @import "a.css"; @import url(b.css);',
+      '<!-- @import "a.css"; --> <!-- @import url(b.css); -->',
+      '/* first */ @import "a.css";\n@charset "x"; @import url(b.css);',
+      '@supports-condition --x { (display: grid) } @import "a.css"; @import url(b.css);',
+      // A malformed import is dropped, and leaves the next one in place.
+      '@import "a.css"; @import foo; @import "x.css" { } @import "y.css" }; @import url(b.css);',
+      String.raw`@IMPORT "a.css"; @\69mport url(b.css);`,
+    ])
+      assert.deepEqual(imported(css), ["a.css", "b.css"], JSON.stringify(css));
+  });
+
+  it("reads HTML comment markers as single tokens", () => {
+    const kinds = (css: string) => cssTokens(css).map((t) => [t.kind, css.slice(t.start, t.end)]);
+    assert.deepEqual(kinds("<!--url(x)-->"), [
+      ["cdo", "<!--"],
+      ["url", "url(x)"],
+      ["cdc", "-->"],
+    ]);
+    assert.deepEqual(kinds("a--> --->"), [
+      ["name", "a--"],
+      ["delim", ">"],
+      ["space", " "],
+      ["name", "---"],
+      ["delim", ">"],
+    ]);
+  });
 });
