@@ -46,6 +46,8 @@ function laidOut(body: string, scrollY: number): Document {
   Object.defineProperty(window.Element.prototype, "clientHeight", {
     configurable: true,
     get(this: Element) {
+      // As in a browser, an inline box has no client area.
+      if (window.getComputedStyle(this).display === "inline") return 0;
       return this.getBoundingClientRect().height;
     },
   });
@@ -165,6 +167,21 @@ describe("a page's place across a move to another tab group or window (#126)", (
     // A place in what the panel still shows is kept.
     const inFirst: ScrollPlace = { path: [1, 1, 0], into: 0.25, left: 0 };
     assert.equal(placeTop(laidOut(shorter, 0), inFirst), 320);
+    // A place in the part of that paragraph that the panel clips away shows
+    // the paragraph, which begins in what the panel shows.
+    const pastLimit: ScrollPlace = { path: [1, 1, 0], into: 0.9, left: 0 };
+    assert.equal(placeTop(laidOut(shorter, 0), pastLimit), 220);
+  });
+
+  it("keeps a place inside an inline element whose overflow would clip", () => {
+    const page = `<p data-top="0" data-height="200">Before</p>
+<p data-top="200" data-height="800">
+  <span style="display: inline; overflow-y: hidden" data-top="200" data-height="800">
+    <em data-top="600" data-height="20">Deep inside</em>
+  </span>
+</p>`;
+    const place: ScrollPlace = { path: [1, 0, 0], into: 0.5, left: 0 };
+    assert.equal(placeTop(laidOut(page, 0), place), 610);
   });
 
   it("shows a closed panel where it is, also without an element of its own around it", () => {

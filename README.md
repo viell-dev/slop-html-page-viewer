@@ -159,7 +159,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   `<details>` element or a section that a checkbox shows, is closed again. A page whose place was
   inside it shows the closed part at the window's top: a `<details>` element with its summary, and a
   section that the page's styles close by its height from where its content would begin, so that a
-  heading just before it is just above the window's top. For a section that they hide so that it
+  heading just before it is just above the window's top, or in view when an element around the
+  section clips it too. For a section that they hide so that it
   takes no space, the page shows the element around it from that element's top.
 - **A link to a part of another page** opens that page at its top.
 - **A link that SVG `<use>` copies** from elsewhere in the page does nothing when clicked: the

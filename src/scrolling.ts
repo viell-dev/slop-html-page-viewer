@@ -136,7 +136,9 @@ export function placeTop(doc: Document, place: ScrollPlace): number | null {
       box.bottom <= clipTop
     )
       return fallback();
-    if (CLIPPING.has(style.overflowY)) {
+    // An inline box has no client area of its own, so its overflow clips
+    // nothing; the same holds for an inline `<svg>`.
+    if (CLIPPING.has(style.overflowY) && style.display !== "inline") {
       const top = box.top + child.clientTop;
       clipTop = Math.max(clipTop, top);
       clipBottom = Math.min(clipBottom, top + child.clientHeight);
@@ -145,7 +147,11 @@ export function placeTop(doc: Document, place: ScrollPlace): number | null {
   }
   if (element !== shown) return fallback();
   const box = shown.getBoundingClientRect();
-  return win.scrollY + box.top + place.into * box.height;
+  const at = box.top + place.into * box.height;
+  // The place can lie in the part of an element that an element above it
+  // clips away, as in a paragraph that runs past a panel's height limit.
+  if (at >= clipBottom) return fallback();
+  return win.scrollY + at;
 }
 
 /** The reader's input that can scroll a page, or a side of the split view. */
