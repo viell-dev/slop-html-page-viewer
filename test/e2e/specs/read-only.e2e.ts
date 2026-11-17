@@ -201,6 +201,34 @@ describe("The viewer never writes the files it shows", function () {
     });
   });
 
+  it("shows the file that the tab shows when Obsidian's reload of a changed file finishes after another opened (#115)", async function () {
+    // Obsidian reads a file again when the vault reports that it changed, as
+    // when it changes on disk; here the report comes without a change.
+    await holdNextRead(FIRST);
+    await browser.executeObsidian(({ app }, filePath) => {
+      app.vault.trigger("modify", app.vault.getAbstractFileByPath(filePath));
+    }, FIRST);
+    await openInActiveTab(SECOND);
+    await waitForPage();
+    await release({ data: "<p>first, changed on disk</p>" });
+    // The view reads the file that it shows again.
+    await browser.pause(500);
+    await waitForPage();
+    const view = await shown();
+
+    await openInActiveTab("Notes/Topic.md");
+    await waitForUnload();
+    expect(await writes()).toEqual([]);
+    expect(await onDisk(SECOND)).toBe(fixture(SECOND));
+    expect(await onDisk(FIRST)).toBe(fixture(FIRST));
+    expect(view).toEqual({
+      data: fixture(SECOND),
+      title: "Second page.html",
+      message: null,
+      page: "second original",
+    });
+  });
+
   it("shows no error from a refresh whose file the tab has left, and writes nothing on closing", async function () {
     await holdNextRead(FIRST);
     await refresh();

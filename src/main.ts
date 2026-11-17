@@ -181,11 +181,17 @@ class HtmlPageViewerView extends TextFileView {
   private findTimer: number | null = null;
 
   /**
-   * Counts the changes of what the view shows: each time Obsidian gives it a
-   * file's contents, and each refresh. A refresh applies its result only while
-   * it is the latest and the view still shows its file (#90).
+   * Counts the changes of what the view shows: each time a file opens in it,
+   * and each time it reads its file again. Such a read applies its result only
+   * while it is the latest and the view still shows its file (#90).
    */
   private contentsVersion = 0;
+  /**
+   * The contents that the view shows. Obsidian sets `data` itself before it
+   * gives the view a file's contents, also contents that the view does not
+   * show then (#115).
+   */
+  private shownData = "";
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -269,11 +275,28 @@ class HtmlPageViewerView extends TextFileView {
   }
 
   setViewData(data: string, clear: boolean): void {
+    if (!clear) {
+      // Obsidian read the view's file again because the vault reported a
+      // change. It passes on what it read without checking that the view
+      // still shows that file, and another file can have opened in the tab
+      // during the read (#115). The view keeps what it shows, and reads the
+      // file that it shows itself.
+      this.data = this.shownData;
+      const file = this.file;
+      if (file) void this.readFile(file);
+      return;
+    }
     this.contentsVersion += 1;
     // Obsidian sets `clear` when a different file opens in this view, which
     // must start with scripts as the settings say, like a new tab.
-    if (clear) this.clear();
+    this.clear();
+    this.showContents(data);
+  }
+
+  /** Shows `data` as the contents of the view's file. */
+  private showContents(data: string): void {
     this.data = data;
+    this.shownData = data;
     this.render();
   }
 
@@ -304,6 +327,7 @@ class HtmlPageViewerView extends TextFileView {
     // A refresh still pending for what this view showed no longer owns it.
     this.contentsVersion += 1;
     this.data = "";
+    this.shownData = "";
     this.scriptsEnabled = this.plugin.settings.scriptsOn;
     this.iframe = null;
     this.flushFindInput();
@@ -1000,17 +1024,20 @@ class HtmlPageViewerView extends TextFileView {
       new Notice("No HTML file to refresh");
       return;
     }
+    await this.readFile(file);
+  }
 
-    // Another file, the same file opened again, or a later refresh may take
-    // the view while the file is read; then this read's result, or its error,
+  /** Reads the view's file again and shows its contents, or why it cannot be read. */
+  private async readFile(file: TFile): Promise<void> {
+    // Another file, the same file opened again, or a later read may take the
+    // view while the file is read; then this read's result, or its error,
     // belongs to contents that the view no longer shows.
     const version = ++this.contentsVersion;
     const current = (): boolean => this.contentsVersion === version && this.file === file;
     try {
       const data = await this.app.vault.read(file);
       if (!current()) return;
-      this.data = data;
-      this.render();
+      this.showContents(data);
     } catch (error) {
       if (!current()) return;
       // The message replaces the find bar too.

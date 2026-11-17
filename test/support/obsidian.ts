@@ -391,10 +391,11 @@ export class TextComponent {
 /**
  * Obsidian's TextFileView, with the file lifecycle it gives every view that
  * extends it, as Obsidian 1.5.3 and 1.15.1 implement it (#90). It reads a file
- * when the file opens in the view, and saves the view's data to the file
- * through `save`: when another file opens in the view or the view closes, when
- * Obsidian quits, and after `requestSave`. A save writes `getViewData()`
- * whenever it differs from what the view last read from or wrote to the file.
+ * when the file opens in the view and when the vault reports that it changed
+ * (#115), and saves the view's data to the file through `save`: when another
+ * file opens in the view or the view closes, when Obsidian quits, and after
+ * `requestSave`. A save writes `getViewData()` whenever it differs from what
+ * the view last read from or wrote to the file.
  */
 export abstract class TextFileView {
   readonly app: App;
@@ -442,10 +443,37 @@ export abstract class TextFileView {
 
   /** Reads the file that opens in the view, and gives the view its contents. */
   async onLoadFile(file: TFile): Promise<void> {
+    await this.loadFileInternal(file, true);
+  }
+
+  /**
+   * Loads the view's file again when the vault reports that it changed, as
+   * Obsidian does on its `modify` event. Obsidian passes over a change while
+   * the view saves, which this viewer never does.
+   */
+  onModify(file: TFile): void {
+    if (file === this.file) void this.loadFileInternal(file, false);
+  }
+
+  /**
+   * Reads a file and gives the view its contents, as Obsidian 1.5.3 and 1.15.1
+   * do for a file that opens and for a file that changed. Neither checks after
+   * the read that the view still shows `file` (#115). For a change, Obsidian
+   * also merges the view's own unsaved edits, which this viewer never has.
+   */
+  async loadFileInternal(file: TFile, clear: boolean): Promise<void> {
     const data = await this.app.vault.read(file);
+    const previous = this.lastSavedData;
     this.lastSavedData = data;
+    if (!clear && previous && previous === data) return;
+    this.setData(data, clear);
+  }
+
+  /** Obsidian sets `data` before it gives the view the contents. */
+  setData(data: string, clear: boolean): void {
+    if (this.data === data && !clear) return;
     this.data = data;
-    this.setViewData(data, true);
+    this.setViewData(data, clear);
   }
 
   /** Saves before the view leaves its file. */
@@ -475,7 +503,13 @@ export abstract class TextFileView {
   }
 
   /** Called by Obsidian when the view is added to the workspace. */
-  onload(): void {}
+  onload(): void {
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (file instanceof TFile) this.onModify(file);
+      }),
+    );
+  }
 
   /** The view's hotkeys while it has focus, which a view assigns itself. */
   scope: Scope | null = null;

@@ -151,6 +151,12 @@ On 2026-11-17, these failed `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1:
 Collecting a page's templates by passing them all to one call failed `document.test.ts` on a page
 with more of them than a call can take.
 
+**Unreleased (#115):** On 2026-11-17, with the view as 0.5.2 has it, Obsidian's reload of a changed
+file that finished after another file opened in the tab showed the first file's contents under the
+second file's name: in `refresh.test.ts`, whose stand-in for Obsidian now reloads a changed file as
+Obsidian 1.5.3 and 1.15.1 do, and in `read-only.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where nothing
+was written.
+
 ## Limits
 
 - On Chromium 135 to 141, which some Obsidian versions between the tested ones use, a page's own
