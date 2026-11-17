@@ -133,6 +133,22 @@ describe("theme in the view", () => {
     assert.match(readingStyle(after.srcdoc) ?? "", /background: #101010;/);
   });
 
+  it("follows a theme change made while the page is being prepared (#140)", async () => {
+    themedDocument(false, {});
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "plain.html", PLAIN);
+    await settle();
+
+    // With scripts on, which prepares the copy again, the theme changes before
+    // the copy is ready.
+    button(view, "Scripts OFF").click();
+    themedDocument(true, { "--background-primary": "#101010" });
+    harness.app.workspace.trigger("css-change");
+    await settle();
+    assert.match(readingStyle(frame(view)?.srcdoc ?? "") ?? "", /background: #101010;/);
+  });
+
   it("leaves the page alone when the theme event changes nothing it shows", async () => {
     themedDocument(false, {});
     const harness = await Harness.load();

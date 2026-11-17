@@ -23,6 +23,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - When its tab moves to another tab group or window, a page keeps the theme and line width that it
   shows and, if it scrolls as a whole, its place, and the split view's two sides stay in step there
   (#126).
+- A page follows a change of Obsidian's theme or of **Readable line length** made while the viewer
+  was still preparing it (#140).
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 

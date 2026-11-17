@@ -867,6 +867,9 @@ class HtmlPageViewerView extends TextFileView {
     }
 
     look();
+    // A change of the theme or of Readable line length while the copy was
+    // being prepared had no style to change yet.
+    this.updateTheme();
   }
 
   /**
