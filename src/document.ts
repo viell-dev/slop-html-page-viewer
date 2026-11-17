@@ -657,6 +657,12 @@ export interface PageOptions {
    * page with scripts on (#11).
    */
   readonly copyFiles?: LocalFiles;
+  /**
+   * Declares the page's shadow roots open, so that the view's link listeners
+   * see the links inside them, for a page with scripts off, which has no
+   * scripts that could tell the difference.
+   */
+  readonly openShadowRoots?: boolean;
 }
 
 export interface PreparedPage {
@@ -666,6 +672,36 @@ export interface PreparedPage {
   readonly ownStyles: boolean;
   /** What copying the page's local files did, when the options asked for it. */
   readonly copiedFiles?: CopiedFiles;
+}
+
+const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+
+/**
+ * The HTML templates in a document or a template's content, including those
+ * in their own content: a shadow root declared inside another one is there.
+ */
+function templates(root: ParentNode): HTMLTemplateElement[] {
+  const found: HTMLTemplateElement[] = [];
+  for (const template of root.querySelectorAll("template")) {
+    // An SVG or MathML element of that name has no content.
+    if (template.namespaceURI !== HTML_NAMESPACE) continue;
+    found.push(template, ...templates(template.content));
+  }
+  return found;
+}
+
+/**
+ * Turns the page's closed declarative shadow roots into open ones. Parsing
+ * the copy for the frame attaches them, while preparing it leaves them as
+ * templates. `shadowroot` is the attribute's earlier name, which the
+ * Chromium in older Obsidian installers still reads.
+ */
+function openShadowRoots(doc: Document): void {
+  for (const template of templates(doc)) {
+    for (const name of ["shadowrootmode", "shadowroot"]) {
+      if (/^closed$/i.test(template.getAttribute(name) ?? "")) template.setAttribute(name, "open");
+    }
+  }
 }
 
 /** Whether a page has a stylesheet of its own: a <style> or a stylesheet link. */
@@ -732,6 +768,7 @@ export async function preparePage(
   for (const refresh of doc.querySelectorAll("meta[http-equiv]")) {
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
+  if (options.openShadowRoots) openShadowRoots(doc);
 
   // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const policy = doc.createElement("meta");

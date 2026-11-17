@@ -46,9 +46,11 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   cannot show a file elsewhere on the computer by referring to it, and `<object>` content is
   blocked. Obsidian's own policy also applies to the copy: it allows only inline styles and Google
   Fonts stylesheets.
-- **Links.** With scripts off, the view follows clicks on the page's links itself, so the frame
-  never leaves the copy: web links are handed to Obsidian to open outside it, vault files open in
-  Obsidian, and links to other local files are refused. With scripts on, the view cannot reach the
+- **Links.** With scripts off, the view follows clicks on the page's links itself, including links
+  inside shadow DOM, so the frame never leaves the copy: web links are handed to Obsidian to open
+  outside it, vault files open in Obsidian, and links to other local files are refused. The copy
+  declares the page's shadow roots open, so that none of its links is hidden from the view, and the
+  view cancels every other navigation of the frame. With scripts on, the view cannot reach the
   page, and a link navigates the frame, which keeps its sandbox.
 - **What the plugin does.** It reads vault files to prepare the copy: the page, the `.css` files
   that the page links or imports as stylesheets, and the files it copies into a page with scripts

@@ -98,9 +98,30 @@ function linkReference(link: Element): string | null {
 }
 
 /**
- * Follows clicks on the page's links in Obsidian instead of in the frame.
- * Listeners that the view adds run even though the page's own scripts are
- * disabled.
+ * The reference of the innermost link that an event passed through, or null.
+ * The event's path, unlike its target, reaches into the open shadow roots that
+ * the event came from: outside a shadow root, the event's target is its host.
+ */
+function clickedReference(event: Event): string | null {
+  for (const node of event.composedPath()) {
+    // The page's nodes belong to the frame's window, so test by shape.
+    const name = (node as { localName?: unknown }).localName;
+    if (name !== "a" && name !== "area") continue;
+    const reference = linkReference(node as Element);
+    if (reference !== null) return reference;
+  }
+  return null;
+}
+
+/** The part of the Navigation API that `watchLinks` uses. */
+interface NavigationEvents {
+  addEventListener(type: "navigate", listener: (event: Event) => void): void;
+}
+
+/**
+ * Follows clicks on the page's links in Obsidian instead of in the frame, and
+ * keeps the frame on the page. Listeners that the view adds run even though
+ * the page's own scripts are disabled.
  */
 export function watchLinks(
   doc: Document,
@@ -111,15 +132,7 @@ export function watchLinks(
 ): void {
   const follow = (event: MouseEvent): void => {
     if (event.type === "auxclick" && event.button !== 1) return;
-    // The page's nodes belong to the frame's window, so test by shape.
-    const start = event.target as { closest?: (selector: string) => Element | null } | null;
-    let link = start?.closest?.("a, area");
-    let reference: string | null = null;
-    while (link) {
-      reference = linkReference(link);
-      if (reference !== null) break;
-      link = link.parentElement?.closest("a, area");
-    }
+    const reference = clickedReference(event);
     if (reference === null) return;
     event.preventDefault();
     let resolved: string;
@@ -148,4 +161,11 @@ export function watchLinks(
   };
   doc.addEventListener("click", follow, true);
   doc.addEventListener("auxclick", follow, true);
+  // Whatever the listeners above miss, such as a link in a closed shadow root,
+  // whose insides no event path shows, must not take the frame away from the
+  // copy. The Navigation API's navigate event cancels a navigation before it
+  // starts; it is in Chromium 102 and later, and the oldest installer that runs
+  // a public Obsidian release the manifest allows (1.5.3) has Chromium 106.
+  const navigation = (doc.defaultView as { navigation?: NavigationEvents } | null)?.navigation;
+  navigation?.addEventListener("navigate", (event) => event.preventDefault());
 }

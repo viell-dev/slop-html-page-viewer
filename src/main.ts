@@ -731,7 +731,8 @@ class HtmlPageViewerView extends TextFileView {
           locate: (linktext) =>
             this.app.metadataCache.getFirstLinkpathDest(linktext, file.path)?.path ?? null,
         },
-        { readingStyle, copyFiles },
+        // With scripts off, the view follows the page's links, also those in shadow roots.
+        { readingStyle, copyFiles, openShadowRoots: !this.scriptsEnabled },
       );
       page = prepared.html;
       ownStyles = prepared.ownStyles;

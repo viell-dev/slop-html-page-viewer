@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shadow links</title>
+</head>
+<body>
+<p>Links inside shadow DOM, as a page saved with its web components holds them.</p>
+<div id="open"><template shadowrootmode="open"><p><a href="Other%20page.html">Another saved page, from an open shadow root</a></p></template></div>
+<div id="closed"><template shadowrootmode="closed"><p><a href="Other%20page.html">Another saved page, from a closed shadow root</a></p></template></div>
+<div id="nested"><template shadowrootmode="open"><section><template shadowrootmode="closed"><p><a href="Other%20page.html">Another saved page, from a closed shadow root in an open one</a></p></template></section></template></div>
+<div id="slot"><template shadowrootmode="open"><p><a href="Other%20page.html"><slot></slot></a></p></template><span id="slotted">Another saved page, through a slot in a shadow root's link</span></div>
+<div id="legacy"><template shadowroot="closed"><p><a href="Other%20page.html">Another saved page, from a shadow root declared with the attribute's earlier name</a></p></template></div>
+</body>
+</html>

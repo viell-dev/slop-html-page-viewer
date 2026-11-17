@@ -115,6 +115,62 @@ describe("Links in a page in Obsidian", function () {
     expect(await frameLocation()).toBe("about:srcdoc");
   });
 
+  for (const [title, selector] of [
+    ["a link in an open shadow root", "#open"],
+    ["a link in a closed shadow root", "#closed"],
+    ["a link in a closed shadow root inside an open one", "#nested"],
+    ["a shadow root's link around the page's own text", "#slotted"],
+  ] as const) {
+    it(`follows ${title} in the viewer`, async function () {
+      await openInActiveTab("Saved/Shadow links.html");
+      await waitForPage();
+      await clickInPage(selector);
+      await browser.waitUntil(async () => (await activeFile()).path === "Saved/Other page.html", {
+        timeoutMsg: `${title} did not open its page`,
+      });
+    });
+  }
+
+  it("opens a link in a shadow root declared as `shadowroot` where Chromium reads it", async function () {
+    await openInActiveTab("Saved/Shadow links.html");
+    await waitForPage();
+    // Chromium 114, in Obsidian 1.5.3's installer, attaches the shadow root;
+    // later versions leave the template as it is, which shows nothing.
+    const declared = await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+      const host = doc.getElementById("legacy")!;
+      return {
+        shown: host.getBoundingClientRect().height > 0,
+        template: host.querySelector(":scope > template") !== null,
+      };
+    }, ACTIVE);
+    expect(declared.shown).toBe(!declared.template);
+    if (!declared.shown) return;
+    await clickInPage("#legacy");
+    await browser.waitUntil(async () => (await activeFile()).path === "Saved/Other page.html", {
+      timeoutMsg: "the link in the shadow root did not open its page",
+    });
+  });
+
+  it("keeps the page in the frame when a click on a link escapes the view's listeners", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await waitForPage();
+    // A closed shadow root that the page does not declare, as only a script
+    // could attach one, hides its link from the view's listeners.
+    await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+      const host = doc.createElement("div");
+      host.id = "hidden";
+      doc.body.prepend(host);
+      host.attachShadow({ mode: "closed" }).innerHTML =
+        `<p><a href="Other%20page.html">A link that the listeners cannot see</a></p>`;
+    }, ACTIVE);
+    await clickInPage("#hidden");
+    await browser.pause(1000);
+    expect(await frameLocation()).toBe("about:srcdoc");
+    expect((await activeFile()).path).toBe("Saved/Long page.html");
+  });
+
   it("opens a web link outside Obsidian and keeps the page in the frame", async function () {
     await openInActiveTab("Saved/Example article.html");
     await waitForPage();
