@@ -30,6 +30,14 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   blocks are no longer inlined, as browsers ignore them there, while imports written with comments
   or escapes, such as `@import /**/ url(…)` or `@\69mport`, now are. Unquoted URLs with an escaped
   `)` or `"` now resolve, and a linked stylesheet that imports itself no longer repeats its rules.
+- Stylesheet imports count only where browsers apply them. An `@import` after a style rule, inside
+  a rule's selector, or after a stray `;`, `)`, or `}` is no longer read into the page, while one
+  after `@charset`, an `@layer` statement, or `<!--` still is (#136). An imported stylesheet that
+  ends inside a string, a comment, an unquoted `url(`, a block, or a rule no longer changes the
+  stylesheet that imports it, which could drop the rules after the import, or, with **Local files
+  with scripts on**, copy a file that only a string named (#139). An import into a cascade layer
+  stays an import also when a comment or an escape comes before `layer`, rather than becoming an
+  `@media` rule that never applies (#144).
 - Only the text of HTML and SVG `<style>` elements, not of their child elements, and HTML
   stylesheet links are read, applied, and copied from, as browsers read them. Text inside the
   elements of an SVG `<style>` no longer applies once the viewer rewrites the `<style>`, which keeps
