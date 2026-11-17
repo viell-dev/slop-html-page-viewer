@@ -268,3 +268,114 @@ describe("source view", () => {
     }
   });
 });
+
+describe("the source view's place after its tab moves (#135)", () => {
+  /**
+   * The source view of a view in the document, with the scrolling, height,
+   * and scrollTo of its source that Chromium would give it, which jsdom does
+   * not lay out. The reader's scrolling and scrollTo report a scroll event,
+   * and `drop` shows it from its start without one, as Chromium shows an
+   * element that Obsidian took out of the page and inserted again. A source
+   * 0 pixels high is not laid out.
+   */
+  async function movedSource(mode = "Source"): Promise<{
+    harness: Harness;
+    view: HtmlView & { onResize(): void };
+    scroll: (top: number, left?: number) => void;
+    drop: () => void;
+    resize: (height: number) => void;
+    scrolledTo: ScrollToOptions[];
+  }> {
+    const harness = await Harness.load();
+    const view = harness.newView() as HtmlView & { onResize(): void };
+    document.body.append(view.contentEl);
+    harness.open(view, "page.html", "<p>One</p>\n<p>Two</p>\n<p>Three</p>");
+    button(view, mode).click();
+    const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+    let top = 0;
+    let left = 0;
+    let height = 400;
+    const scrolledTo: ScrollToOptions[] = [];
+    const scroll = (toTop: number, toLeft = 0): void => {
+      top = toTop;
+      left = toLeft;
+      source.dispatchEvent(new window.Event("scroll"));
+    };
+    Object.defineProperties(source, {
+      scrollTop: { configurable: true, get: () => top },
+      scrollLeft: { configurable: true, get: () => left },
+      clientHeight: { configurable: true, get: () => height },
+      scrollTo: {
+        configurable: true,
+        value: (options: ScrollToOptions) => {
+          scrolledTo.push(options);
+          scroll(options.top ?? top, options.left ?? left);
+        },
+      },
+    });
+    return {
+      harness,
+      view,
+      scroll,
+      drop: () => {
+        top = 0;
+        left = 0;
+      },
+      resize: (to: number) => {
+        height = to;
+      },
+      scrolledTo,
+    };
+  }
+
+  it("goes back to where it was at Obsidian's next layout change", async () => {
+    const { harness, scroll, drop, scrolledTo } = await movedSource();
+    scroll(571, 40);
+    drop();
+    harness.app.workspace.trigger("layout-change");
+    assert.deepEqual(scrolledTo, [{ top: 571, left: 40, behavior: "instant" }]);
+    harness.app.workspace.trigger("layout-change");
+    assert.equal(scrolledTo.length, 1, "it is where it was, once there");
+  });
+
+  it("goes back once a new window has laid it out and resizes the view", async () => {
+    const { harness, view, scroll, drop, resize, scrolledTo } = await movedSource();
+    scroll(571);
+    drop();
+    resize(0);
+    harness.app.workspace.trigger("layout-change");
+    assert.deepEqual(scrolledTo, [], "a source that is not laid out has nothing to scroll");
+    resize(400);
+    view.onResize();
+    assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
+  });
+
+  it("stays where the reader scrolls it, also back to its start", async () => {
+    const { harness, view, scroll, scrolledTo } = await movedSource();
+    scroll(571);
+    scroll(200);
+    harness.app.workspace.trigger("layout-change");
+    scroll(0);
+    harness.app.workspace.trigger("layout-change");
+    view.onResize();
+    assert.deepEqual(scrolledTo, []);
+  });
+
+  it("leaves the split view's source to follow its page", async () => {
+    const { harness, view, scroll, drop, scrolledTo } = await movedSource("Split");
+    scroll(571);
+    drop();
+    harness.app.workspace.trigger("layout-change");
+    view.onResize();
+    assert.deepEqual(scrolledTo, []);
+  });
+
+  it("starts a source shown again from its top", async () => {
+    const { harness, view, scroll, scrolledTo } = await movedSource();
+    scroll(571);
+    button(view, "Rendered").click();
+    button(view, "Source").click();
+    harness.app.workspace.trigger("layout-change");
+    assert.deepEqual(scrolledTo, []);
+  });
+});

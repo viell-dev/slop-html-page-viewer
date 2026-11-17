@@ -134,6 +134,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   and line width that it shows and, for a page that scrolls as a whole, its place, and the split
   view's two sides stay in step there. The place is the part of the page at the window's top, so it
   holds where the page wraps differently in its new pane.
+- **Unreleased (#135):** The **Source** view stays scrolled as far as it was when its tab moves to
+  another tab group or window; on Obsidian 1.5.3 it started again from its top. Where long lines
+  wrap differently in its new pane, that can show other lines.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
   on by default; and **File extensions**, `html, htm` by default.
@@ -160,8 +163,7 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   the source view, and the split view's sides scroll apart.
 - **Unreleased (#126):** **A page with scripts on starts again from its top** when its tab moves to
   another tab group or window, and its scripts run again: the viewer cannot reach the page to keep
-  its place. On Obsidian 1.5.3, the **Source** view also starts again from its top after such a
-  move ([#135](https://github.com/viell-dev/slop-html-page-viewer/issues/135)).
+  its place.
 - **Unreleased (#126):** **Parts of a page that scroll by themselves start again from their
   beginning** when its tab moves to another tab group or window, as does a page that scrolls only
   inside such a part, such as a main column beside a sidebar, or a wide table or code block in a box

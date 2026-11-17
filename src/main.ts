@@ -22,7 +22,15 @@ import {
 import { type PaneChoice, watchLinks } from "./links";
 import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
-import { isPinned, type ScrollPlace, scrollInstantly, scrollPlace, showPlace } from "./scrolling";
+import {
+  isPinned,
+  keepScrolling,
+  type KeptScrolling,
+  type ScrollPlace,
+  scrollInstantly,
+  scrollPlace,
+  showPlace,
+} from "./scrolling";
 import {
   DEFAULT_SETTINGS,
   readSettings,
@@ -165,6 +173,8 @@ class HtmlPageViewerView extends TextFileView {
   private scriptsEnabled: boolean;
   private themeEnabled: boolean;
   private iframe: HTMLIFrameElement | null = null;
+  /** Where the source view's source is scrolled to, for after its tab moves (#135). */
+  private sourceScrolling: KeptScrolling | null = null;
   /** The reading style in the frame's page, or null if it has none. */
   private shownStyle: string | null = null;
   private themeButton: HTMLButtonElement | null = null;
@@ -219,6 +229,12 @@ class HtmlPageViewerView extends TextFileView {
   onload(): void {
     super.onload();
     this.registerEvent(this.app.workspace.on("css-change", () => this.updateTheme()));
+    // After the tab moves to another tab group or window, Obsidian 1.5.3 shows
+    // the source view's source from its top. In another tab group, the layout
+    // change that follows is all that the view learns of the move (#135).
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => this.sourceScrolling?.restore()),
+    );
     // Obsidian's settings change through the vault's config. Obsidian 1.14
     // names the setting that changed; 1.5 names none.
     this.registerEvent(
@@ -265,6 +281,14 @@ class HtmlPageViewerView extends TextFileView {
     this.contentEl
       .querySelector<HTMLElement>(".html-page-viewer__source")
       ?.toggleClass("is-wrapped", this.plugin.settings.wrapSource);
+  }
+
+  override onResize(): void {
+    super.onResize();
+    // A new window that the tab moved to lays the source view's source out
+    // only after the layout change that follows, and then resizes the view
+    // (#135).
+    this.sourceScrolling?.restore();
   }
 
   getDisplayText(): string {
@@ -346,6 +370,7 @@ class HtmlPageViewerView extends TextFileView {
     this.clearFindMatches();
     container.empty();
     this.iframe = null;
+    this.sourceScrolling = null;
     this.shownStyle = null;
     container.addClass("html-page-viewer");
 
@@ -381,9 +406,10 @@ class HtmlPageViewerView extends TextFileView {
     this.security = security;
 
     if (this.mode === "source") {
-      renderSource(container, this.data);
+      const source = renderSource(container, this.data);
       // Focusable, so that the find bar can give the keys back to it.
-      container.querySelector(".html-page-viewer__source")?.setAttribute("tabindex", "-1");
+      source.setAttribute("tabindex", "-1");
+      this.sourceScrolling = keepScrolling(source);
       this.updateWrap();
       this.runFind();
       return;
@@ -1116,7 +1142,11 @@ export function sandboxValue(scriptsEnabled: boolean): string {
   return scriptsEnabled ? "allow-scripts" : "allow-same-origin";
 }
 
-function renderSource(parent: HTMLElement, data: string): void {
+/**
+ * Shows `data` in `parent` as highlighted source with line numbers, and
+ * returns the element that scrolls.
+ */
+function renderSource(parent: HTMLElement, data: string): HTMLElement {
   const source = parent.createDiv({ cls: "html-page-viewer__source" });
   const pre = source.createEl("pre");
   let lineNumber = 0;
@@ -1141,6 +1171,7 @@ function renderSource(parent: HTMLElement, data: string): void {
       }
     });
   }
+  return source;
 }
 
 type TokenKind = "text" | "comment" | "punctuation" | "tag" | "attr" | "string";
