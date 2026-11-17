@@ -126,7 +126,11 @@ describe("rendered view", () => {
               : [],
         ),
     );
-    assert.equal(added.size, 3, "a frame for the page, with scripts on, and with them off");
+    assert.deepEqual(
+      [...added].map((frame) => frame.getAttribute("sandbox")),
+      [sandboxValue(false), sandboxValue(true), sandboxValue(false)],
+      "a frame for the page, with scripts on, and with them off",
+    );
     assert.deepEqual(
       records.filter((record) => record.type === "attributes").map((record) => record.target),
       [],
