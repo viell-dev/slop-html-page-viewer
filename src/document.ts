@@ -13,7 +13,7 @@
 // vault files to. When the settings ask for it, the page's local images,
 // media, fonts, and scripts are then copied into it as data: URLs (#11).
 
-import { cssImports, cssTokens, type CssToken } from "./css";
+import { cssEnd, cssImports, cssTokens, type CssToken } from "./css";
 import { READING_STYLE_ID } from "./reading";
 
 /** What the view knows about the page and its vault. */
@@ -393,6 +393,21 @@ export async function inlineStylesheet(
   seen: ReadonlySet<string> = new Set(),
   tokens: readonly CssToken[] = cssTokens(css),
 ): Promise<string> {
+  return (await inlineImports(css, sheetUrl, context, seen, tokens)).text;
+}
+
+/**
+ * `inlineStylesheet`'s result, and whether it holds an imported stylesheet's
+ * `}` outside any block, put in its text without an `@media` block around it.
+ */
+async function inlineImports(
+  css: string,
+  sheetUrl: string,
+  context: PageContext,
+  seen: ReadonlySet<string>,
+  tokens: readonly CssToken[],
+): Promise<{ text: string; strayCloser: boolean }> {
+  let strayCloser = false;
   const replacements: { start: number; end: number; text: string }[] = [];
   for (const match of cssImports(tokens)) {
     const rule = css.slice(match.start, match.end);
@@ -416,10 +431,35 @@ export async function inlineStylesheet(
     const readable =
       path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
     if (target !== null && path !== null && readable && match.conditions !== "other") {
-      const imported = await readStylesheet(context, path);
-      if (imported !== null) {
-        const inner = await inlineStylesheet(imported, target, context, new Set([...seen, path]));
-        text = match.conditions === "none" ? inner : `@media ${conditions} {\n${inner}\n}`;
+      const read = await readStylesheet(context, path);
+      if (read !== null) {
+        // CSS ends each stylesheet on its own, closing what is still open
+        // there. Closed here, the text ends where a rule may start, with a
+        // whole token, so it leaves the text after its import as the page has
+        // it.
+        let imported = read;
+        let importedTokens = cssTokens(imported);
+        const end = cssEnd(imported, importedTokens);
+        if (end.closers !== "") {
+          imported += end.closers;
+          importedTokens = cssTokens(imported);
+        }
+        const inner = await inlineImports(
+          imported,
+          target,
+          context,
+          new Set([...seen, path]),
+          importedTokens,
+        );
+        const stray = end.strayCloser || inner.strayCloser;
+        if (match.conditions === "none") {
+          text = inner.text;
+          strayCloser ||= stray;
+        } else if (!stray) {
+          text = `@media ${conditions} {\n${inner.text}\n}`;
+        }
+        // Otherwise a stray "}" would end the @media block early, and the
+        // block's own "}" would then take the importing sheet's next rule.
       }
     }
     replacements.push({ start: match.start, end: match.end, text });
@@ -441,7 +481,7 @@ export async function inlineStylesheet(
     result += css.slice(cursor, start) + text;
     cursor = end;
   }
-  return result + css.slice(cursor);
+  return { text: result + css.slice(cursor), strayCloser };
 }
 
 /**

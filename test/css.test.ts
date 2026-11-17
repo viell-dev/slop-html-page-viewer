@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cssImports, cssTokens } from "../src/css";
+import { cssEnd, cssImports, cssTokens } from "../src/css";
 
 it("keeps malformed quoted functions and subsequent literal strings separate", () => {
   for (const css of [
@@ -28,7 +28,9 @@ it("distinguishes bad strings, EOF strings and newline recovery", () => {
   const tokens = cssTokens('"bad\nurl(real.png)');
   assert.equal(tokens[0].kind, "other");
   assert.equal(tokens.find((t) => t.kind === "url")?.value, "real.png");
-  assert.deepEqual(cssTokens('"EOF'), [{ start: 0, end: 4, kind: "string", value: "EOF" }]);
+  assert.deepEqual(cssTokens('"EOF'), [
+    { start: 0, end: 4, kind: "string", value: "EOF", open: true },
+  ]);
 });
 
 it("ends a hex escape before a line continuation, which stands for nothing", () => {
@@ -195,5 +197,64 @@ describe("import conditions (#144)", () => {
       " screen, unknown(x)",
     ])
       assert.equal(conditions(css), "other", JSON.stringify(css));
+  });
+});
+
+describe("the end of a stylesheet (#139)", () => {
+  it("closes what a stylesheet leaves open, as its end does", () => {
+    for (const [css, closers] of [
+      ["a { color: red }", ""],
+      ["a {} /* done */ <!-- -->", ""],
+      ["", ""],
+      ['"', '"{}'],
+      // In a string, a "\" at the end stands for nothing, as before a newline.
+      ["'a\\", "\n'{}"],
+      ["/*", "*/"],
+      ["a { /* \\", "*/}"],
+      ["a { b: url(", ")}"],
+      ["a { b: url(x\\", "\ufffd)}"],
+      ['a { b: url(x"y', ")}"],
+      ['a { b: url("x', '")}'],
+      ["a {", "}"],
+      ["@media print { a { b: (c [d", "])}}"],
+      ["a, b", "{}"],
+      ["a:is(b", "){}"],
+      ["@media screen", ";"],
+      ["@import 'x.css'", ";"],
+      ["a { b: c\\", "\ufffd}"],
+      ["\\", "\ufffd{}"],
+      ["a { b: c\\\\", "}"],
+      ["a{}-", "{}"],
+      ["a{}<!-", "{}"],
+    ])
+      assert.equal(cssEnd(css, cssTokens(css)).closers, closers, JSON.stringify(css));
+  });
+
+  it("leaves nothing open once closed", () => {
+    for (const css of [
+      '"',
+      "/*",
+      "a { b: url(x\\",
+      "@media print { a { b: (c",
+      "x",
+      "a { b: 'c\\",
+    ]) {
+      const closed = css + cssEnd(css, cssTokens(css)).closers;
+      const tokens = cssTokens(closed);
+      assert.ok(!tokens.some((token) => token.open), JSON.stringify(closed));
+      assert.equal(cssEnd(closed, tokens).closers, "", JSON.stringify(closed));
+    }
+  });
+
+  it("finds a } outside any block", () => {
+    for (const [css, stray] of [
+      ["a { b: c } }", true],
+      ["} a {}", true],
+      ['@import "x" };', true],
+      ["a { b: (}) }", false],
+      ["a { } b { [}] }", false],
+      ['a { content: "}" } /* } */', false],
+    ] as const)
+      assert.equal(cssEnd(css, cssTokens(css)).strayCloser, stray, css);
   });
 });

@@ -47,6 +47,11 @@ export interface CssToken {
     | "cdc"
     | "other";
   value: string;
+  /**
+   * Set on a comment, string, or unquoted URL that the end of the text ended
+   * before its closer: CSS keeps such a token as it is.
+   */
+  open?: true;
 }
 
 /** A top-level import rule's span, its reference, and what follows the reference. */
@@ -61,6 +66,23 @@ export interface CssImport {
    * cascade layer, a scope, or support conditions.
    */
   conditions: "none" | "media" | "other";
+}
+
+/** What CSS closes at the end of a stylesheet, which ends each one on its own. */
+export interface CssEnd {
+  /**
+   * The text that closes what the stylesheet leaves open at its end: a
+   * comment, a string, an unquoted URL, an escape, blocks, and a rule that has
+   * not ended. Text put after the stylesheet's own then reads as it would in a
+   * stylesheet of its own.
+   */
+  closers: string;
+  /**
+   * Whether the stylesheet has a `}` outside any block. At the top level of a
+   * stylesheet, CSS makes it part of a rule's prelude, but inside a block,
+   * such as `@media`, it would end that block.
+   */
+  strayCloser: boolean;
 }
 
 const space = (c: string): boolean => {
@@ -154,18 +176,18 @@ function escapeEnd(css: string, start: number): number {
  * Unquoted contents make a URL token, or a bad URL, which runs through its
  * closing parenthesis: syntax in its remnants must never turn into a resource
  * reference. An unquoted URL left open at the end is taken as bad too, which
- * leaves it as it is.
+ * leaves it as it is, and marked open.
  */
 function consumeUrl(
   css: string,
   open: number,
-): { end: number; kind: "url" | "other"; value: string } | null {
+): { end: number; kind: "url" | "other"; value: string; open: boolean } | null {
   let i = skipSpace(css, open + 1);
   if (css[i] === '"' || css[i] === "'") {
     const string = stringEnd(css, i);
     i = skipSpace(css, string.end);
     return string.closed && css[i] === ")"
-      ? { end: i + 1, kind: "url", value: string.value }
+      ? { end: i + 1, kind: "url", value: string.value, open: false }
       : null;
   }
   const content = i;
@@ -179,8 +201,11 @@ function consumeUrl(
   i = skipSpace(css, i);
   if (css[i] !== ")") valid = false;
   while (i < css.length && css[i] !== ")") i = css[i] === "\\" ? escapeEnd(css, i) : i + 1;
-  if (css[i] === ")") i++;
-  return valid ? { end: i, kind: "url", value } : { end: i, kind: "other", value: "" };
+  const closed = css[i] === ")";
+  if (closed) i++;
+  return valid
+    ? { end: i, kind: "url", value, open: false }
+    : { end: i, kind: "other", value: "", open: !closed };
 }
 
 /** A forward-only scanner: no recursion or backtracking on page-controlled text. */
@@ -191,10 +216,12 @@ export function cssTokens(css: string): CssToken[] {
     const start = i;
     let kind: CssToken["kind"] = "other";
     let value = "";
+    let open = false;
     if (css.startsWith("/*", i)) {
       const end = css.indexOf("*/", i + 2);
       i = end < 0 ? css.length : end + 2;
       kind = "comment";
+      open = end < 0;
     } else if (space(css[i])) {
       i = skipSpace(css, i);
       kind = "space";
@@ -204,6 +231,7 @@ export function cssTokens(css: string): CssToken[] {
       if (string.closed || i === css.length) {
         kind = "string";
         value = string.value;
+        open = !string.closed;
       }
     } else if (css.startsWith("<!--", i)) {
       i += 4;
@@ -229,12 +257,13 @@ export function cssTokens(css: string): CssToken[] {
         i = url.end;
         kind = url.kind;
         value = url.value;
+        open = url.open;
       }
     } else {
       kind = "delim";
       value = css[i++];
     }
-    tokens.push({ start, end: i, kind, value });
+    tokens.push(open ? { start, end: i, kind, value, open: true } : { start, end: i, kind, value });
   }
   return tokens;
 }
@@ -270,6 +299,10 @@ interface TopLevelRule {
   end: number;
   /** Whether its `;` or its block ended it, or the end of the text did. */
   ending: ";" | "block" | "end";
+  /** The closers of the blocks still open at the end of the text. */
+  blocks: string[];
+  /** Whether its own `{}` block had started. */
+  block: boolean;
   /** Whether its prelude has a `}` outside any block. */
   strayCloser: boolean;
 }
@@ -289,14 +322,16 @@ function topLevelRule(tokens: readonly CssToken[], start: number): TopLevelRule 
     const token = tokens[i];
     if (token.kind !== "delim") continue;
     if (blocks.length === 0) {
-      if (atRule && token.value === ";") return { start, end: i + 1, ending: ";", strayCloser };
+      if (atRule && token.value === ";")
+        return { start, end: i + 1, ending: ";", blocks, block, strayCloser };
       if (token.value === "}") strayCloser = true;
       if (token.value === "{") block = true;
     }
     nest(blocks, token);
-    if (block && blocks.length === 0) return { start, end: i + 1, ending: "block", strayCloser };
+    if (block && blocks.length === 0)
+      return { start, end: i + 1, ending: "block", blocks, block, strayCloser };
   }
-  return { start, end: tokens.length, ending: "end", strayCloser };
+  return { start, end: tokens.length, ending: "end", blocks, block, strayCloser };
 }
 
 /**
@@ -381,4 +416,39 @@ function importRule(tokens: readonly CssToken[], rule: TopLevelRule): CssImport 
     mediaStart: resource.end,
     conditions: importConditions(tokens, i + 1, rule.end - 1),
   };
+}
+
+/**
+ * What a stylesheet leaves open at its end, which CSS closes there, and
+ * whether it has a `}` outside any block; see {@link CssEnd}. A `\` at the end
+ * stands for U+FFFD, or for nothing in a string, so the closers start with
+ * what keeps that meaning and keeps the `\` from escaping them.
+ */
+export function cssEnd(css: string, tokens: readonly CssToken[]): CssEnd {
+  let strayCloser = false;
+  let pending: TopLevelRule | null = null;
+  for (let i = 0; i < tokens.length;) {
+    if (betweenRules(tokens[i])) {
+      i++;
+      continue;
+    }
+    const rule = topLevelRule(tokens, i);
+    strayCloser ||= rule.strayCloser;
+    if (rule.ending === "end") pending = rule;
+    i = rule.end;
+  }
+  const last = tokens.at(-1);
+  let backslashes = 0;
+  while (css[css.length - 1 - backslashes] === "\\") backslashes++;
+  const escape = backslashes % 2 === 1 && last?.kind !== "comment";
+  let closers = "";
+  if (last?.open && last.kind === "comment") closers = "*/";
+  else if (last?.open && last.kind === "string") closers = (escape ? "\n" : "") + css[last.start];
+  else if (last?.open) closers = (escape ? REPLACEMENT_CHARACTER : "") + ")";
+  else if (escape) closers = REPLACEMENT_CHARACTER;
+  if (pending !== null) {
+    closers += pending.blocks.reverse().join("");
+    if (!pending.block) closers += tokens[pending.start].kind === "at-keyword" ? ";" : "{}";
+  }
+  return { closers, strayCloser };
 }

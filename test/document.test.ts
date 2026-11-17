@@ -476,6 +476,76 @@ describe("import conditions (#144)", () => {
   });
 });
 
+describe("the end of an imported stylesheet (#139)", () => {
+  it("copies no file that the importing sheet names only in a string, in every place", async () => {
+    for (const [imported, css] of [
+      ['"', '@import "a.css"; p { content: "url(ghost.png)" }'],
+      ["/*", '@import "a.css"; p { content: "*/ url(ghost.png)" }'],
+      ["a { b: url(", '@import "a.css"; p { content: "x) url(ghost.png)" }'],
+      ["a { b: 'c\\", `@import "a.css"; p { content: "' url(ghost.png)" }`],
+      ['"', '@import "a.css" screen; p { content: "url(ghost.png)" }'],
+    ]) {
+      for (const { place, reads, copies, text } of await everyPlace(css, {
+        "Saved/a.css": imported,
+      })) {
+        assert.deepEqual(reads, ["Saved/a.css"], `${imported} in ${place}`);
+        assert.deepEqual(copies, [], `${imported} in ${place}`);
+        assert.ok(
+          text.endsWith(css.slice(css.indexOf(";") + 1)),
+          `${imported} in ${place}: ${text}`,
+        );
+      }
+    }
+  });
+
+  it("keeps the rules after an import whose sheet ends in a comment, a block, or a prelude", async () => {
+    const css = '@import "a.css"; p { background: url(real.png) }';
+    for (const [imported, closed] of [
+      ["/*", "/**/"],
+      ["a {", "a {}"],
+      ["a", "a{}"],
+      ["@media print", "@media print;"],
+      ["a:is(b", "a:is(b){}"],
+    ]) {
+      for (const { place, copies, text } of await everyPlace(css, { "Saved/a.css": imported })) {
+        const url = place.endsWith("copying")
+          ? "data:image/png;base64,AQ=="
+          : `${VAULT}Saved/real.png`;
+        assert.equal(text, `${closed} p { background: url("${url}") }`, place);
+        assert.deepEqual(copies, place.endsWith("copying") ? ["Saved/real.png"] : [], place);
+      }
+    }
+  });
+
+  it("closes an imported sheet before resolving its own URLs", async () => {
+    // To CSS, an unquoted URL at the end of a stylesheet is a URL, of that stylesheet's.
+    const files = { "Saved/css/a.css": "p { background: url(img.png" };
+    for (const { place, copies, text } of await everyPlace('@import "css/a.css";', files)) {
+      if (place.endsWith("copying")) assert.deepEqual(copies, ["Saved/css/img.png"], place);
+      else assert.equal(text, `p { background: url("${VAULT}Saved/css/img.png")}`, place);
+    }
+  });
+
+  it("closes a sheet inside @media, and keeps one with a } outside any block an import", async () => {
+    const ctx = context({
+      "a.css": "a {",
+      "stray.css": "} x {}",
+      "outer.css": '@import "stray.css";',
+    });
+    const inline = (css: string) => inlineStylesheet(css, `${VAULT}main.css`, ctx);
+    assert.equal(await inline('@import "a.css" screen; p {}'), "@media screen {\na {}\n} p {}");
+    // Inside @media, the stray "}" would end the block, and the block's own
+    // "}" would take the next rule.
+    for (const sheet of ["stray.css", "outer.css"])
+      assert.equal(
+        await inline(`@import "${sheet}" screen; p {}`),
+        `@import url("${VAULT}${sheet}") screen; p {}`,
+      );
+    // At the top level, it is part of a rule's prelude, as in the sheet itself.
+    assert.equal(await inline('@import "outer.css"; p {}'), "} x {} p {}");
+  });
+});
+
 function context(
   files: Record<string, string>,
   page = "Saved/Example article.html",
