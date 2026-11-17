@@ -289,6 +289,7 @@ with `display: contents`, which kept its place only as a share of the body's hei
   records.
 - The lint and end-to-end test tools retain moderate advisories (#85), and a high one in picomatch
   that no release fixes yet and that only an attacker's glob pattern can trigger (#145). Both
-  dependency packages have a required CI audit that fails on any other high or critical advisory,
-  `audit.test.ts` checks its decisions, and CONTRIBUTING.md says when an exception is acceptable.
-  The tools run only in CI and in disposable containers, against the repository's own fixtures.
+  dependency packages have a required CI audit that fails on any other advisory above moderate
+  severity, `audit.test.ts` checks its decisions, and CONTRIBUTING.md says when an exception is
+  acceptable. The tools run against the repository's own files, and only its configuration
+  supplies their glob patterns.

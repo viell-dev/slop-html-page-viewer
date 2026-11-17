@@ -1,14 +1,20 @@
 // The decision that scripts/audit.ts makes from a report of `npm audit --json`:
-// which high or critical advisories have no recorded exception, and which
-// recorded exceptions the report no longer needs.
+// which gated advisories have no recorded exception, which recorded exceptions
+// the report no longer needs, and whether the report says more than this
+// reading of it understands. Where in doubt, it fails.
 
-/** The severities that fail the audit unless an exception covers them. */
-const GATED = new Set(["high", "critical"]);
+/** The severities that never fail the audit. Every other one does, unless an exception covers it. */
+const UNGATED = new Set(["info", "low", "moderate"]);
 
-/** An advisory that a report names, with the package and versions it affects. */
+/** Whether a severity fails the audit, including one that npm does not define. */
+export const isGated = (severity: unknown): boolean =>
+  typeof severity !== "string" || !UNGATED.has(severity);
+
+/** An advisory that a report names for one package, with the versions it affects. */
 export interface Advisory {
-  /** The advisory's GitHub ID, such as `GHSA-xxxx-xxxx-xxxx`. */
+  /** The advisory's GitHub ID, such as `GHSA-xxxx-xxxx-xxxx`, or `npm-advisory-<source>` without one. */
   id: string;
+  /** The package that the advisory affects. */
   name: string;
   range: string;
   severity: string;
@@ -22,6 +28,8 @@ export interface Advisory {
  */
 export interface AuditException {
   advisory: string;
+  /** The package that the advisory affects, as the report names it. */
+  dependency: string;
   /** The package directories it applies to: `.` for the root, or a path such as `test/e2e`. */
   packages: string[];
   /** Why the advisory cannot affect the project. */
@@ -30,37 +38,85 @@ export interface AuditException {
   issue: string;
 }
 
+/** What a report says: its advisories, and its packages that npm gates without a gated advisory. */
+export interface AuditReport {
+  advisories: Advisory[];
+  /** Packages whose severity npm gates, but which no gated advisory explains. */
+  unexplained: string[];
+}
+
+const GHSA = /GHSA(?:-[0-9a-z]{4}){3}/;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
- * The advisories in a report, each once. A report names an advisory in the
- * `via` list of each package it affects; packages that only depend on an
- * affected package name that package in `via` instead.
+ * Reads a report of npm 7 or later (`auditReportVersion` 2). A report names an
+ * advisory in the `via` list of each package it affects; packages that only
+ * depend on an affected package name that package in `via` instead. It throws
+ * for a report that npm could not produce or that has another shape.
  */
-export function reportAdvisories(report: unknown): Advisory[] {
+export function readReport(report: unknown): AuditReport {
   if (!isRecord(report)) throw new Error("npm audit gave no report");
   if (isRecord(report.error)) {
-    throw new Error(`npm audit failed: ${String(report.error.summary ?? report.error.code)}`);
+    const cause = [report.message, report.error.summary, report.error.code].find(
+      (value): value is string => typeof value === "string" && value !== "",
+    );
+    throw new Error(`npm audit failed: ${cause ?? "no reason given"}`);
+  }
+  if (report.auditReportVersion !== 2) {
+    throw new Error(`npm audit gave report version ${String(report.auditReportVersion)}, not 2`);
   }
   if (!isRecord(report.vulnerabilities)) throw new Error("npm audit gave no vulnerabilities");
+
   const found = new Map<string, Advisory>();
-  for (const entry of Object.values(report.vulnerabilities)) {
-    if (!isRecord(entry) || !Array.isArray(entry.via)) continue;
+  /** For each package, the packages it names in `via`, and whether a gated advisory affects it. */
+  const entries = new Map<string, { gated: boolean; severity: unknown; through: string[] }>();
+  for (const [key, entry] of Object.entries(report.vulnerabilities)) {
+    if (!isRecord(entry) || !Array.isArray(entry.via)) {
+      throw new Error(`npm audit gave an entry for ${key} without a via list`);
+    }
+    const node = { gated: false, severity: entry.severity, through: [] as string[] };
+    entries.set(key, node);
     for (const via of entry.via) {
-      if (!isRecord(via) || typeof via.url !== "string") continue;
-      const id = /GHSA(?:-[0-9a-z]{4}){3}/.exec(via.url)?.[0] ?? via.url;
-      found.set(id, {
+      if (typeof via === "string") {
+        node.through.push(via);
+        continue;
+      }
+      if (!isRecord(via)) throw new Error(`npm audit gave an unreadable via entry for ${key}`);
+      const url = typeof via.url === "string" ? via.url : "";
+      const id = GHSA.exec(url)?.[0] ?? `npm-advisory-${String(via.source)}`;
+      const name = typeof via.name === "string" ? via.name : key;
+      if (isGated(via.severity)) node.gated = true;
+      found.set(`${id} ${name}`, {
         id,
-        name: String(via.name),
+        name,
         range: String(via.range),
         severity: String(via.severity),
         title: String(via.title),
-        url: via.url,
+        url,
       });
     }
   }
-  return [...found.values()].sort((a, b) => a.id.localeCompare(b.id));
+
+  // A package that npm gates must be affected by a gated advisory, directly or
+  // through the packages it names; otherwise the report says something that
+  // this reading does not understand.
+  const explained = (key: string, seen = new Set<string>()): boolean => {
+    const node = entries.get(key);
+    if (!node || seen.has(key)) return false;
+    if (node.gated) return true;
+    seen.add(key);
+    return node.through.some((name) => explained(name, seen));
+  };
+  const unexplained = [...entries]
+    .filter(([key, node]) => isGated(node.severity) && !explained(key))
+    .map(([key, node]) => `${key} (${String(node.severity)})`);
+
+  const advisories = [...found.values()].sort(
+    (a, b) => a.id.localeCompare(b.id) || a.name.localeCompare(b.name),
+  );
+  return { advisories, unexplained };
 }
 
 /** Problems with the exceptions file's contents, before it is applied. */
@@ -73,8 +129,10 @@ export function exceptionProblems(exceptions: unknown): string[] {
       problems.push(`${at} must be an object`);
       continue;
     }
-    if (typeof entry.advisory !== "string" || !/^GHSA(?:-[0-9a-z]{4}){3}$/.test(entry.advisory))
+    if (typeof entry.advisory !== "string" || !new RegExp(`^${GHSA.source}$`).test(entry.advisory))
       problems.push(`${at} must name a GHSA advisory`);
+    if (typeof entry.dependency !== "string" || entry.dependency === "")
+      problems.push(`${at} must name the package that the advisory affects`);
     if (
       !Array.isArray(entry.packages) ||
       entry.packages.length === 0 ||
@@ -92,30 +150,47 @@ export function exceptionProblems(exceptions: unknown): string[] {
   return problems;
 }
 
+/** The exception that accepts an advisory in a package directory, if any. */
+export function exceptionFor(
+  advisory: Advisory,
+  exceptions: readonly AuditException[],
+  directory: string,
+): AuditException | undefined {
+  return exceptions.find(
+    (entry) =>
+      entry.advisory === advisory.id &&
+      entry.dependency === advisory.name &&
+      entry.packages.includes(directory),
+  );
+}
+
 /**
  * Why the audit of the package directory `directory` fails: each gated
- * advisory without an exception for that directory, and each exception for it
- * that the report does not need, so that it is removed once a fix is adopted.
+ * advisory without an exception for that directory, each package that npm
+ * gates for a reason this reading does not find, and each exception for that
+ * directory that the report does not need, so that it is removed once it no
+ * longer applies.
  */
 export function auditProblems(
-  advisories: readonly Advisory[],
+  report: AuditReport,
   exceptions: readonly AuditException[],
   directory: string,
 ): string[] {
-  const applying = exceptions.filter((entry) => entry.packages.includes(directory));
-  const excepted = new Set(applying.map((entry) => entry.advisory));
-  const gated = advisories.filter((advisory) => GATED.has(advisory.severity));
+  const gated = report.advisories.filter((advisory) => isGated(advisory.severity));
   const problems = gated
-    .filter((advisory) => !excepted.has(advisory.id))
+    .filter((advisory) => exceptionFor(advisory, exceptions, directory) === undefined)
     .map(
       (advisory) =>
-        `${advisory.id} (${advisory.severity}) in ${advisory.name} ${advisory.range}: ${advisory.title} (${advisory.url})`,
+        `${advisory.id} (${advisory.severity}) in ${advisory.name} ${advisory.range}: ${advisory.title} (${advisory.url || "no URL"})`,
     );
-  const reported = new Set(gated.map((advisory) => advisory.id));
-  for (const entry of applying) {
-    if (!reported.has(entry.advisory)) {
+  for (const name of report.unexplained) {
+    problems.push(`npm gates ${name}, but the report names no gated advisory for it`);
+  }
+  for (const entry of exceptions.filter((item) => item.packages.includes(directory))) {
+    const used = gated.some((advisory) => exceptionFor(advisory, [entry], directory) === entry);
+    if (!used) {
       problems.push(
-        `${entry.advisory} is no longer reported at high or critical severity in ${directory}: remove its exception (${entry.issue})`,
+        `${entry.advisory} in ${entry.dependency} is no longer reported above moderate severity in ${directory}: remove its exception (${entry.issue})`,
       );
     }
   }

@@ -160,13 +160,16 @@ that a new Obsidian release is tested within a week. The Docker image is built a
 on request.
 
 The dependency audit, `npm run check:audit` for the root package and
-`npm run check:audit -- test/e2e` for the test tools, fails on any high or critical advisory unless
-[`.github/audit-exceptions.json`](.github/audit-exceptions.json) lists it for that package. Moderate
-and low advisories are listed but do not fail it. An exception is only for an advisory that no
-release fixes yet and that cannot affect the project. It links an issue that shows why and says
-when to remove it, and the pinned dependency overview
-([#2](https://github.com/viell-dev/slop-html-page-viewer/issues/2)) lists that issue. The audit
-also fails on an exception that it no longer needs, so that the entry goes once a fix is adopted.
+`npm run check:audit -- test/e2e` for the test tools, fails on any advisory above moderate severity
+unless [`.github/audit-exceptions.json`](.github/audit-exceptions.json) lists it for the affected
+dependency and that package directory. It also fails on a severity that npm does not define and on
+a report that it cannot fully read. Moderate, low, and informational advisories are listed but do
+not fail it. An exception is only for an advisory that no release fixes yet and that cannot affect
+the project. It links an issue that shows why and says when to remove it, and the pinned
+dependency overview ([#2](https://github.com/viell-dev/slop-html-page-viewer/issues/2)) lists that
+issue. The audit fails on an exception that it no longer needs, so that the entry goes: when a
+lockfile update adopts a fix, that update fails until it also removes the entry, and when GitHub
+withdraws, downgrades, or narrows the advisory, every branch fails until the entry is removed.
 
 ## Branches
 
