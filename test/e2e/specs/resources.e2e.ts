@@ -24,7 +24,7 @@ const ORANGE: Color = [239, 108, 0];
 const IMAGE_PIXELS = 64 * 64;
 
 describe("A page's local files in Obsidian", function () {
-  it("keeps CSS resource-like text visible while loading real resources (#91)", async function () {
+  it("keeps CSS resource-like text visible while loading real resources, also in shadow DOM (#91)", async function () {
     await browser.executeObsidian(async ({ app }) => {
       await app.vault.create(
         "Css tokens.css",
@@ -32,7 +32,8 @@ describe("A page's local files in Obsidian", function () {
       );
       await app.vault.create(
         "Css tokens.html",
-        `<link rel="stylesheet" href="Css tokens.css"><p>Text</p>`,
+        `<link rel="stylesheet" href="Css tokens.css"><p>Text</p>` +
+          `<div id="host"><template shadowrootmode="closed"><link rel="stylesheet" href="Css tokens.css"><p>Shadow</p></template></div>`,
       );
     });
     try {
@@ -40,13 +41,16 @@ describe("A page's local files in Obsidian", function () {
       await waitForPage();
       const shown = await browser.execute((active) => {
         const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
-        const p = doc.querySelector("p")!;
-        return {
+        const read = (p: Element) => ({
           content: doc.defaultView!.getComputedStyle(p, "::after").content,
           color: doc.defaultView!.getComputedStyle(p).color,
-        };
+        });
+        // With scripts off, the copy declares the shadow root open.
+        const shadow = doc.querySelector("#host")!.shadowRoot!.querySelector("p")!;
+        return { page: read(doc.querySelector("p")!), shadow: read(shadow) };
       }, ACTIVE);
-      expect(shown).toEqual({ content: '"url(ghost.png)"', color: "rgb(46, 125, 50)" });
+      const expected = { content: '"url(ghost.png)"', color: "rgb(46, 125, 50)" };
+      expect(shown).toEqual({ page: expected, shadow: expected });
     } finally {
       await browser.executeObsidian(async ({ app }) => {
         for (const path of ["Css tokens.html", "Css tokens.css"]) {

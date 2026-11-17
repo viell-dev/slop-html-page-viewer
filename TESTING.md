@@ -95,9 +95,9 @@ whitespace-terminated hex escapes, U+0000 in linked stylesheets, top-level impor
 local-file copying pass, in `<style>` elements and linked stylesheets, the document's and a shadow
 root's alike (#124). They also check that 20,000 malformed URL openers preserve their text within
 2 s, and that linked stylesheet imports keep their cycle and eight-file depth limits, also in a
-shadow root. `resources.e2e.ts` checks generated content beside an applied
-local stylesheet in real Obsidian. `scripts/css-benchmark.mjs` reports a revision's time and peak
-memory for synthetic 300 KB and 4 MB stylesheets, as observations rather than a check.
+shadow root. `resources.e2e.ts` checks generated content beside an applied local stylesheet in real
+Obsidian, in the document and in a shadow root. `scripts/css-benchmark.mjs` reports a revision's
+time and peak memory for synthetic 300 KB and 4 MB stylesheets, as observations rather than a check.
 
 ## Shown to fail
 
