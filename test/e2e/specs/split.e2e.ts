@@ -31,7 +31,6 @@ async function topParagraph(): Promise<number> {
     const frame = document.querySelector<HTMLIFrameElement>(
       `${active} iframe.html-page-viewer__frame`,
     );
-    // In source order: a shadow root's paragraphs before its host's own content.
     const paragraphs: Element[] = [];
     const collect = (root: ParentNode): void => {
       for (const element of root.querySelectorAll("*")) {
@@ -40,9 +39,48 @@ async function topParagraph(): Promise<number> {
       }
     };
     if (frame?.contentDocument) collect(frame.contentDocument);
-    const first = paragraphs.find((paragraph) => paragraph.getBoundingClientRect().bottom > 1);
+    // The highest of those still in view: slots show a shadow root's
+    // paragraphs and their host's own in another order than the document's.
+    let first: Element | undefined;
+    let firstTop = Infinity;
+    for (const paragraph of paragraphs) {
+      const box = paragraph.getBoundingClientRect();
+      if (box.bottom > 1 && box.top < firstTop) [first, firstTop] = [paragraph, box.top];
+    }
     return Number(/Paragraph (\d+)/.exec(first?.textContent ?? "")?.[1] ?? 0);
   }, ACTIVE);
+}
+
+/** Scrolls the page to the top of a paragraph, by its number, also in a shadow root. */
+async function scrollPageToParagraph(number: number): Promise<void> {
+  await browser.execute(
+    (active, number) => {
+      const frame = document.querySelector<HTMLIFrameElement>(
+        `${active} iframe.html-page-viewer__frame`,
+      );
+      const win = frame?.contentWindow;
+      const find = (root: ParentNode): Element | undefined => {
+        for (const element of root.querySelectorAll("*")) {
+          if (element.localName === "p" && element.textContent?.startsWith(`Paragraph ${number} `))
+            return element;
+          const inside = element.shadowRoot ? find(element.shadowRoot) : undefined;
+          if (inside) return inside;
+        }
+        return undefined;
+      };
+      const paragraph = frame?.contentDocument ? find(frame.contentDocument) : undefined;
+      if (!win || !paragraph) throw new Error(`No paragraph ${number}`);
+      win.scrollTo(0, paragraph.getBoundingClientRect().top + win.scrollY);
+    },
+    ACTIVE,
+    number,
+  );
+}
+
+/** Checks that where a side stopped is within one of where it should be. */
+function expectNear(value: number, expected: number): void {
+  expect(value).toBeGreaterThanOrEqual(expected - 1);
+  expect(value).toBeLessThanOrEqual(expected + 1);
 }
 
 /** Scrolls the split view's source to the top of a line, from 1. */
@@ -207,24 +245,37 @@ describe("The split view in Obsidian", function () {
     await waitForPage();
 
     await scrollSourceTo(39);
-    const followed = await settledNear(topParagraph, 30);
-    expect(followed).toBeGreaterThanOrEqual(29);
-    expect(followed).toBeLessThanOrEqual(31);
+    expectNear(await settledNear(topParagraph, 30), 30);
+    await scrollPageToParagraph(40);
+    expectNear(await settledNear(topLine, 49), 49);
+  });
 
-    await browser.execute((active) => {
-      const frame = document.querySelector<HTMLIFrameElement>(
-        `${active} iframe.html-page-viewer__frame`,
-      );
-      const win = frame?.contentWindow;
-      const article = frame?.contentDocument?.getElementById("article")?.shadowRoot;
-      const paragraph = [...(article?.querySelectorAll("p") ?? [])].find((p) =>
-        p.textContent?.startsWith("Paragraph 40 "),
-      );
-      if (!win || !paragraph) throw new Error("No paragraph 40");
-      win.scrollTo(0, paragraph.getBoundingClientRect().top + win.scrollY);
-    }, ACTIVE);
-    const line = await settledNear(topLine, 49);
-    expect(line).toBeGreaterThanOrEqual(48);
-    expect(line).toBeLessThanOrEqual(50);
+  it("keeps in step with a page whose body has a shadow root (#124)", async function () {
+    // In the body's shadow root, after a tall figure, paragraph N is on line
+    // 9 + N; after it, in the body's own content, on line 11 + N.
+    await openInActiveTab("Saved/Shadow body.html");
+    await clickToolbarButton("Split");
+    await waitForPage();
+
+    await scrollSourceTo(39);
+    expectNear(await settledNear(topParagraph, 30), 30);
+    await scrollPageToParagraph(70);
+    expectNear(await settledNear(topLine, 81), 81);
+  });
+
+  it("keeps in step with a shadow root declared after some of its host's content (#124)", async function () {
+    // Paragraph N is on line 8 + N before the declaration, on line 11 + N in
+    // the shadow root, and on line 13 + N after it; the slots show them in
+    // that order.
+    await openInActiveTab("Saved/Shadow late.html");
+    await clickToolbarButton("Split");
+    await waitForPage();
+
+    await scrollSourceTo(23);
+    expectNear(await settledNear(topParagraph, 15), 15);
+    await scrollSourceTo(56);
+    expectNear(await settledNear(topParagraph, 45), 45);
+    await scrollPageToParagraph(75);
+    expectNear(await settledNear(topLine, 88), 88);
   });
 });

@@ -89,9 +89,10 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   Hovering an HTML link shows where it leads, and hovering an image shows its alt text, unless the
   page gives them titles of its own.
 
-  **Unreleased (#117):** so do links and images inside shadow DOM, and SVG links without text of
-  their own. An SVG link with text shows none: Chromium reads an SVG link's tooltip as its name for
-  assistive technology, in place of its text, so the viewer leaves the text as its name.
+  **Unreleased (#117):** so do links and images inside shadow DOM, and SVG links that nothing inside
+  names. An SVG link with text, a labelled or titled shape, or a `<use>` icon inside shows none:
+  Chromium reads an SVG link's tooltip as its name for assistive technology, in place of the name
+  that its content gives it, so the viewer leaves that name.
 
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and

@@ -18,7 +18,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   stylesheets and imports apply, and with **Local files with scripts on** its files are copied into
   a page with scripts on. In the split view, the two sides stay in step on such a page (#124).
 - Hovering a link or an image inside shadow DOM shows where the link leads and the image's alt
-  text, and hovering an SVG link without text of its own shows where it leads (#117, #124).
+  text, and hovering an SVG link without text, labels, or icons inside shows where it leads (#117,
+  #124).
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 

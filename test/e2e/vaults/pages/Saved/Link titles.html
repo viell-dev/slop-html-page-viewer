@@ -7,11 +7,15 @@
 <body>
 <p>A link and an image inside a shadow root, and SVG links, which show where they lead on hover.</p>
 <div id="shadow"><template shadowrootmode="closed"><p><a href="Other%20page.html">Another saved page, from a shadow root</a></p><img src="2026-01-15/figure.png" alt="A green square, in a shadow root" width="64" height="64"></template></div>
-<svg width="400" height="48">
+<svg width="640" height="48">
+<defs><symbol id="icon-symbol" viewBox="0 0 40 40"><title>An icon with its own title</title><rect width="40" height="40" fill="rgb(198, 40, 40)"/></symbol></defs>
 <a id="shape" href="https://example.com/shape"><rect width="40" height="40" fill="rgb(46, 125, 50)"/></a>
 <a id="legacy" xlink:href="Other%20page.html"><circle cx="80" cy="20" r="20" fill="rgb(21, 101, 192)"/></a>
 <a id="text" href="https://example.com/text"><text x="120" y="28">An SVG link with text</text></a>
 <a id="own" href="https://example.com/own"><title>The page's own title</title><rect x="340" width="40" height="40" fill="rgb(106, 27, 154)"/></a>
+<a id="labelled" href="https://example.com/labelled"><rect x="400" width="40" height="40" fill="rgb(0, 131, 143)" aria-label="A shape with a label"/></a>
+<a id="icon" href="https://example.com/icon"><use href="#icon-symbol" x="460" width="40" height="40"/></a>
+<a id="own-label" href="https://example.com/own-label" aria-label="A link with its own label"><rect x="520" width="40" height="40" fill="rgb(239, 108, 0)"/></a>
 </svg>
 </body>
 </html>

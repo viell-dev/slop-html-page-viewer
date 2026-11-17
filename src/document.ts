@@ -286,20 +286,28 @@ function linkTooltip(reference: string, absolute: string, context: PageContext):
   return vaultPath(opened, context.vaultUrl) ?? opened;
 }
 
+/** Attributes that give an element in a link a name, which becomes part of the link's. */
+const NAMING_ATTRIBUTES = ["aria-label", "aria-labelledby", "alt", "title"];
+
 /**
- * Whether an SVG link keeps what it has: a title of its own, or text, which
- * would stop being its name. Chromium shows an SVG link's `xlink:title`, or
- * else its `<title>` child, as its tooltip, never a `title` attribute, and
- * reads either as the link's name, before its text (SVG-AAM).
+ * Whether an SVG link keeps what it has: a title of its own, or content that
+ * may name it. Chromium shows an SVG link's `xlink:title`, or else its
+ * `<title>` child, as its tooltip, never a `title` attribute, and reads either
+ * as the link's name, before the name that its content gives it (SVG-AAM).
+ * That name can come from text, from the labels and titles of the elements
+ * inside, and from what a `<use>` shows, which is not followed here; any of
+ * them keeps the link as it is. The link's own `aria-label` or
+ * `aria-labelledby` names it before a title does, so a link with one still
+ * gets the tooltip.
  */
 function keepsSvgLink(link: Element): boolean {
-  const titled =
-    link.hasAttribute("title") ||
-    link.hasAttributeNS(XLINK_NAMESPACE, "title") ||
-    [...link.children].some(
-      (child) => child.localName === "title" && child.namespaceURI === SVG_NAMESPACE,
-    );
-  return titled || (link.textContent ?? "").trim() !== "";
+  if (link.hasAttribute("title") || link.hasAttributeNS(XLINK_NAMESPACE, "title")) return true;
+  if ((link.textContent ?? "").trim() !== "") return true;
+  for (const element of link.querySelectorAll("*")) {
+    if (element.localName === "title" || element.localName === "use") return true;
+    if (NAMING_ATTRIBUTES.some((name) => element.hasAttribute(name))) return true;
+  }
+  return false;
 }
 
 /**
@@ -307,7 +315,7 @@ function keepsSvgLink(link: Element): boolean {
  * address in its status bar, which the viewer's frame does not have, and an
  * image's alt text only when the image does not load. A page's own titles
  * stay. An SVG link gets the tooltip as its `xlink:title`, which Chromium
- * shows, only when it has no text (`keepsSvgLink`).
+ * shows, only when nothing inside it may name it (`keepsSvgLink`).
  */
 function addTooltips(root: ParentNode, baseUrl: string, context: PageContext): void {
   for (const link of root.querySelectorAll("a, area")) {
@@ -738,8 +746,9 @@ export interface PageOptions {
   readonly copyFiles?: LocalFiles;
   /**
    * Declares the page's shadow roots open, so that the view's link listeners
-   * see the links inside them, for a page with scripts off, which has no
-   * scripts that could tell the difference.
+   * see the links inside them, and marks where each is declared, so that the
+   * split view finds its source lines (`SHADOW_ROOT_MARK`), for a page with
+   * scripts off, which has no scripts that could tell the difference.
    */
   readonly openShadowRoots?: boolean;
   /**
@@ -786,16 +795,31 @@ function templates(root: ParentNode, found: HTMLTemplateElement[] = []): HTMLTem
 }
 
 /**
- * Turns the page's closed declarative shadow roots into open ones. Parsing
- * the copy for the frame attaches them, while preparing it leaves them as
- * templates. `shadowroot` is the attribute's earlier name, which the
- * Chromium in older Obsidian installers still reads.
+ * The comment that a copy with open shadow roots has just before each
+ * template that declares one. Parsing the copy for the frame attaches the
+ * template's content to its host and leaves the template out, so that only
+ * the comment shows where among the host's own content the source has the
+ * shadow root's tags. Comments match no selector, and the page has no
+ * scripts to see them.
+ */
+export const SHADOW_ROOT_MARK = "html-page-viewer: shadow root";
+
+/**
+ * Turns the page's closed declarative shadow roots into open ones, and marks
+ * each declaration with `SHADOW_ROOT_MARK`. Parsing the copy for the frame
+ * attaches them, while preparing it leaves them as templates. `shadowroot` is
+ * the attribute's earlier name, which the Chromium in older Obsidian
+ * installers still reads.
  */
 function openShadowRoots(found: readonly HTMLTemplateElement[]): void {
   for (const template of found) {
+    let declares = false;
     for (const name of ["shadowrootmode", "shadowroot"]) {
-      if (/^closed$/i.test(template.getAttribute(name) ?? "")) template.setAttribute(name, "open");
+      const mode = template.getAttribute(name) ?? "";
+      if (/^closed$/i.test(mode)) template.setAttribute(name, "open");
+      if (/^(open|closed)$/i.test(mode)) declares = true;
     }
+    if (declares) template.before(template.ownerDocument.createComment(SHADOW_ROOT_MARK));
   }
 }
 

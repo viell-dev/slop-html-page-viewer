@@ -11,6 +11,7 @@ import {
   type PageOptions,
   pagePolicy,
   preparePage,
+  SHADOW_ROOT_MARK,
   vaultPath,
 } from "../src/document";
 import { READING_STYLE_ID } from "../src/reading";
@@ -401,6 +402,39 @@ describe("preparePage", () => {
     ]);
   });
 
+  it("marks where each shadow root is declared in a page with scripts off (#124)", async () => {
+    const html = [
+      `<div><p>light</p><template shadowrootmode="closed">`,
+      `<span><template shadowrootmode="open"></template></span></template></div>`,
+      `<div><template shadowroot="open"></template></div>`,
+      `<div><template shadowrootmode="closed "></template><template></template></div>`,
+    ].join("");
+    const marks = (output: string): [string | null, boolean][] => {
+      const found: [string | null, boolean][] = [];
+      const visit = (root: ParentNode): void => {
+        for (const template of root.querySelectorAll("template")) {
+          const before = template.previousSibling;
+          found.push([
+            template.getAttribute("shadowrootmode") ?? template.getAttribute("shadowroot"),
+            before?.nodeType === Node.COMMENT_NODE && (before as Comment).data === SHADOW_ROOT_MARK,
+          ]);
+          if (template instanceof window.HTMLTemplateElement) visit(template.content);
+        }
+      };
+      visit(parse(output));
+      return found;
+    };
+    assert.deepEqual(marks(await prepare(html, context({}), { openShadowRoots: true })), [
+      ["open", true],
+      ["open", true],
+      ["open", true],
+      ["closed ", false],
+      [null, false],
+    ]);
+    // With scripts on, the page's scripts would see the comments.
+    assert.doesNotMatch(await prepare(html, context({})), new RegExp(SHADOW_ROOT_MARK));
+  });
+
   it("declares open every shadow root of a page with more of them than a call takes arguments", async () => {
     // V8 refuses a call with about 125,000 arguments or more.
     const count = 130_000;
@@ -754,6 +788,31 @@ describe("tooltips", () => {
         ["child", null, null],
         ["xlink", "Its own", null],
         ["attribute", null, "Its own"],
+      ]);
+    });
+
+    it("leaves a link whose content may name it otherwise, as labels and titles inside do", async () => {
+      const html = [
+        `<symbol id="icon"><title>Home</title><rect/></symbol>`,
+        `<a id="labelled" href="https://example.com/"><rect aria-label="Home"/></a>`,
+        `<a id="labelledby" href="https://example.com/"><g><rect aria-labelledby="x"/></g></a>`,
+        `<a id="nested-title" href="https://example.com/"><rect><title></title></rect></a>`,
+        `<a id="described" href="https://example.com/"><g title="Home"><rect/></g></a>`,
+        `<a id="image" href="https://example.com/"><foreignObject><img alt="Home"></foreignObject></a>`,
+        `<a id="use" href="https://example.com/"><use href="#icon"/></a>`,
+        `<a id="unlabelled" href="https://example.com/"><g><rect/></g></a>`,
+        // The link's own label names it before a title, which then only describes it.
+        `<a id="own-label" href="https://example.com/" aria-label="Home"><rect/></a>`,
+      ].join("");
+      assert.deepEqual(await svgTitles(html), [
+        ["labelled", null, null],
+        ["labelledby", null, null],
+        ["nested-title", null, null],
+        ["described", null, null],
+        ["image", null, null],
+        ["use", null, null],
+        ["unlabelled", "https://example.com/", null],
+        ["own-label", "https://example.com/", null],
       ]);
     });
   });
