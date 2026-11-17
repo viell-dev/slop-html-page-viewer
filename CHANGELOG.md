@@ -8,7 +8,7 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
-Nothing that changes the plugin.
+- Release dry runs print only their proposed publishing plan, without completion messages (#129).
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 

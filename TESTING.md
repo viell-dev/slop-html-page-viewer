@@ -67,7 +67,9 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 paths, unowned contents and links are refused without deleting their targets; fresh, empty and
 previously owned outputs package successfully, including version switches and checkouts under linked
 ancestors. It checks malformed/foreign markers, file destinations, missing homes, hard-link
-preservation, and marked assets reaching the publish dry run's GitHub check.
+preservation, and marked assets reaching the publish dry run's GitHub check. The CLI dry-run
+output test rejects any GitHub write and requires only the proposed changes, without messages
+claiming publication completed; the library tests also assert that real state is unchanged.
 
 There is no standing benchmark suite: timings on CI's shared runners vary too much to fail a build
 on. Costs that could matter were measured in Obsidian in their pull requests, such as about a
