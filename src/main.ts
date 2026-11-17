@@ -301,6 +301,8 @@ class HtmlPageViewerView extends TextFileView {
   };
 
   clear(): void {
+    // A refresh still pending for what this view showed no longer owns it.
+    this.contentsVersion += 1;
     this.data = "";
     this.scriptsEnabled = this.plugin.settings.scriptsOn;
     this.iframe = null;
