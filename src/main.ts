@@ -574,7 +574,10 @@ class HtmlPageViewerView extends TextFileView {
     if (this.mode !== "rendered") {
       const source = this.contentEl.querySelector(".html-page-viewer__source");
       return source
-        ? { runs: sourceRuns(source), win: this.contentEl.ownerDocument.defaultView }
+        ? {
+            runs: this.find.query === "" ? [] : sourceRuns(source),
+            win: this.contentEl.ownerDocument.defaultView,
+          }
         : null;
     }
     if (this.scriptsEnabled) return "Find works in the source view while scripts are on.";
@@ -587,7 +590,7 @@ class HtmlPageViewerView extends TextFileView {
       style.textContent = FIND_STYLE;
       doc.head.append(style);
     }
-    return { runs: pageRuns(doc), win: doc.defaultView };
+    return { runs: this.find.query === "" ? [] : pageRuns(doc), win: doc.defaultView };
   }
 
   /** Finds the find bar's text in what the view shows, and shows the current match. */
@@ -1262,7 +1265,9 @@ function isFindKey(event: KeyboardEvent): boolean {
  * `<pre>` or a page's text directly in its body is.
  */
 function scrollToRange(range: Range): void {
-  range.startContainer.parentElement?.scrollIntoView?.({ block: "center", inline: "nearest" });
+  (
+    range.startContainer.parentElement?.closest("select") ?? range.startContainer.parentElement
+  )?.scrollIntoView?.({ block: "center", inline: "nearest" });
   const win = range.startContainer.ownerDocument?.defaultView;
   const box = range.getBoundingClientRect?.();
   if (!win || !box || (box.width === 0 && box.height === 0)) return;

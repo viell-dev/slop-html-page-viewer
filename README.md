@@ -96,6 +96,13 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   block, and leaves out text that the page hides, such as with `display: none`,
   `visibility: hidden`, or zero opacity. In the split view, it finds in the source, which the page
   follows.
+
+  **Unreleased (#122):** in the page, find also leaves out fallback content and SVG resources that
+  Obsidian never paints, still finds painted SVG text, also directly in `foreignObject`, and finds a
+  closed select's chosen option, which it cannot highlight; multiple selects, list boxes, and
+  option `label` attributes are not searched. It also searches the page's shadow roots and slots,
+  with matches ending at their boundaries (#124).
+
 - Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
   shows, also after a note in between. A new tab starts rendered.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by

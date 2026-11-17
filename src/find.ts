@@ -28,12 +28,17 @@ const UNSHOWN = new Set([
   "style",
   "template",
   "textarea",
-  "select",
+  "iframe",
+  "progress",
+  "meter",
   "head",
   "title",
   "video",
   "audio",
 ]);
+
+/** SVG definitions are laid out but are never painted at their source location. */
+const SVG_RESOURCES = new Set(["defs", "symbol", "clipPath", "mask", "pattern", "marker"]);
 
 /**
  * Display types whose contents `content-visibility: hidden` leaves shown,
@@ -62,13 +67,17 @@ const UNCONTAINED = new Set([
 /** Whether this entire subtree is hidden; visibility is checked per text owner below. */
 function isHidden(element: Element, style: CSSStyleDeclaration | undefined): boolean {
   if (element.hasAttribute("hidden") || style?.display === "none") return true;
-  if (style?.contentVisibility === "hidden" && !UNCONTAINED.has(style.display)) return true;
+  if (
+    style?.contentVisibility === "hidden" &&
+    (element.localName === "canvas" || !UNCONTAINED.has(style.display))
+  )
+    return true;
   // display:contents has no box of its own, but shows its children; opacity has no effect.
   if (style?.display === "contents") return false;
   if (style?.opacity === "0") return true;
-  // checkVisibility() catches what computed styles do not show, such as the
-  // children of a progress bar, which have no box. It takes no options: the
-  // traversal already prunes zero-opacity ancestors, and a descendant can
+  // checkVisibility() catches what computed styles do not show, such as
+  // SVG switch branches rejected by systemLanguage, which have no box.
+  // It takes no options: traversal already prunes zero-opacity ancestors, and a descendant can
   // override visibility.
   return element.checkVisibility ? !element.checkVisibility() : false;
 }
@@ -166,13 +175,60 @@ export function pageRuns(doc: Document): TextRun[] {
   const visit = (element: Element): void => {
     const style = doc.defaultView?.getComputedStyle(element);
     if (isHidden(element, style)) return;
+    if (
+      element.namespaceURI === "http://www.w3.org/2000/svg" &&
+      SVG_RESOURCES.has(element.localName)
+    )
+      return;
+    if (element.namespaceURI === "http://www.w3.org/1999/xhtml" && element.localName === "select") {
+      // A closed select paints only its chosen label. Its option has no box,
+      // so neither checkVisibility nor a text range can describe that paint.
+      end();
+      const select = element as HTMLSelectElement;
+      if (
+        !select.multiple &&
+        select.size <= 1 &&
+        style?.visibility !== "hidden" &&
+        style?.visibility !== "collapse"
+      ) {
+        const option = select.selectedOptions[0];
+        if (option && !option.hasAttribute("label")) nodes = collectText(option, []);
+      }
+      end();
+      return;
+    }
     const visibility = style?.visibility;
     const textVisible = visibility !== "hidden" && visibility !== "collapse";
     // A closed details element shows only its summary.
     const closed = element.localName === "details" && !element.hasAttribute("open");
-    for (const child of element.childNodes) {
+    let children: Iterable<Node> = element.childNodes;
+    const shadow = element.shadowRoot;
+    const slot =
+      element.namespaceURI === "http://www.w3.org/1999/xhtml" && element.localName === "slot"
+        ? (element as HTMLSlotElement)
+        : null;
+    const assigned = slot?.assignedNodes();
+    // Ranges cannot cross tree roots. Flush at shadow and slot boundaries,
+    // and visit the composed content only, never hidden light DOM twice.
+    if (shadow) {
+      end();
+      children = shadow.childNodes;
+    } else if (assigned && assigned.length > 0) {
+      end();
+      children = assigned;
+    }
+    for (const child of children) {
       if (child.nodeType === Node.TEXT_NODE) {
-        if (!closed && textVisible) nodes.push(child as Text);
+        if (
+          !closed &&
+          textVisible &&
+          // SVG paints text in text elements and directly in foreignObject,
+          // but ignores raw text in its other containers.
+          (element.namespaceURI !== "http://www.w3.org/2000/svg" ||
+            element.localName === "foreignObject" ||
+            element.closest("text"))
+        )
+          nodes.push(child as Text);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         const name = (child as Element).localName;
         if (UNSHOWN.has(name) || (closed && name !== "summary")) continue;
@@ -182,6 +238,7 @@ export function pageRuns(doc: Document): TextRun[] {
         if (block) end();
       }
     }
+    if (shadow || (assigned && assigned.length > 0)) end();
   };
   if (
     doc.body &&
@@ -263,6 +320,7 @@ export class Highlighter {
   private readonly api: HighlightApi | null;
   private matches: Range[] = [];
   private current: Range | null = null;
+  private readonly sheets = new Map<ShadowRoot, CSSStyleSheet>();
 
   constructor(win: Window | null) {
     this.api = highlightApi(win);
@@ -290,13 +348,34 @@ export class Highlighter {
   show(matches: readonly Range[], current: Range | null): void {
     this.clear();
     const all = this.highlight(MATCH_HIGHLIGHT, 0);
-    for (const range of matches) all?.add(range);
+    for (const range of matches) {
+      const root = range.startContainer.getRootNode();
+      if (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+        const shadow = root as ShadowRoot;
+        if (!this.sheets.has(shadow)) {
+          // Construct in the frame's realm: sheets cannot be adopted across documents.
+          // Adoption leaves structural selectors (including :last-child) unchanged.
+          const realm = shadow.ownerDocument.defaultView;
+          if (realm) {
+            const sheet = new realm.CSSStyleSheet();
+            sheet.replaceSync(FIND_STYLE);
+            shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet];
+            this.sheets.set(shadow, sheet);
+          }
+        }
+      }
+      all?.add(range);
+    }
     if (current) this.highlight(CURRENT_HIGHLIGHT, 1)?.add(current);
     this.matches = [...matches];
     this.current = current;
   }
 
   clear(): void {
+    for (const [shadow, sheet] of this.sheets) {
+      shadow.adoptedStyleSheets = shadow.adoptedStyleSheets.filter((entry) => entry !== sheet);
+    }
+    this.sheets.clear();
     const all = this.api?.registry.get(MATCH_HIGHLIGHT);
     for (const range of this.matches) all?.delete(range);
     if (this.current) this.api?.registry.get(CURRENT_HIGHLIGHT)?.delete(this.current);
