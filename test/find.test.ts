@@ -31,7 +31,7 @@ describe("finding text in a page", () => {
   it("leaves out text the page does not show", () => {
     const html = [
       "<p>shown</p><script>var shown;</script><style>.shown {}</style><template>shown</template>",
-      "<canvas>shown</canvas><video>shown</video><audio>shown</audio><div hidden>shown</div><details><summary>Open</summary>shown<p>shown</p></details>",
+      "<video>shown</video><audio>shown</audio><div hidden>shown</div><details><summary>Open</summary>shown<p>shown</p></details>",
     ].join("");
     assert.deepEqual(texts(html, "shown"), ["shown"]);
     assert.deepEqual(texts("<details><summary>Open</summary>more</details>", "open"), ["Open"]);
@@ -40,13 +40,38 @@ describe("finding text in a page", () => {
     ]);
   });
 
-  it("uses computed styles when checkVisibility is unavailable", () => {
-    const doc = parse(
-      `<p style="visibility:hidden">hidden<span style="visibility:visible">shown</span></p><div style="opacity:0"><span style="opacity:1">hidden</span></div><div style="display:none">hidden</div><div style="display:contents">shown</div><div style="display:contents;opacity:0">shown<span>shown</span></div><div style="content-visibility:hidden">hidden<p>hidden</p></div>`,
-    );
+  it("finds a canvas's fallback text, which a page with scripts off shows", () => {
+    assert.deepEqual(texts("<canvas>Chart <b>of</b> sales</canvas>", "chart of sales"), [
+      "Chart of sales",
+    ]);
+  });
+
+  /** A page whose computed styles the window can read, as a page in Obsidian's frame. */
+  function styled(html: string): Document {
+    const doc = parse(html);
     Object.defineProperty(doc, "defaultView", { value: window });
+    return doc;
+  }
+
+  it("uses computed styles when checkVisibility is unavailable", () => {
+    const doc = styled(
+      `<p style="visibility:hidden">hidden<span style="visibility:visible">shown</span></p><div style="opacity:0"><span style="opacity:1">hidden</span></div><div style="display:none">hidden</div><div style="display:contents">shown</div><div style="display:contents;opacity:0">shown<span>shown</span></div>`,
+    );
     assert.deepEqual(findRanges(pageRuns(doc), "hidden").ranges, []);
     assert.equal(findRanges(pageRuns(doc), "shown").ranges.length, 4);
+    assert.deepEqual(
+      findRanges(pageRuns(styled(`<html style="opacity:0"><p>hidden</p></html>`)), "hidden").ranges,
+      [],
+    );
+  });
+
+  it("leaves out what content-visibility hides, where it applies", () => {
+    const doc = styled(
+      `<div style="content-visibility:hidden">hidden<p>hidden</p></div><table><tr><td style="content-visibility:hidden">hidden</td></tr></table>` +
+        `<span style="content-visibility:hidden">shown</span><div style="display:contents;content-visibility:hidden">shown</div><table style="content-visibility:hidden"><tr><td>shown</td></tr></table>`,
+    );
+    assert.deepEqual(findRanges(pageRuns(doc), "hidden").ranges, []);
+    assert.equal(findRanges(pageRuns(doc), "shown").ranges.length, 3);
   });
 
   it("finds the text of noscript, which a page with scripts off shows", () => {
@@ -128,10 +153,12 @@ describe("the find bar", () => {
   const PAGE =
     "<!doctype html>\n<title>Notes</title>\n<p>A saved page about pages.</p>\n<p>Page three.</p>";
 
+  function highlights(): Map<string, Set<Range>> {
+    return (window as unknown as { CSS: { highlights: Map<string, Set<Range>> } }).CSS.highlights;
+  }
+
   function highlighted(name: string): string[] {
-    const registry = (window as unknown as { CSS: { highlights: Map<string, Set<Range>> } }).CSS
-      .highlights;
-    return [...(registry.get(name) ?? [])].map(String);
+    return [...(highlights().get(name) ?? [])].map(String);
   }
 
   function count(view: HtmlView): string | null {
@@ -221,8 +248,11 @@ describe("the find bar", () => {
         button(view, "Find in page").click();
         assert.equal(input(view).value, "three");
         assert.equal(count(view), "1 of 1");
-        press(input(view), "Escape");
       } finally {
+        // A failure above leaves the bar and its highlights for the next test.
+        const field = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__find input");
+        if (field) press(field, "Escape");
+        highlights().clear();
         view.contentEl.remove();
       }
     });

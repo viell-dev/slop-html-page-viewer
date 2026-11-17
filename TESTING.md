@@ -53,7 +53,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | Pages without styles follow Obsidian's theme and Readable line length                                                                                                              | `reading.test.ts`                                                                                                                                                         | `theme.e2e.ts`                                                                                            |
 | Settings, their defaults, and their immediate effect                                                                                                                               | `settings.test.ts`, `extensions.test.ts`, `plugin.test.ts`; the README's defaults: `consistency.test.ts`                                                                  | `settings.e2e.ts`, in Obsidian's own settings window                                                      |
 | The source view shows every character of the file, highlighted as HTML reads it                                                                                                    | `source.test.ts`, including random markup                                                                                                                                 | `viewer.e2e.ts`                                                                                           |
-| The find bar finds in the source and the page, and moves with Enter, Shift+Enter, and Escape                                                                                       | `find.test.ts`                                                                                                                                                            | `find.e2e.ts`, with Ctrl+F in the page and in the source view                                             |
+| The find bar finds in the source and the page, and moves with Enter, Shift+Enter, and Escape                                                                                       | `find.test.ts`: close paths, no-`checkVisibility` fallback, `content-visibility`                                                                                          | `find.e2e.ts`: Ctrl+F; finds exactly the words that the page paints                                       |
 | The split view keeps its two sides in step                                                                                                                                         | `split.test.ts`                                                                                                                                                           | `split.e2e.ts`, in both directions, and on a page that scrolls smoothly                                   |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                           |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not |
@@ -69,7 +69,8 @@ preservation, and marked assets reaching the publish dry run's GitHub check.
 
 There is no standing benchmark suite: timings on CI's shared runners vary too much to fail a build
 on. Costs that could matter were measured in Obsidian in their pull requests, such as about a
-second for every 8 MB copied into a page with scripts on (#58).
+second for every 8 MB copied into a page with scripts on (#58), and about 1.5 s for a search of a
+page with 80,009 elements, three times as long as before find left out hidden text (#121).
 
 ## Shown to fail
 
@@ -95,6 +96,10 @@ On 2026-10-21, each of these deliberate breakages failed the check named:
 On 2026-11-16, the earlier preparation of a page, which showed the file as it is when preparing its
 copy failed, and could fail on CSS escapes and on stylesheets that could not be read, failed
 `document.test.ts`, `rendered.test.ts`, and `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1.
+
+On 2026-11-17, find in the page that left out a canvas's fallback text, or that found the children
+of a progress bar, failed `find.e2e.ts` in Obsidian 1.5.3 and 1.15.1. Closing the find bar without
+its pending search failed only the three close tests in `find.test.ts`.
 
 On 2026-11-16, these failed the check named (#90):
 
@@ -126,6 +131,8 @@ the saved settings when it loads, each failed `lifecycle.e2e.ts` on Obsidian 1.5
   Removing the plugin, and installing or updating it through Obsidian's community plugin browser,
   where the fork is not listed, are not tested.
 - Screen readers are not tested; the tests check the labels and attributes that they read.
+- Find in the page still counts some text that Obsidian never paints, such as a progress bar's
+  fallback text and text inside SVG `<defs>`, and leaves out a closed select's chosen option (#122).
 - The 15 s limit for a corpus page is a ceiling against a page that hangs, not a measure of speed.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request

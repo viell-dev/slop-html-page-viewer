@@ -18,7 +18,11 @@ export const FIND_STYLE = [
   `::highlight(${CURRENT_HIGHLIGHT}) { background-color: rgb(255, 150, 50); color: black; }`,
 ].join("\n");
 
-/** Elements whose text a page does not show as its text. */
+/**
+ * Elements whose text a page does not show as its text. A video or an audio
+ * element never shows its fallback content. A canvas shows its own while
+ * scripts are off, which they are whenever find reaches the page.
+ */
 const UNSHOWN = new Set([
   "script",
   "style",
@@ -27,20 +31,45 @@ const UNSHOWN = new Set([
   "select",
   "head",
   "title",
-  "canvas",
   "video",
   "audio",
 ]);
 
+/**
+ * Display types whose contents `content-visibility: hidden` leaves shown,
+ * because size containment does not apply to them. As measured in Obsidian
+ * 1.5.3 and 1.15.1, Chromium departs from CSS for one: it hides a table
+ * cell's contents.
+ */
+const UNCONTAINED = new Set([
+  "contents",
+  "inline",
+  "ruby",
+  "table",
+  "inline-table",
+  "table-row-group",
+  "table-header-group",
+  "table-footer-group",
+  "table-row",
+  "table-column-group",
+  "table-column",
+  "ruby-base",
+  "ruby-text",
+  "ruby-base-container",
+  "ruby-text-container",
+]);
+
 /** Whether this entire subtree is hidden; visibility is checked per text owner below. */
 function isHidden(element: Element, style: CSSStyleDeclaration | undefined): boolean {
-  if (element.hasAttribute("hidden")) return true;
-  if (style?.display === "none" || style?.contentVisibility === "hidden") return true;
+  if (element.hasAttribute("hidden") || style?.display === "none") return true;
+  if (style?.contentVisibility === "hidden" && !UNCONTAINED.has(style.display)) return true;
   // display:contents has no box of its own, but shows its children; opacity has no effect.
   if (style?.display === "contents") return false;
   if (style?.opacity === "0") return true;
-  // The top-down traversal already prunes zero-opacity ancestors. Visibility can
-  // be overridden by descendants, so neither option belongs in checkVisibility.
+  // checkVisibility() catches what computed styles do not show, such as the
+  // children of a progress bar, which have no box. It takes no options: the
+  // traversal already prunes zero-opacity ancestors, and a descendant can
+  // override visibility.
   return element.checkVisibility ? !element.checkVisibility() : false;
 }
 
