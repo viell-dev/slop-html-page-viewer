@@ -115,6 +115,7 @@ export const config: WebdriverIO.Config = {
           specs("settings.e2e.ts"),
           specs("find.e2e.ts"),
           specs("split.e2e.ts"),
+          specs("move.e2e.ts"),
           specs("read-only.e2e.ts"),
         ],
       ),

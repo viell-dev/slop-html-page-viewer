@@ -22,6 +22,7 @@ import {
 import { type PaneChoice, watchLinks } from "./links";
 import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
+import { isPinned, type ScrollPlace, scrollInstantly, scrollPlace, showPlace } from "./scrolling";
 import {
   DEFAULT_SETTINGS,
   readSettings,
@@ -691,14 +692,29 @@ class HtmlPageViewerView extends TextFileView {
     if (!iframe || this.shownStyle === null) return;
     const next = this.readingStyle();
     if (next === this.shownStyle) return;
-    const style = iframe.contentDocument?.getElementById(READING_STYLE_ID);
-    if (style) {
-      style.textContent = styleElementText(next);
-      this.shownStyle = next;
-    } else if (this.scriptsEnabled) {
+    if (this.scriptsEnabled) {
       // With scripts on, the page has an opaque origin, so prepare it again.
       this.render();
+      return;
     }
+    // The frame's document takes it now, or the next one as soon as the view
+    // watches it.
+    this.shownStyle = next;
+    const doc = iframe.contentDocument;
+    if (doc) this.restyle(doc);
+  }
+
+  /**
+   * Gives a document of the frame the reading style that the view shows. The
+   * frame loads the copy as it was prepared whenever it loads it again, as when
+   * its tab moves to another tab group or window, so a style that the view has
+   * changed in place since then would be undone (#126).
+   */
+  private restyle(doc: Document): void {
+    if (this.shownStyle === null) return;
+    const style = doc.getElementById(READING_STYLE_ID);
+    const text = styleElementText(this.shownStyle);
+    if (style && style.textContent !== text) style.textContent = text;
   }
 
   private renderIframe(parent: HTMLElement): void {
@@ -817,6 +833,8 @@ class HtmlPageViewerView extends TextFileView {
       poll();
     };
     const watched = new WeakSet<Document>();
+    /** Where the frame's previous document was scrolled to when the frame dropped it (#126). */
+    const frame: { place: ScrollPlace | null } = { place: null };
     const watch = (): boolean => {
       // Only a page with Obsidian's origin (scripts off) can be reached.
       const doc = iframe.contentDocument;
@@ -837,21 +855,7 @@ class HtmlPageViewerView extends TextFileView {
         // the frame has run: while pagehide runs, this one is still the
         // frame's, and a timer would end with a window that closes.
         doc.defaultView?.addEventListener("pagehide", () => queueMicrotask(look));
-        // Search the page, and follow its scrolling in the split view, as soon
-        // as its text is there, before its images load.
-        const parsed = (): void => {
-          this.runFind();
-          if (this.mode === "split") this.syncScrolling(iframe, doc);
-        };
-        if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", parsed);
-        else parsed();
-        // Keys pressed in the page go to its own document, not to Obsidian.
-        doc.addEventListener("keydown", (event) => {
-          if (isFindKey(event)) {
-            event.preventDefault();
-            this.openFind();
-          }
-        });
+        this.showDocument(iframe, doc, frame);
       }
       return true;
     };
@@ -863,6 +867,56 @@ class HtmlPageViewerView extends TextFileView {
     }
 
     look();
+    // A change of the theme or of Readable line length while the copy was
+    // being prepared had no style to change yet.
+    this.updateTheme();
+  }
+
+  /**
+   * Shows a document of the frame as the view shows its page, once the view
+   * watches it: in the reading style that the view shows, where the frame's
+   * previous document was, with the find bar's matches, in step with the
+   * source in the split view, and with the find keys. `frame.place` is where
+   * the previous document was scrolled to when the frame dropped it, as when
+   * its tab moved to another tab group or window (#126).
+   */
+  private showDocument(
+    iframe: HTMLIFrameElement,
+    doc: Document,
+    frame: { place: ScrollPlace | null },
+  ): void {
+    this.restyle(doc);
+    // The listeners that the view adds for this document outside it, as on
+    // the split view's source, which outlive it unless removed.
+    const showing = new AbortController();
+    let placed = false;
+    // While pagehide runs, the document still has its layout, so it can say
+    // where it is scrolled to; one that has not been placed yet keeps the
+    // place that it was to show.
+    doc.defaultView?.addEventListener("pagehide", () => {
+      showing.abort();
+      if (placed) frame.place = scrollPlace(doc);
+    });
+    // Search the page, follow its scrolling in the split view, and show it
+    // where the previous document was, as soon as its text is there, before
+    // its images load. The reader's input in the view, as in the split view's
+    // source or the find bar, also counts as their own scrolling.
+    const parsed = (): void => {
+      this.restyle(doc);
+      this.runFind();
+      if (frame.place) showPlace(doc, frame.place, [this.contentEl], showing.signal);
+      placed = true;
+      if (this.mode === "split") this.syncScrolling(iframe, doc, showing.signal);
+    };
+    if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", parsed);
+    else parsed();
+    // Keys pressed in the page go to its own document, not to Obsidian.
+    doc.addEventListener("keydown", (event) => {
+      if (isFindKey(event)) {
+        event.preventDefault();
+        this.openFind();
+      }
+    });
   }
 
   /**
@@ -880,9 +934,10 @@ class HtmlPageViewerView extends TextFileView {
 
   /**
    * Keeps the split view's source and page scrolling in step, while the view
-   * can reach the page, from as soon as its text is there.
+   * can reach the page, from as soon as its text is there, until `signal`
+   * says that the frame no longer shows `doc`.
    */
-  private syncScrolling(iframe: HTMLIFrameElement, doc: Document): void {
+  private syncScrolling(iframe: HTMLIFrameElement, doc: Document, signal: AbortSignal): void {
     const win = doc.defaultView;
     const source = this.contentEl.querySelector<HTMLElement>(
       ".html-page-viewer__split .html-page-viewer__source",
@@ -902,9 +957,7 @@ class HtmlPageViewerView extends TextFileView {
           (element) => {
             const box = element.getBoundingClientRect();
             if (box.width === 0 && box.height === 0) return null;
-            // A fixed or sticky element is where the window is, not where it is in the page.
-            const position = win.getComputedStyle(element).position;
-            return position === "fixed" || position === "sticky" ? null : box.top + win.scrollY;
+            return isPinned(element, win) ? null : box.top + win.scrollY;
           },
           { lines, height: root.scrollHeight },
         ),
@@ -919,21 +972,8 @@ class HtmlPageViewerView extends TextFileView {
       () => source.scrollHeight,
       now,
     );
-    // Instantly, also on a page whose own style scrolls smoothly, which would
-    // move it in steps that each report a scroll. A Chromium that does not
-    // know "instant" throws; then the page's style is set aside for the move.
-    const scroll = (target: Element | Window, top: number): void => {
-      try {
-        target.scrollTo({ top, behavior: "instant" as ScrollBehavior });
-      } catch {
-        const saved = root.style.getPropertyValue("scroll-behavior");
-        // eslint-disable-next-line obsidianmd/no-static-styles-assignment -- the page's root, for one move
-        root.style.setProperty("scroll-behavior", "auto");
-        target.scrollTo({ top });
-        if (saved) root.style.setProperty("scroll-behavior", saved);
-        else root.style.removeProperty("scroll-behavior");
-      }
-    };
+    const scroll = (target: Element | Window, top: number): void =>
+      scrollInstantly(target, root, { top });
     const follower = new ScrollFollower(
       {
         source: {
@@ -956,11 +996,11 @@ class HtmlPageViewerView extends TextFileView {
       },
       (run) =>
         main.requestAnimationFrame(() => {
-          if (this.iframe === iframe) run();
+          if (this.iframe === iframe && !signal.aborted) run();
         }),
     );
-    source.addEventListener("scroll", () => follower.scrolled("source"));
-    win.addEventListener("scroll", () => follower.scrolled("page"));
+    source.addEventListener("scroll", () => follower.scrolled("source"), { signal });
+    win.addEventListener("scroll", () => follower.scrolled("page"), { signal });
   }
 
   /**

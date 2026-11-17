@@ -120,6 +120,10 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 
 - Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
   shows, also after a note in between. A new tab starts rendered.
+- **Unreleased (#126):** When its tab moves to another tab group or window, a page keeps the theme
+  and line width that it shows and, for a page that scrolls as a whole, its place, and the split
+  view's two sides stay in step there. The place is the part of the page at the window's top, so it
+  holds where the page wraps differently in its new pane.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
   on by default; and **File extensions**, `html, htm` by default.
@@ -144,6 +148,20 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 - **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
   them, so a link opens in the frame itself. For the same reason, the find bar then finds only in
   the source view, and the split view's sides scroll apart.
+- **Unreleased (#126):** **A page with scripts on starts again from its top** when its tab moves to
+  another tab group or window, and its scripts run again: the viewer cannot reach the page to keep
+  its place. On Obsidian 1.5.3, the **Source** view also starts again from its top after such a
+  move ([#135](https://github.com/viell-dev/slop-html-page-viewer/issues/135)).
+- **Unreleased (#126):** **Parts of a page that scroll by themselves start again from their
+  beginning** when its tab moves to another tab group or window, as does a page that scrolls only
+  inside such a part, such as a main column beside a sidebar, or a wide table or code block in a box
+  of its own. Only the place of the page as a whole is kept. A part that the page opens, such as a
+  `<details>` element or a section that a checkbox shows, is closed again. A page whose place was
+  inside it shows the closed part at the window's top: a `<details>` element with its summary, and a
+  section that the page's styles close by its height from where its content would begin, so that a
+  heading just before it is just above the window's top, or in view when an element around the
+  section clips it too. For a section that they hide so that it
+  takes no space, the page shows the element around it from that element's top.
 - **A link to a part of another page** opens that page at its top.
 - **A link that SVG `<use>` copies** from elsewhere in the page does nothing when clicked: the
   viewer cannot tell which copied link it is, and the page stays in its frame.

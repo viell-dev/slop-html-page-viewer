@@ -6,6 +6,7 @@ import {
   activeFile,
   clickInPage,
   clickToolbarButton,
+  moveActiveTab,
   openInActiveTab,
   VIEW_TYPE,
   waitForPage,
@@ -124,39 +125,6 @@ async function withPageStillLoading(body: string, test: () => Promise<void>): Pr
     server.closeAllConnections();
     server.close();
   }
-}
-
-/**
- * Moves the active tab to a new tab group beside it, with the calls that
- * Obsidian makes when a tab is dropped on another tab group, or to a new
- * window, as the tab's menu does. Either way Obsidian moves the tab's
- * elements, and the frame drops its document and loads its copy again.
- */
-async function moveActiveTab(to: "group" | "window"): Promise<void> {
-  await browser.executeObsidian(({ app }, to) => {
-    const leaf = app.workspace.getMostRecentLeaf()!;
-    const frame = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe")!;
-    frame.dataset.e2eMoved = "";
-    frame.contentDocument!.documentElement.dataset.e2eBefore = "";
-    if (to === "window") {
-      app.workspace.moveLeafToPopout(leaf);
-      return;
-    }
-    // Not in Obsidian's API types; 1.5.3 and 1.15.1 have them.
-    interface Parent {
-      children: unknown[];
-      removeChild(child: unknown): void;
-      insertChild(index: number, child: unknown): void;
-      selectTabIndex(index: number): void;
-    }
-    const moved = leaf as unknown as { parent: Parent; setDimension(size: null): void };
-    const split = app.workspace.getLeaf("split", "vertical") as unknown as { parent: Parent };
-    moved.parent.removeChild(leaf);
-    moved.setDimension(null);
-    split.parent.insertChild(-1, leaf);
-    split.parent.selectTabIndex(split.parent.children.indexOf(leaf));
-    app.workspace.setActiveLeaf(leaf, { focus: true });
-  }, to);
 }
 
 interface MovedFrame {
