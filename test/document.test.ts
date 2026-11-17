@@ -356,6 +356,77 @@ describe("preparePage", () => {
     assert.equal(page.querySelectorAll('meta[http-equiv="content-type"]').length, 1);
   });
 
+  it("declares the shadow roots in a page with scripts off open, also nested ones", async () => {
+    const html = [
+      `<div><template shadowrootmode="closed"><a href="a.html">a</a>`,
+      `<div><template shadowrootmode="Closed"><a href="b.html">b</a></template></div></template></div>`,
+      `<div><template shadowroot="CLOSED"><a href="c.html">c</a></template></div>`,
+      `<div><template shadowrootmode="open"></template></div>`,
+      // Not a keyword, so the browser attaches no shadow root.
+      `<div><template shadowrootmode="closed "></template></div>`,
+      `<template><div><template shadowrootmode="closed"></template></div></template>`,
+      `<svg><template shadowrootmode="closed"></template></svg>`,
+    ].join("");
+    const modes = (output: string): (string | null)[] => {
+      const found: (string | null)[] = [];
+      const visit = (root: ParentNode): void => {
+        for (const element of root.querySelectorAll("template")) {
+          found.push(element.getAttribute("shadowrootmode") ?? element.getAttribute("shadowroot"));
+          if (element instanceof window.HTMLTemplateElement) visit(element.content);
+        }
+      };
+      visit(parse(output));
+      return found;
+    };
+    assert.deepEqual(modes(await prepare(html, context({}), { openShadowRoots: true })), [
+      "open",
+      "open",
+      "open",
+      "open",
+      "closed ",
+      null,
+      "open",
+      "closed",
+    ]);
+    // With scripts on, the page's own scripts may depend on them being closed.
+    assert.deepEqual(modes(await prepare(html, context({}))), [
+      "closed",
+      "Closed",
+      "CLOSED",
+      "open",
+      "closed ",
+      null,
+      "closed",
+      "closed",
+    ]);
+  });
+
+  it("declares open every shadow root of a page with more of them than a call takes arguments", async () => {
+    // V8 refuses a call with about 125,000 arguments or more.
+    const count = 130_000;
+    const inner = `<template shadowrootmode="closed"></template>`.repeat(count);
+    const html = `<div><template shadowrootmode="open">${inner}</template></div>`;
+    const output = await prepare(html, context({}), { openShadowRoots: true });
+    assert.equal(output.split(`shadowrootmode="open"`).length - 1, count + 1);
+    assert.doesNotMatch(output, /closed/);
+  });
+
+  it("makes the copy's root inert only when asked, and leaves a page's own inert root", async () => {
+    const asked = await preparePage("<p>x</p>", context({}), { inertUntilWatched: true });
+    assert.equal(asked.madeInert, true);
+    assert.equal(parse(asked.html).documentElement.getAttribute("inert"), "");
+
+    const own = await preparePage(`<html inert><p>x</p>`, context({}), {
+      inertUntilWatched: true,
+    });
+    assert.equal(own.madeInert, false, "the view must not make the page act");
+    assert.equal(parse(own.html).documentElement.hasAttribute("inert"), true);
+
+    const unasked = await preparePage("<p>x</p>", context({}));
+    assert.equal(unasked.madeInert, false);
+    assert.equal(parse(unasked.html).documentElement.hasAttribute("inert"), false);
+  });
+
   it("keeps the doctype, or its absence", async () => {
     assert.match(await prepare("<!DOCTYPE html><p>x</p>", context({})), /^<!DOCTYPE html>\n<html>/);
     assert.match(await prepare("<p>quirks</p>", context({})), /^<html>/);

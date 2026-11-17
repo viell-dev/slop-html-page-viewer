@@ -718,6 +718,7 @@ class HtmlPageViewerView extends TextFileView {
     this.copyingFiles = copyFiles !== undefined;
     let page: string;
     let ownStyles = false;
+    let madeInert = false;
     let shownStyle: string | null = null;
     let leftOut = 0;
     try {
@@ -731,10 +732,19 @@ class HtmlPageViewerView extends TextFileView {
           locate: (linktext) =>
             this.app.metadataCache.getFirstLinkpathDest(linktext, file.path)?.path ?? null,
         },
-        { readingStyle, copyFiles },
+        // With scripts off, the view follows the page's links, also those in
+        // shadow roots, and no document of the frame acts before the view
+        // watches it.
+        {
+          readingStyle,
+          copyFiles,
+          openShadowRoots: !this.scriptsEnabled,
+          inertUntilWatched: !this.scriptsEnabled,
+        },
       );
       page = prepared.html;
       ownStyles = prepared.ownStyles;
+      madeInert = prepared.madeInert;
       leftOut = prepared.copiedFiles?.leftOut ?? 0;
       // preparePage adds the reading style only to pages without styles.
       shownStyle = ownStyles ? null : (readingStyle ?? null);
@@ -754,11 +764,33 @@ class HtmlPageViewerView extends TextFileView {
             : `${leftOut} local files were left out of the page, over the size limits.`,
       });
     }
+    const sameOrigin = (iframe.getAttribute("sandbox") ?? "").includes("allow-same-origin");
+    /**
+     * Watches the frame's next document as soon as it exists, which is long
+     * before its images have loaded and the frame fires load, whose listener
+     * watches it otherwise. The page stays inert until then.
+     */
+    const look = (): void => {
+      if (!sameOrigin) return;
+      // A timer, not requestAnimationFrame, which pauses in windows that are
+      // not painted. Without animation frames the window renders nothing, as
+      // in the unit tests' jsdom, and only the load event remains.
+      const win = iframe.ownerDocument.defaultView;
+      if (!win?.requestAnimationFrame) return;
+      const started = Date.now();
+      const poll = (): void => {
+        // A move detaches and reinserts the same frame; only a newer frame ends
+        // the wait, so a move spread over several tasks is still watched.
+        if (watch() || this.iframe !== iframe || Date.now() - started > 10_000) return;
+        win.setTimeout(poll, 15);
+      };
+      poll();
+    };
     const watched = new WeakSet<Document>();
     const watch = (): boolean => {
       // Only a page with Obsidian's origin (scripts off) can be reached.
       const doc = iframe.contentDocument;
-      if (!doc || doc.URL !== "about:srcdoc") return false;
+      if (!doc || doc.URL !== "about:srcdoc" || !doc.documentElement) return false;
       if (!watched.has(doc)) {
         watched.add(doc);
         watchLinks(doc, pageUrl, vaultUrl, Platform.isMacOS, {
@@ -767,6 +799,14 @@ class HtmlPageViewerView extends TextFileView {
           openExternal: (url) => window.open(url),
           refuse: () => new Notice("This link leads outside the vault, so it was not opened."),
         });
+        // Only now that its links lead where the view decides can the page act.
+        if (madeInert) doc.documentElement.removeAttribute("inert");
+        // Obsidian moves the tab's elements when the tab moves to another tab
+        // group or window, and the frame then drops this document and loads
+        // the copy again. Look for the next document once the script moving
+        // the frame has run: while pagehide runs, this one is still the
+        // frame's, and a timer would end with a window that closes.
+        doc.defaultView?.addEventListener("pagehide", () => queueMicrotask(look));
         // Search the page, and follow its scrolling in the split view, as soon
         // as its text is there, before its images load.
         const parsed = (): void => {
@@ -792,20 +832,7 @@ class HtmlPageViewerView extends TextFileView {
       this.themeButton.setAttribute("title", "This page has styles of its own");
     }
 
-    // The page's document exists long before its images have loaded and the
-    // frame fires load, so watch its links as soon as it does.
-    if (!(iframe.getAttribute("sandbox") ?? "").includes("allow-same-origin")) return;
-    // A timer, not requestAnimationFrame, which pauses in windows that are not
-    // painted. Without animation frames the window renders nothing, as in the
-    // unit tests' jsdom, and only the load event remains.
-    const win = iframe.ownerDocument.defaultView;
-    if (!win?.requestAnimationFrame) return;
-    const started = Date.now();
-    const poll = (): void => {
-      if (watch() || !iframe.isConnected || Date.now() - started > 10_000) return;
-      win.setTimeout(poll, 15);
-    };
-    poll();
+    look();
   }
 
   /**

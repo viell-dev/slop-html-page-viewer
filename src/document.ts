@@ -657,6 +657,23 @@ export interface PageOptions {
    * page with scripts on (#11).
    */
   readonly copyFiles?: LocalFiles;
+  /**
+   * Declares the page's shadow roots open, so that the view's link listeners
+   * see the links inside them, for a page with scripts off, which has no
+   * scripts that could tell the difference.
+   */
+  readonly openShadowRoots?: boolean;
+  /**
+   * Makes the page inert until the view, having added its link listeners,
+   * removes the attribute from its root, for a page with scripts off. Each
+   * document that the frame shows starts from the copy, and the frame loads
+   * the copy again whenever Obsidian moves the tab to another tab group or
+   * window; until the view finds the new document, an inert page cannot be
+   * clicked, focused, or reached with keys. On Chromium 135 to 141 a page's
+   * own CSS can override `inert` (#127), so this is a backstop, not the
+   * protection: the view watches each new document as soon as it exists.
+   */
+  readonly inertUntilWatched?: boolean;
 }
 
 export interface PreparedPage {
@@ -666,6 +683,43 @@ export interface PreparedPage {
   readonly ownStyles: boolean;
   /** What copying the page's local files did, when the options asked for it. */
   readonly copiedFiles?: CopiedFiles;
+  /**
+   * Whether preparing made the copy's root inert, which the view then removes.
+   * A page whose root is inert itself stays as it is.
+   */
+  readonly madeInert: boolean;
+}
+
+const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+
+/**
+ * The HTML templates in a document or a template's content, including those
+ * in their own content: a shadow root declared inside another one is there.
+ */
+function templates(root: ParentNode, found: HTMLTemplateElement[] = []): HTMLTemplateElement[] {
+  for (const template of root.querySelectorAll("template")) {
+    // An SVG or MathML element of that name has no content.
+    if (template.namespaceURI !== HTML_NAMESPACE) continue;
+    // Added one at a time: a page can hold more templates than a call can
+    // take arguments.
+    found.push(template);
+    templates(template.content, found);
+  }
+  return found;
+}
+
+/**
+ * Turns the page's closed declarative shadow roots into open ones. Parsing
+ * the copy for the frame attaches them, while preparing it leaves them as
+ * templates. `shadowroot` is the attribute's earlier name, which the
+ * Chromium in older Obsidian installers still reads.
+ */
+function openShadowRoots(doc: Document): void {
+  for (const template of templates(doc)) {
+    for (const name of ["shadowrootmode", "shadowroot"]) {
+      if (/^closed$/i.test(template.getAttribute(name) ?? "")) template.setAttribute(name, "open");
+    }
+  }
 }
 
 /** Whether a page has a stylesheet of its own: a <style> or a stylesheet link. */
@@ -732,6 +786,10 @@ export async function preparePage(
   for (const refresh of doc.querySelectorAll("meta[http-equiv]")) {
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
+  if (options.openShadowRoots) openShadowRoots(doc);
+  const root = doc.documentElement;
+  const madeInert = options.inertUntilWatched === true && !root.hasAttribute("inert");
+  if (madeInert) root.setAttribute("inert", "");
 
   // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const policy = doc.createElement("meta");
@@ -751,5 +809,5 @@ export async function preparePage(
   }
 
   const doctype = doc.doctype ? `${new XMLSerializer().serializeToString(doc.doctype)}\n` : "";
-  return { html: doctype + doc.documentElement.outerHTML, ownStyles, copiedFiles };
+  return { html: doctype + root.outerHTML, ownStyles, copiedFiles, madeInert };
 }

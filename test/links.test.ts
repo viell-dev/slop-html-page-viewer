@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { JSDOM } from "jsdom";
 import "./support/dom";
 import { type LinkActions, linkTarget, paneFor, type PaneChoice, watchLinks } from "../src/links";
 
@@ -205,6 +206,63 @@ describe("watchLinks", () => {
   it("prevents an unparsable reference without taking an action", () => {
     const { calls, click } = setUp('<a id="bad" href="http://[bad">bad</a>');
     assert.equal(click("bad"), true);
+    assert.deepEqual(calls, []);
+  });
+
+  it("follows links in open shadow roots, nested ones, and around slotted content", () => {
+    const { doc, calls } = setUp(
+      `<div id="host"></div><div id="slots"><b id="slotted">x</b></div>`,
+    );
+    const outer = doc.getElementById("host")!.attachShadow({ mode: "open" });
+    outer.innerHTML = `<a href="Other%20page.html"><span id="in-shadow">other</span></a><p id="inner-host"></p>`;
+    const inner = outer.getElementById("inner-host")!.attachShadow({ mode: "open" });
+    inner.innerHTML = `<a href="https://example.com/nested"><i>web</i></a>`;
+    doc.getElementById("slots")!.attachShadow({ mode: "open" }).innerHTML =
+      `<a href="../Notes/Topic.md"><slot></slot></a>`;
+    // A click from within a shadow root reaches the document as its host's.
+    const click = (target: Element, init: MouseEventInit = {}): boolean => {
+      const event = new window.MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        ...init,
+      });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    assert.equal(click(outer.getElementById("in-shadow")!), true);
+    assert.equal(click(inner.querySelector("i")!, { ctrlKey: true }), true);
+    assert.equal(click(doc.getElementById("slotted")!), true);
+    assert.deepEqual(calls, [
+      "vault Saved/Other page.html false Other%20page.html",
+      "external https://example.com/nested",
+      "vault Notes/Topic.md false ../Notes/Topic.md",
+    ]);
+  });
+
+  it("cancels the frame's navigations, as one from a link in a closed shadow root", () => {
+    // The Navigation API, which jsdom lacks, as the frame's window has it.
+    const frame = new JSDOM(`<!doctype html><base href="${PAGE}"><div id="host"></div>`).window;
+    const navigation = new frame.EventTarget();
+    Object.defineProperty(frame, "navigation", { value: navigation });
+    const calls: string[] = [];
+    watchLinks(frame.document, PAGE, VAULT, false, {
+      openVault: (path) => calls.push(`vault ${path}`),
+      openExternal: (url) => calls.push(`external ${url}`),
+      refuse: (url) => calls.push(`refuse ${url}`),
+    });
+    const root = frame.document.getElementById("host")!.attachShadow({ mode: "closed" });
+    root.innerHTML = `<a href="Other%20page.html"><span>other</span></a>`;
+    const click = new frame.MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+    root.querySelector("span")!.dispatchEvent(click);
+    assert.equal(click.defaultPrevented, false, "no event path shows a closed root's insides");
+    const navigate = new frame.Event("navigate", { cancelable: true });
+    navigation.dispatchEvent(navigate);
+    assert.equal(navigate.defaultPrevented, true);
     assert.deepEqual(calls, []);
   });
 

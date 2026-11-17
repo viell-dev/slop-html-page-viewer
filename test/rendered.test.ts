@@ -138,6 +138,38 @@ describe("rendered view", () => {
     );
   });
 
+  it("opens the copy's shadow roots and makes it inert until watched only with scripts off", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(
+      view,
+      "page.html",
+      `<div><template shadowrootmode="closed"><a href="other.html">Other</a></template></div>`,
+    );
+    await settle();
+    const copy = (): Document => {
+      const iframe = frame(view);
+      assert.ok(iframe);
+      return new DOMParser().parseFromString(iframe.srcdoc, "text/html");
+    };
+    const state = (page: Document) => ({
+      mode: page.querySelector("template")?.getAttribute("shadowrootmode"),
+      inert: page.documentElement.hasAttribute("inert"),
+    });
+    // With scripts off, the view follows the page's links and makes it act.
+    assert.deepEqual(state(copy()), { mode: "open", inert: true });
+
+    // With scripts on, the view cannot reach the page, whose own scripts may
+    // depend on the declared mode.
+    button(view, "Scripts OFF").click();
+    await settle();
+    assert.deepEqual(state(copy()), { mode: "closed", inert: false });
+
+    button(view, "Scripts ON").click();
+    await settle();
+    assert.deepEqual(state(copy()), { mode: "open", inert: true });
+  });
+
   it("never grants scripts together with same-origin access, nor forms, popups, or navigation", () => {
     for (const scriptsEnabled of [false, true]) {
       const tokens = sandboxValue(scriptsEnabled).split(/\s+/).filter(Boolean);

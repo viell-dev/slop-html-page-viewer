@@ -51,7 +51,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | A page whose copy cannot be prepared shows an error, never the file; an unreadable stylesheet is left out                                                                          | `rendered.test.ts`; `document.test.ts`: CSS escapes, unreadable files                                                                                                     | `resources.e2e.ts`: nothing from outside the vault on such pages either                                                          |
 | The plugin never writes to vault files, makes no network requests, and does not use the clipboard                                                                                  | `policy.test.ts` reads the built bundle; `refresh.test.ts`: Obsidian's saving, which the bundle lacks                                                                     | `read-only.e2e.ts`: files are unchanged once they leave the view, also after refreshes                                           |
 | A page shows its local images, stylesheets, and fonts; references resolve by path or by name                                                                                       | `document.test.ts`                                                                                                                                                        | `resources.e2e.ts`, `corpus.e2e.ts`                                                                                              |
-| HTML and SVG links, including nested anchors, stay in the copy; fragments follow id/name/top precedence                                                                            | `links.test.ts`                                                                                                                                                           | `links.e2e.ts`                                                                                                                   |
+| HTML and SVG links, also nested and in shadow roots, stay in the copy, which no other navigation leaves and which acts only once watched; fragments follow id/name/top precedence  | `links.test.ts`; `document.test.ts`: shadow roots, inert copy; `rendered.test.ts`: only with scripts off                                                                  | `links.e2e.ts`, also after the tab moves to another tab group or window                                                          |
 | Pages without styles follow Obsidian's theme and Readable line length                                                                                                              | `reading.test.ts`                                                                                                                                                         | `theme.e2e.ts`                                                                                                                   |
 | Settings, their defaults, and their immediate effect                                                                                                                               | `settings.test.ts`, `extensions.test.ts`, `plugin.test.ts`; the README's defaults: `consistency.test.ts`                                                                  | `settings.e2e.ts`, in Obsidian's own settings window                                                                             |
 | The source view shows every character of the file, highlighted as HTML reads it                                                                                                    | `source.test.ts`, including random markup                                                                                                                                 | `viewer.e2e.ts`                                                                                                                  |
@@ -118,8 +118,34 @@ On 2026-11-17, find in the page that left out a canvas's fallback text, or that 
 of a progress bar, failed `find.e2e.ts` in Obsidian 1.5.3 and 1.15.1. Closing the find bar without
 its pending search failed only the three close tests in `find.test.ts`.
 
+On 2026-11-17, the earlier handling of links, which found a clicked link from the event's target,
+where a shadow root hides it, failed `links.test.ts`, `document.test.ts`, and `links.e2e.ts` in
+Obsidian 1.5.3 and 1.15.1. Finding links along the event's path instead, while leaving the copy's
+shadow roots closed and the frame's other navigations uncanceled, still failed `links.e2e.ts` in
+both versions.
+
+On 2026-11-17, these failed `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1:
+
+- Leaving the view to watch a frame's new document only when it loads, without making the copy
+  inert: after the tab moved to another tab group or window, a link clicked before the page loaded
+  again navigated the frame away from the page, and a copy of the frame that the view did not
+  watch followed its links.
+- Making the copy inert, but watching the new document only when it loads: the moved page could
+  not follow its links before it loaded.
+- Watching the new document at once, without making the copy inert: the unwatched copy of the
+  frame followed its links.
+- Leaving out the cancellation of the frame's other navigations: a click on a link in a closed
+  shadow root that the page did not declare, and one on a link copied by SVG `<use>`, each started
+  a navigation that nothing canceled.
+
+Collecting a page's templates by passing them all to one call failed `document.test.ts` on a page
+with more of them than a call can take.
+
 ## Limits
 
+- On Chromium 135 to 141, which some Obsidian versions between the tested ones use, a page's own
+  styles can lift the copy's inertness before the view watches it (#127). Neither tested host is
+  affected; there the view's listeners, added as soon as each document exists, still protect it.
 - Linux desktop is the supported Obsidian target. Windows provides additional build and unit-test
   coverage, and can run Linux Obsidian in Docker. Windows Obsidian, macOS, and mobile are outside
   the support scope; the manifest prevents mobile installation (#65).
@@ -136,6 +162,10 @@ its pending search failed only the three close tests in `find.test.ts`.
   Removing the plugin, and installing or updating it through Obsidian's community plugin browser,
   where the fork is not listed, are not tested.
 - Screen readers are not tested; the tests check the labels and attributes that they read.
+- With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
+  the browser's own shadow tree, which hides from the view which link was clicked, and the view
+  cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`
+  for icons, inside a link around the `<svg>`, which is followed as usual.
 - Find in the page still counts some text that Obsidian never paints, such as text directly
   inside a progress bar and text inside SVG `<defs>`, and leaves out a closed select's chosen
   option (#122).

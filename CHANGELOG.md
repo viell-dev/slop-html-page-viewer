@@ -23,6 +23,11 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - With scripts on, a page's frame is isolated from the vault's files from the moment it is
   created. On some Obsidian versions, such as 1.5.3, such a page could, rarely, load vault files
   that it names, such as its images, without the **Local files with scripts on** setting.
+- Links inside a page's shadow DOM, which pages saved with their web components can contain,
+  open in Obsidian as other links do, and the page stays in its frame.
+- After a tab moves to another tab group or window, its page follows links in Obsidian as soon as
+  it shows again. Before, a link clicked before the page had loaded again navigated the frame away
+  from the page.
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 
