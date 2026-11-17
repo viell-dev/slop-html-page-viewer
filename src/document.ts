@@ -680,12 +680,14 @@ const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
  * The HTML templates in a document or a template's content, including those
  * in their own content: a shadow root declared inside another one is there.
  */
-function templates(root: ParentNode): HTMLTemplateElement[] {
-  const found: HTMLTemplateElement[] = [];
+function templates(root: ParentNode, found: HTMLTemplateElement[] = []): HTMLTemplateElement[] {
   for (const template of root.querySelectorAll("template")) {
     // An SVG or MathML element of that name has no content.
     if (template.namespaceURI !== HTML_NAMESPACE) continue;
-    found.push(template, ...templates(template.content));
+    // Added one at a time: a page can hold more templates than a call can
+    // take arguments.
+    found.push(template);
+    templates(template.content, found);
   }
   return found;
 }

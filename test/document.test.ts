@@ -401,6 +401,16 @@ describe("preparePage", () => {
     ]);
   });
 
+  it("declares open every shadow root of a page with more of them than a call takes arguments", async () => {
+    // V8 refuses a call with about 125,000 arguments or more.
+    const count = 130_000;
+    const inner = `<template shadowrootmode="closed"></template>`.repeat(count);
+    const html = `<div><template shadowrootmode="open">${inner}</template></div>`;
+    const output = await prepare(html, context({}), { openShadowRoots: true });
+    assert.equal(output.split(`shadowrootmode="open"`).length - 1, count + 1);
+    assert.doesNotMatch(output, /closed/);
+  });
+
   it("keeps the doctype, or its absence", async () => {
     assert.match(await prepare("<!DOCTYPE html><p>x</p>", context({})), /^<!DOCTYPE html>\n<html>/);
     assert.match(await prepare("<p>quirks</p>", context({})), /^<html>/);
