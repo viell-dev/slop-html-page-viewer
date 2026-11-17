@@ -18,6 +18,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import process from "node:process";
 import {
   assetNames,
@@ -27,6 +28,7 @@ import {
   type Files,
   type GitHub,
   packageRelease,
+  isVersion,
   PLUGIN_FILES,
   publish,
   Refusal,
@@ -251,8 +253,16 @@ const readJson = <T>(file: string): T => JSON.parse(fs.readFileSync(file, "utf8"
 const readIfThere = (file: string): string | null =>
   fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
 
+const OUTPUT_MARKER = ".html-page-viewer-package.json";
+const OUTPUT_OWNER = "html-page-viewer-release-v1";
+
 function readAssets(directory: string, version: string): Files {
-  const present = fs.existsSync(directory) ? fs.readdirSync(directory).sort() : [];
+  const present = fs.existsSync(directory)
+    ? fs
+        .readdirSync(directory)
+        .filter((name) => name !== OUTPUT_MARKER)
+        .sort()
+    : [];
   const wanted = assetNames(version);
   if (present.join("\n") !== [...wanted].sort().join("\n"))
     throw new Refusal(
@@ -261,6 +271,112 @@ function readAssets(directory: string, version: string): Files {
   return new Map(
     wanted.map((name) => [name, new Uint8Array(fs.readFileSync(path.join(directory, name)))]),
   );
+}
+
+/**
+ * Resolves `requested`, an absolute path, through the real path of its deepest existing ancestor,
+ * keeping the part that does not exist yet, so that links above a checkout are followed to the
+ * place they lead. `throughDirectory` says whether that ancestor is a directory.
+ */
+function resolveExisting(
+  requested: string,
+  remedy: string,
+): { resolved: string; throughDirectory: boolean } {
+  const missing: string[] = [];
+  let existing = requested;
+  while (!fs.lstatSync(existing, { throwIfNoEntry: false })) {
+    const parent = path.dirname(existing);
+    if (parent === existing) throw new Refusal(`No part of ${requested} exists. ${remedy}`);
+    missing.unshift(path.basename(existing));
+    existing = parent;
+  }
+  let real: string;
+  try {
+    real = fs.realpathSync(existing);
+  } catch {
+    throw new Refusal(`${existing} is a link that leads nowhere. ${remedy}`);
+  }
+  return {
+    resolved: path.join(real, ...missing),
+    throughDirectory: fs.statSync(real).isDirectory(),
+  };
+}
+
+/**
+ * Returns the resolved absolute output directory. Validates everything before mutation,
+ * then removes only the recorded version's regular artifacts, never the directory itself.
+ */
+function prepareOutput(destination: string): string {
+  const requested = path.resolve(destination);
+  const remedy = "Choose a new or empty --out directory.";
+  const stat = fs.lstatSync(requested, { throwIfNoEntry: false });
+  if (stat?.isSymbolicLink())
+    throw new Refusal(`Package output is a link: ${requested}. ${remedy}`);
+  const output = resolveExisting(requested, remedy);
+  if (!output.throughDirectory)
+    throw new Refusal(`Package output passes through a non-directory: ${requested}. ${remedy}`);
+  const out = output.resolved;
+  const checkout = fs.realpathSync(path.resolve(import.meta.dirname, ".."));
+  // The home directory is protected however it is set; an odd value, such as a file or a
+  // broken link, must not stop packaging elsewhere.
+  let home = path.resolve(os.homedir());
+  try {
+    home = resolveExisting(home, remedy).resolved;
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+  }
+  const contains = (parent: string, child: string) => {
+    const relative = path.relative(parent, child);
+    return (
+      relative === "" ||
+      (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+    );
+  };
+  if (out === path.parse(out).root || contains(out, checkout) || contains(out, home))
+    throw new Refusal(`Protected package output: ${out}. ${remedy}`);
+
+  const present = fs.existsSync(out) ? fs.readdirSync(out) : [];
+  let previous: string[] = [];
+  if (present.length > 0) {
+    const marker = path.join(out, OUTPUT_MARKER);
+    const stat = fs.lstatSync(marker, { throwIfNoEntry: false });
+    if (!stat?.isFile())
+      throw new Refusal(
+        `${out} is not empty and has no regular packaging marker. Remove it only if it holds an earlier package you no longer need. ${remedy}`,
+      );
+    const invalidMarker = () => new Refusal(`Invalid package ownership marker: ${out}. ${remedy}`);
+    let record: unknown;
+    try {
+      record = readJson<unknown>(marker);
+    } catch {
+      throw invalidMarker();
+    }
+    if (
+      typeof record !== "object" ||
+      record === null ||
+      !("owner" in record) ||
+      record.owner !== OUTPUT_OWNER ||
+      !("version" in record) ||
+      typeof record.version !== "string" ||
+      !isVersion(record.version)
+    )
+      throw invalidMarker();
+    previous = assetNames(record.version);
+    for (const name of present) {
+      const entry = fs.lstatSync(path.join(out, name));
+      if ((name !== OUTPUT_MARKER && !previous.includes(name)) || !entry.isFile())
+        throw new Refusal(
+          `Unknown artifact or link in package output: ${path.join(out, name)}. ${remedy}`,
+        );
+    }
+  }
+  // Validation above must finish before any mutation. Never remove the directory
+  // itself or recursively delete entries, even in a marked output.
+  fs.mkdirSync(out, { recursive: true });
+  for (const name of previous) {
+    if (present.includes(name)) fs.unlinkSync(path.join(out, name));
+  }
+  return out;
 }
 
 function parseArguments(argv: string[]): {
@@ -335,7 +451,7 @@ async function main(): Promise<void> {
       return;
     }
     case "package": {
-      const out = option("out") ?? "release";
+      const destination = option("out") ?? "release";
       const manifest = readJson<{ version: string }>("manifest.json");
       if (manifest.version !== target)
         fail([`manifest.json has ${manifest.version}, not ${target}.`]);
@@ -346,8 +462,12 @@ async function main(): Promise<void> {
         }),
       );
       const assets = packageRelease(target, plugin);
-      fs.rmSync(out, { recursive: true, force: true });
-      fs.mkdirSync(out, { recursive: true });
+      const out = prepareOutput(destination);
+      // Write ownership first so a run interrupted during artifact writes can be rerun.
+      fs.writeFileSync(
+        path.join(out, OUTPUT_MARKER),
+        JSON.stringify({ owner: OUTPUT_OWNER, version: target }),
+      );
       for (const [name, bytes] of assets) fs.writeFileSync(path.join(out, name), bytes);
       process.stdout.write(Buffer.from(assets.get("SHA256SUMS")!));
       return;

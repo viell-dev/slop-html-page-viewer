@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 import {
   assetNames,
@@ -628,5 +630,251 @@ describe("the release script", () => {
     const bad = run("check", "0.0.0-not-this");
     assert.equal(bad.status, 1);
     assert.ok(bad.stderr.includes(`manifest.json has ${version}.`), bad.stderr);
+  });
+});
+
+describe("package output safety", () => {
+  function fixture(t: import("node:test").TestContext) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "hpv-package-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const checkout = path.join(root, "checkout");
+    fs.mkdirSync(path.join(checkout, "scripts"), { recursive: true });
+    for (const name of ["release.ts", "release-lib.ts"])
+      fs.copyFileSync(path.join("scripts", name), path.join(checkout, "scripts", name));
+    for (const [name, bytes] of plugin("1.2.0")) fs.writeFileSync(path.join(checkout, name), bytes);
+    fs.writeFileSync(path.join(checkout, "important.txt"), "keep");
+    const run = (out: string, version = "1.2.0", cwd = checkout, userHome?: string) =>
+      spawnSync(process.execPath, ["scripts/release.ts", "package", version, "--out", out], {
+        cwd,
+        encoding: "utf8",
+        env: userHome ? { ...process.env, HOME: userHome, USERPROFILE: userHome } : process.env,
+      });
+    const home = path.join(root, "home");
+    fs.mkdirSync(home);
+    const homeRun = () =>
+      spawnSync(process.execPath, ["scripts/release.ts", "package", "1.2.0", "--out", home], {
+        cwd: checkout,
+        encoding: "utf8",
+        env: { ...process.env, HOME: home, USERPROFILE: home },
+      });
+    return { root, checkout, run, homeRun, home };
+  }
+
+  it("refuses the checkout, its ancestor and a synthetic home without mutation", (t) => {
+    const { root, checkout, run, homeRun, home } = fixture(t);
+    const result = homeRun();
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Protected package output/);
+    assert.deepEqual(fs.readdirSync(home), []);
+    for (const out of [checkout, root]) {
+      const result = run(out);
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /Protected package output/);
+      assert.equal(fs.readFileSync(path.join(checkout, "important.txt"), "utf8"), "keep");
+    }
+  });
+
+  it("refuses unrelated contents, including extra files in an owned output", (t) => {
+    const { root, run } = fixture(t);
+    const out = path.join(root, "output");
+    fs.mkdirSync(out);
+    fs.writeFileSync(path.join(out, "important.txt"), "keep");
+    const refused = run(out);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /earlier package.*new or empty --out/);
+    assert.equal(fs.readFileSync(path.join(out, "important.txt"), "utf8"), "keep");
+    fs.unlinkSync(path.join(out, "important.txt"));
+    assert.equal(run(out).status, 0);
+    const before = fs.readFileSync(path.join(out, "main.js"));
+    fs.writeFileSync(path.join(out, "important.txt"), "keep");
+    assert.equal(run(out).status, 1);
+    assert.deepEqual(fs.readFileSync(path.join(out, "main.js")), before);
+    assert.equal(fs.readFileSync(path.join(out, "important.txt"), "utf8"), "keep");
+  });
+
+  it("packages into fresh and empty directories and repeats deterministically", (t) => {
+    const { root, run } = fixture(t);
+    for (const name of ["fresh", "empty"]) {
+      const out = path.join(root, name);
+      if (name === "empty") fs.mkdirSync(out);
+      const first = run(out);
+      assert.equal(first.status, 0, first.stderr);
+      const before = fs
+        .readdirSync(out)
+        .map((file) => [file, fs.readFileSync(path.join(out, file))]);
+      const second = run(out);
+      assert.equal(second.status, 0, second.stderr);
+      assert.equal(second.stdout, first.stdout);
+      assert.deepEqual(
+        fs.readdirSync(out).map((file) => [file, fs.readFileSync(path.join(out, file))]),
+        before,
+      );
+    }
+  });
+
+  it("replaces the old version and unlinks hard-linked artifacts before writing", (t) => {
+    const { root, checkout, run } = fixture(t);
+    const out = path.join(root, "output");
+    assert.equal(run(out).status, 0);
+    const saved = path.join(root, "saved-main.js");
+    fs.linkSync(path.join(out, "main.js"), saved);
+    const before = fs.readFileSync(saved);
+    for (const [name, bytes] of plugin("1.3.0", "changed();"))
+      fs.writeFileSync(path.join(checkout, name), bytes);
+    const result = run(out, "1.3.0");
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(
+      fs.readdirSync(out).sort(),
+      [...assetNames("1.3.0"), ".html-page-viewer-package.json"].sort(),
+    );
+    assert.deepEqual(fs.readFileSync(saved), before);
+  });
+
+  it("refuses foreign and malformed markers cleanly without mutation", (t) => {
+    const { root, run } = fixture(t);
+    const out = path.join(root, "output");
+    fs.mkdirSync(out);
+    const marker = path.join(out, ".html-page-viewer-package.json");
+    for (const contents of [
+      "{not json",
+      "null",
+      JSON.stringify({ owner: "foreign", version: "1.2.0" }),
+      JSON.stringify({ owner: "html-page-viewer-release-v1", version: "01.2.0" }),
+    ]) {
+      fs.writeFileSync(marker, contents);
+      const result = run(out);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /^Refused: Invalid package ownership marker:.*--out/);
+      assert.doesNotMatch(result.stderr, / at |SyntaxError|TypeError/);
+      assert.deepEqual(fs.readdirSync(out), [path.basename(marker)]);
+      assert.equal(fs.readFileSync(marker, "utf8"), contents);
+    }
+  });
+
+  it("refuses a file destination without replacing it", (t) => {
+    const { root, run } = fixture(t);
+    const out = path.join(root, "file");
+    fs.writeFileSync(out, "keep");
+    const result = run(out);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /non-directory.*--out/);
+    assert.equal(fs.readFileSync(out, "utf8"), "keep");
+  });
+
+  it("packages with a missing home and protects its ancestors", (t) => {
+    const { root, run } = fixture(t);
+    const home = path.join(root, "missing", "home");
+    assert.equal(run(path.join(root, "output"), "1.2.0", undefined, home).status, 0);
+    const result = run(path.dirname(home), "1.2.0", undefined, home);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Protected package output/);
+    assert.ok(!fs.existsSync(path.dirname(home)));
+  });
+
+  it("reads marked package assets in the publish dry run before checking GitHub", (t) => {
+    const { root, checkout, run } = fixture(t);
+    const out = path.join(root, "output");
+    assert.equal(run(out).status, 0);
+    fs.mkdirSync(path.join(checkout, ".github", "release-notes"), { recursive: true });
+    fs.writeFileSync(
+      path.join(checkout, ".github", "release-notes", "1.2.0.md"),
+      "Synthetic notes",
+    );
+    const preload = path.join(checkout, "github.mjs");
+    fs.writeFileSync(
+      preload,
+      `globalThis.fetch = async () => new Response(JSON.stringify({ object: { type: "commit", sha: "existing" } }));`,
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "./github.mjs",
+        "scripts/release.ts",
+        "publish",
+        "1.2.0",
+        "--sha",
+        "candidate",
+        "--assets",
+        out,
+        "--dry-run",
+      ],
+      { cwd: checkout, encoding: "utf8" },
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /The tag 1.2.0 points to existing, not to candidate/);
+  });
+
+  it("allows a checkout under a linked ancestor but refuses redirected protected and unowned outputs", (t) => {
+    const { root, checkout, run, home } = fixture(t);
+    const linkedRoot = path.join(root, "alias");
+    fs.symlinkSync(root, linkedRoot, process.platform === "win32" ? "junction" : "dir");
+    const result = run("release", "1.2.0", path.join(linkedRoot, "checkout"));
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(fs.existsSync(path.join(checkout, "release", "SHA256SUMS")));
+    // A relative --out can resolve without the link, as the working directory does on Linux,
+    // so package once through the link by its absolute path too.
+    const throughLink = run(path.join(linkedRoot, "checkout", "linked-release"));
+    assert.equal(throughLink.status, 0, throughLink.stderr);
+    assert.ok(fs.existsSync(path.join(checkout, "linked-release", "SHA256SUMS")));
+    for (const out of [path.join(linkedRoot, "checkout"), path.join(linkedRoot, "home")]) {
+      const refused = run(out, "1.2.0", checkout, home);
+      assert.equal(refused.status, 1);
+      assert.match(refused.stderr, /Protected package output/);
+    }
+    fs.writeFileSync(path.join(home, "important.txt"), "keep");
+    const unowned = run(
+      path.join(linkedRoot, "home"),
+      "1.2.0",
+      checkout,
+      path.join(root, "other-home"),
+    );
+    assert.equal(unowned.status, 1);
+    assert.match(unowned.stderr, /no regular packaging marker/);
+    assert.deepEqual(fs.readdirSync(home), ["important.txt"]);
+    assert.equal(fs.readFileSync(path.join(home, "important.txt"), "utf8"), "keep");
+  });
+
+  it("packages whatever the home directory is, and refuses a path through a broken link", (t) => {
+    const { root, run } = fixture(t);
+    const homeFile = path.join(root, "home-file");
+    fs.writeFileSync(homeFile, "keep");
+    const withFileHome = run(path.join(root, "output"), "1.2.0", undefined, homeFile);
+    assert.equal(withFileHome.status, 0, withFileHome.stderr);
+    assert.equal(fs.readFileSync(homeFile, "utf8"), "keep");
+
+    const broken = path.join(root, "broken");
+    fs.symlinkSync(
+      path.join(root, "nothing"),
+      broken,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const refused = run(path.join(broken, "output"));
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /is a link that leads nowhere/);
+    assert.doesNotMatch(refused.stderr, /\n\s+at /);
+  });
+
+  it("rejects destination and artifact links without touching targets", (t) => {
+    const { root, run } = fixture(t);
+    const target = path.join(root, "target");
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, "important.txt"), "keep");
+    const link = path.join(root, "link");
+    fs.symlinkSync(target, link, process.platform === "win32" ? "junction" : "dir");
+    const result = run(link);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /output is a link/);
+    assert.deepEqual(fs.readdirSync(target), ["important.txt"]);
+    const out = path.join(root, "output");
+    assert.equal(run(out).status, 0);
+    fs.unlinkSync(path.join(out, "main.js"));
+    fs.symlinkSync(
+      target,
+      path.join(out, "main.js"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    assert.equal(run(out).status, 1);
+    assert.equal(fs.readFileSync(path.join(target, "important.txt"), "utf8"), "keep");
   });
 });
