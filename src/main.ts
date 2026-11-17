@@ -779,7 +779,9 @@ class HtmlPageViewerView extends TextFileView {
       if (!win?.requestAnimationFrame) return;
       const started = Date.now();
       const poll = (): void => {
-        if (watch() || !iframe.isConnected || Date.now() - started > 10_000) return;
+        // A move detaches and reinserts the same frame; only a newer frame ends
+        // the wait, so a move spread over several tasks is still watched.
+        if (watch() || this.iframe !== iframe || Date.now() - started > 10_000) return;
         win.setTimeout(poll, 15);
       };
       poll();

@@ -143,6 +143,9 @@ with more of them than a call can take.
 
 ## Limits
 
+- On Chromium 135 to 141, which some Obsidian versions between the tested ones use, a page's own
+  styles can lift the copy's inertness before the view watches it (#127). Neither tested host is
+  affected; there the view's listeners, added as soon as each document exists, still protect it.
 - Linux desktop is the supported Obsidian target. Windows provides additional build and unit-test
   coverage, and can run Linux Obsidian in Docker. Windows Obsidian, macOS, and mobile are outside
   the support scope; the manifest prevents mobile installation (#65).

@@ -403,6 +403,7 @@ describe("Links in a page in Obsidian", function () {
       // starts a navigation that nothing cancels, since the copy has none of
       // the view's listeners. Navigations start in the order of their clicks.
       await browser.action("pointer").move(point).down().up().perform();
+      expect(await startedNavigations()).toEqual([]);
       await browser.execute(() => {
         const doc = document.querySelector<HTMLIFrameElement>("#e2e-unwatched")!.contentDocument!;
         doc.documentElement.removeAttribute("inert");

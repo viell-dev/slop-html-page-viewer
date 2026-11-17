@@ -669,7 +669,9 @@ export interface PageOptions {
    * document that the frame shows starts from the copy, and the frame loads
    * the copy again whenever Obsidian moves the tab to another tab group or
    * window; until the view finds the new document, an inert page cannot be
-   * clicked, focused, or reached with keys.
+   * clicked, focused, or reached with keys. On Chromium 135 to 141 a page's
+   * own CSS can override `inert` (#127), so this is a backstop, not the
+   * protection: the view watches each new document as soon as it exists.
    */
   readonly inertUntilWatched?: boolean;
 }
