@@ -286,9 +286,9 @@ class HtmlPageViewerView extends TextFileView {
       if (file) void this.readFile(file);
       return;
     }
-    this.contentsVersion += 1;
     // Obsidian sets `clear` when a different file opens in this view, which
-    // must start with scripts as the settings say, like a new tab.
+    // must start with scripts as the settings say, like a new tab. Clearing
+    // also drops a read still pending for what the view showed.
     this.clear();
     this.showContents(data);
   }
@@ -313,7 +313,10 @@ class HtmlPageViewerView extends TextFileView {
    * without Obsidian knowing, so any of those would write it (#90). In
    * Obsidian 1.5.3 and 1.15.1, all of them go through `save`, which therefore
    * does nothing; `requestSave` does nothing either, so that Obsidian never
-   * takes the view for changed.
+   * takes the view for changed. After Obsidian's reload of a changed file
+   * that ends once another file has opened in the tab (#115), what Obsidian
+   * records as last read from the second file is the first file's contents,
+   * so a save would also compare with the wrong file's contents.
    */
   override save(): Promise<void> {
     return Promise.resolve();
