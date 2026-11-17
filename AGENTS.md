@@ -184,10 +184,16 @@ change. [CONTRIBUTING.md](./CONTRIBUTING.md#checks) explains the test commands a
   styles apart from Google Fonts. Linked vault stylesheets therefore become inline styles.
   Read only `.css` files as stylesheets: scripts can read everything copied into the page.
 - With scripts on, the frame has an opaque origin. In Obsidian it loads copied `data:` URLs but
-  cannot load `blob:` URLs created by the host window. Keep the allowed file types and per-file
-  and per-page copy limits enforced. Recheck origin and resource behavior in Obsidian when the
-  host changes; [#7](https://github.com/viell-dev/slop-html-page-viewer/issues/7) and
-  [#11](https://github.com/viell-dev/slop-html-page-viewer/issues/11) hold the measurements.
+  cannot load `blob:` URLs created by the host window. Obsidian's main process serves vault files
+  to a frame by the origin it last recorded for the frame, which changes only when it processes
+  the commit of the frame's page. Build the frame detached, with its sandbox, and only then insert
+  it. A frame inserted without one is recorded with Obsidian's origin. On Obsidian 1.5.3, unlike
+  1.15.1, its `srcdoc` page commits under that record: until the main process processes the
+  commit, it would serve any vault file that a page with scripts on asks for
+  ([#83](https://github.com/viell-dev/slop-html-page-viewer/issues/83)). Keep the allowed file
+  types and per-file and per-page copy limits enforced. Recheck origin and resource behavior in
+  Obsidian when the host changes; [#7](https://github.com/viell-dev/slop-html-page-viewer/issues/7)
+  and [#11](https://github.com/viell-dev/slop-html-page-viewer/issues/11) hold the measurements.
 - Host-installed link listeners work with scripts off. Finding in the page and synchronizing its
   scroll require access to its document; scripts on removes that access. Scroll synchronization
   covers pages that scroll as a whole, not independently scrolling regions.

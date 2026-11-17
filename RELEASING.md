@@ -79,10 +79,7 @@ following links. Keep the owner's real vault outside agent-controlled tests.
 ## Prepare the release
 
 Check [open issues](https://github.com/viell-dev/slop-html-page-viewer/issues) for release blockers
-and pending human requests before preparing a version. The minimum-host local-file visibility
-failure in [#83](https://github.com/viell-dev/slop-html-page-viewer/issues/83) blocks the next
-software release until its cause and fix are verified. A later passing run alone does not resolve
-it; retain its failure evidence and follow the issue's required diagnosis.
+and pending human requests before preparing a version.
 
 1. Choose the version by semantic versioning: a minor version for new features, a patch for
    fixes. A version with a prerelease part, such as `0.6.0-rc.1`, becomes a prerelease.

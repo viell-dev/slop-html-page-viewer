@@ -3,6 +3,7 @@ import type { Color } from "../support/pixels.ts";
 import {
   activeViewType,
   clickToolbarButton,
+  expectNoPixels,
   framePixels,
   frameSandbox,
   openInActiveTab,
@@ -333,7 +334,7 @@ describe("The settings in Obsidian", function () {
     await clickToolbarButton("Scripts OFF");
     expect(await frameSandbox()).toBe("allow-scripts");
     await waitForPage();
-    expect(await framePixels(GREEN)).toBe(0);
+    await expectNoPixels(GREEN, "scripts on, before copying");
 
     await openSettingsTab();
     expect(await clickToggle("Local files with scripts on")).toBe(true);
@@ -356,7 +357,7 @@ describe("The settings in Obsidian", function () {
     }
     // Without the setting, the page with scripts on shows none of its files again.
     await waitForPage();
-    expect(await framePixels(PURPLE)).toBe(0);
+    await expectNoPixels(PURPLE, "scripts on, after copying");
     await clickToolbarButton("Scripts ON");
   });
 

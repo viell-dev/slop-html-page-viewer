@@ -95,6 +95,49 @@ describe("rendered view", () => {
     assert.equal(securityPill(view), "Scripts OFF");
   });
 
+  it("gives each frame its sandbox before the frame joins the document (#83)", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    // A frame changed after it joined the view's content shows up as an
+    // attribute record; one created with its sandbox never does.
+    const records: MutationRecord[] = [];
+    const observer = new window.MutationObserver((list) => records.push(...list));
+    observer.observe(view.contentEl, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["sandbox"],
+    });
+    harness.open(view, "page.html", PAGE);
+    button(view, "Scripts OFF").click();
+    button(view, "Scripts ON").click();
+    await settle();
+    records.push(...observer.takeRecords());
+    observer.disconnect();
+
+    const added = new Set(
+      records
+        .flatMap((record) => [...record.addedNodes])
+        .flatMap((node) =>
+          node instanceof window.HTMLIFrameElement
+            ? [node]
+            : node instanceof window.Element
+              ? [...node.querySelectorAll("iframe")]
+              : [],
+        ),
+    );
+    assert.deepEqual(
+      [...added].map((frame) => frame.getAttribute("sandbox")),
+      [sandboxValue(false), sandboxValue(true), sandboxValue(false)],
+      "a frame for the page, with scripts on, and with them off",
+    );
+    assert.deepEqual(
+      records.filter((record) => record.type === "attributes").map((record) => record.target),
+      [],
+      "no frame's sandbox changed after it was inserted",
+    );
+  });
+
   it("never grants scripts together with same-origin access, nor forms, popups, or navigation", () => {
     for (const scriptsEnabled of [false, true]) {
       const tokens = sandboxValue(scriptsEnabled).split(/\s+/).filter(Boolean);

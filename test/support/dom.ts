@@ -49,6 +49,7 @@ interface ElementInfo {
   type?: string;
   value?: string;
   href?: string;
+  parent?: Node;
 }
 
 function applyInfo(el: HTMLElement, info: ElementInfo | string | undefined): void {
@@ -75,6 +76,24 @@ function define(target: object, methods: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Obsidian's global createEl: a new element with the given options, detached
+ * unless they name a parent. As Obsidian's does, it sets the attributes and
+ * runs the callback before it inserts the element.
+ */
+function createEl(
+  tag: string,
+  info?: ElementInfo | string,
+  callback?: (el: HTMLElement) => void,
+): HTMLElement {
+  const el = window.document.createElement(tag);
+  applyInfo(el, info);
+  callback?.(el);
+  if (typeof info === "object") info.parent?.appendChild(el);
+  return el;
+}
+define(globalThis, { createEl });
+
 define(window.Node.prototype, {
   createEl(
     this: Node,
@@ -82,11 +101,8 @@ define(window.Node.prototype, {
     info?: ElementInfo | string,
     callback?: (el: HTMLElement) => void,
   ): HTMLElement {
-    const el = window.document.createElement(tag);
-    applyInfo(el, info);
-    this.appendChild(el);
-    callback?.(el);
-    return el;
+    const options = typeof info === "string" ? { cls: info } : (info ?? {});
+    return createEl(tag, { ...options, parent: this }, callback);
   },
   createDiv(this: Node, info?: ElementInfo | string): HTMLElement {
     return (this as HTMLElement).createEl("div", info);

@@ -20,6 +20,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   tab showed once the tab moved on; the viewer no longer lets Obsidian save the files it shows.
 - Find in the page leaves out text that CSS hides, and closing the find bar keeps a query typed just
   before it closed.
+- With scripts on, a page's frame is isolated from the vault's files from the moment it is
+  created. On some Obsidian versions, such as 1.5.3, such a page could, rarely, load vault files
+  that it names, such as its images, without the **Local files with scripts on** setting.
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 
