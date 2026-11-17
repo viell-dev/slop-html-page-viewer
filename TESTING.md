@@ -97,10 +97,6 @@ On 2026-11-16, the earlier preparation of a page, which showed the file as it is
 copy failed, and could fail on CSS escapes and on stylesheets that could not be read, failed
 `document.test.ts`, `rendered.test.ts`, and `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1.
 
-On 2026-11-17, find in the page that left out a canvas's fallback text, or that found the children
-of a progress bar, failed `find.e2e.ts` in Obsidian 1.5.3 and 1.15.1. Closing the find bar without
-its pending search failed only the three close tests in `find.test.ts`.
-
 On 2026-11-16, these failed the check named (#90):
 
 - Leaving out the view's `save` override: `refresh.test.ts`; in Obsidian 1.5.3 and 1.15.1,
@@ -112,6 +108,10 @@ On 2026-11-16, these failed the check named (#90):
 
 On 2026-11-16, keeping the viewer's extensions registered after the plugin unloads, and ignoring
 the saved settings when it loads, each failed `lifecycle.e2e.ts` on Obsidian 1.5.3 (#98).
+
+On 2026-11-17, find in the page that left out a canvas's fallback text, or that found the children
+of a progress bar, failed `find.e2e.ts` in Obsidian 1.5.3 and 1.15.1. Closing the find bar without
+its pending search failed only the three close tests in `find.test.ts`.
 
 ## Limits
 
@@ -131,8 +131,9 @@ the saved settings when it loads, each failed `lifecycle.e2e.ts` on Obsidian 1.5
   Removing the plugin, and installing or updating it through Obsidian's community plugin browser,
   where the fork is not listed, are not tested.
 - Screen readers are not tested; the tests check the labels and attributes that they read.
-- Find in the page still counts some text that Obsidian never paints, such as a progress bar's
-  fallback text and text inside SVG `<defs>`, and leaves out a closed select's chosen option (#122).
+- Find in the page still counts some text that Obsidian never paints, such as text directly
+  inside a progress bar and text inside SVG `<defs>`, and leaves out a closed select's chosen
+  option (#122).
 - The 15 s limit for a corpus page is a ceiling against a page that hangs, not a measure of speed.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request

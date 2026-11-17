@@ -164,6 +164,9 @@ describe("Finding text in Obsidian", function () {
       words,
     );
     for (const word of shown) expect([word, painted[word] > 0]).toEqual([word, true]);
+    // The screenshot shows only what is inside the frame, so a hidden word paints nothing there
+    // only if it lies within the frame. The page fits today: `canvasfallback`, after all of them,
+    // is painted. Keep new rows short, or check that the page fits.
     for (const word of hidden) expect([word, painted[word]]).toEqual([word, 0]);
     for (const word of boxless) expect([word, boxes[word]]).toEqual([word, 0]);
 
