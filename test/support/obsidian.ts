@@ -111,6 +111,8 @@ export class App {
   readonly leaves: WorkspaceLeaf[] = [];
   /** The tabs that have been active, the active one first, from which `getLeaf` chooses. */
   readonly recentLeaves: WorkspaceLeaf[] = [];
+  /** The options of each `setActiveLeaf` call, in order. */
+  readonly activations: ({ focus?: boolean } | undefined)[] = [];
   activeFile: TFile | null = null;
   /** The view that has focus, as `getActiveViewOfType` finds it. */
   activeView: unknown = null;
@@ -213,16 +215,20 @@ export class App {
     getActiveFile: (): TFile | null => this.activeFile,
     getActiveViewOfType: <T>(type: abstract new (...args: never[]) => T): T | null =>
       this.activeView instanceof type ? this.activeView : null,
-    setActiveLeaf: (leaf: WorkspaceLeaf): void => {
+    setActiveLeaf: (leaf: WorkspaceLeaf, params?: { focus?: boolean }): void => {
+      this.activations.push(params);
       const index = this.recentLeaves.indexOf(leaf);
       if (index !== -1) this.recentLeaves.splice(index, 1);
       this.recentLeaves.unshift(leaf);
     },
     /**
-     * As Obsidian chooses for tabs in its main area and windows, as measured
-     * in 1.5.3 and 1.15.1 (#141): without a pane, the most recently active tab
-     * that is not pinned, and otherwise, or without one, a new one that it
-     * places from the active tab: beside it, for a new tab or split.
+     * A simplification of how Obsidian chooses, as measured in 1.5.3 and
+     * 1.15.1 (#141): without a pane, the most recently active tab that is not
+     * pinned, and otherwise, or without one, a new one that it places from the
+     * active tab: beside it, for a new tab or split. Obsidian also chooses only
+     * among the tabs of the active tab's window that their tab group shows,
+     * places new tabs and splits away from the sidebars, and in 1.15.1 makes
+     * the chosen tab active; this stand-in does none of that.
      */
     getLeaf: (pane: false | string = false): WorkspaceLeaf => {
       const unpinned = this.recentLeaves.find((leaf) => !leaf.pinned);

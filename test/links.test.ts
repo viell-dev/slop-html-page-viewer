@@ -321,6 +321,8 @@ describe("the tab that a vault link opens in", () => {
     assert.deepEqual(own.openedFiles, ["Saved/Other page.html"]);
     assert.deepEqual(active.openedFiles, []);
     assert.deepEqual(harness.app.leaves, []);
+    // The view changes only which tab is active, and leaves the focus where it is.
+    assert.deepEqual(harness.app.activations.at(-1), { focus: false });
   });
 
   it("is the view's own tab for a file that the link names by name only (#141)", async () => {

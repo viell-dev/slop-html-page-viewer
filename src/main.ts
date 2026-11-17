@@ -1042,10 +1042,10 @@ class HtmlPageViewerView extends TextFileView {
   /**
    * The tab that a link in the page opens in, as Obsidian opens a link in a
    * note in this tab: this tab, unless it is pinned, or with a modifier a new
-   * tab, split, or window beside it. Obsidian chooses from its active tab, and
-   * a click in the page never makes this tab the active one, since the frame's
-   * events do not reach Obsidian's window, so the view makes it active first
-   * (#141).
+   * tab or split beside it, or a new window. Obsidian chooses from its active
+   * tab, and a click in the page never makes this tab the active one, since
+   * the frame's events do not reach Obsidian's window, so the view makes it
+   * active first (#141).
    */
   private linkLeaf(pane: PaneChoice): WorkspaceLeaf {
     const workspace = this.app.workspace;

@@ -101,8 +101,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 
   **Unreleased (#141):** a link opens in the page's own tab, and with Ctrl or a middle click in a
   new tab beside it, also while a tab in another tab group or window is the active one. Before, it
-  opened in that tab, in place of what that tab showed. A link in a pinned tab opens where one in a
-  pinned note does.
+  opened from that tab: in its place, or with Ctrl in a new tab beside it. A link in a pinned tab
+  opens where one in a pinned note does. In a sidebar, a link opens in the sidebar's tab, as one in
+  a note there does; Ctrl or a middle click opens a new tab in the main area.
 
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and

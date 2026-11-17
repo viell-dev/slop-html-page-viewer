@@ -627,10 +627,10 @@ describe("Links in a page in Obsidian", function () {
             .getLeavesOfType("empty")
             .find((leaf) => leaf.view.containerEl.ownerDocument === document);
           app.workspace.setActiveLeaf(main!, { focus: true });
-          // Obsidian 1.5.3 opens a new tab in the tab group of the tab that
-          // became active last by Date.now(), and in the main window's on a
-          // tie, so the click comes in a later millisecond, as a reader's
-          // does: the view makes its tab active at the click (#141).
+          // Obsidian, 1.5.3 and 1.15.1 alike, opens a new tab in the tab group
+          // of the tab that became active last by Date.now(), and in the main
+          // window's on a tie, so the click comes in a later millisecond, as a
+          // reader's does: the view makes its tab active at the click (#141).
           const activated = Date.now();
           while (Date.now() === activated) {
             // The next millisecond.
