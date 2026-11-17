@@ -445,6 +445,9 @@ export abstract class TextFileView {
   abstract setViewData(data: string, clear: boolean): void;
   abstract clear(): void;
 
+  /** Called when the view's size changes, as Obsidian's views are; does nothing by default. */
+  onResize(): void {}
+
   /** Asks for a save. Obsidian saves after two seconds without another request; the stand-in saves at once. */
   requestSave = (): void => {
     this.dirty = true;

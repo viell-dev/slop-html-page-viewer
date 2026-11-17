@@ -341,6 +341,24 @@ async function movedClosedParts(
   }, id);
 }
 
+/**
+ * How far the source that a test marked with `data-e2e-moved` is scrolled
+ * down, in whichever window it is.
+ */
+async function movedSource(): Promise<{ top: number; inWindow: boolean } | null> {
+  return browser.executeObsidian(({ app }) => {
+    const found: { top: number; inWindow: boolean }[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      const source = leaf.view.containerEl.querySelector<HTMLElement>(
+        ".html-page-viewer__source[data-e2e-moved]",
+      );
+      if (source)
+        found.push({ top: source.scrollTop, inWindow: source.ownerDocument !== document });
+    });
+    return found[0] ?? null;
+  });
+}
+
 /** Switches Obsidian's base theme, as its appearance settings do. */
 async function setDark(dark: boolean): Promise<void> {
   await browser.executeObsidian(({ app }, dark) => {
@@ -589,6 +607,43 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
       ),
     ).toBe(0);
   });
+
+  // Chromium shows an element that Obsidian took out of the page and inserted
+  // again from its top. Obsidian 1.15.1 scrolls it back itself; on 1.5.3 the
+  // view does, after the layout change in another tab group, and once a new
+  // window has laid the source out, when Obsidian resizes the view.
+  for (const to of ["group", "window"] as const) {
+    it(`keeps the source view's place in ${to === "group" ? "another tab group" : "a new window"} (#135)`, async function () {
+      await openInActiveTab("Saved/Long page.html");
+      await clickToolbarButton("Source");
+      const before = await browser.execute((active) => {
+        const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!;
+        source.dataset.e2eMoved = "";
+        source.scrollTop = source.scrollHeight - source.clientHeight - 30;
+        return source.scrollTop;
+      }, ACTIVE);
+      expect(before).toBeGreaterThan(300);
+      // The view learns where the source is from its scroll event.
+      await nextFrames();
+
+      await moveActiveTab(to);
+      let after: { top: number; inWindow: boolean } | null = null;
+      try {
+        await browser.waitUntil(
+          async () => {
+            after = await movedSource();
+            return after !== null && Math.abs(after.top - before) <= 1;
+          },
+          { timeout: 5000 },
+        );
+      } catch {
+        throw new Error(`The moved source did not go back to ${before}: ${JSON.stringify(after)}`);
+      }
+      expect(after!.inWindow).toBe(to === "window");
+      await browser.pause(500);
+      expect(Math.abs((await movedSource())!.top - before)).toBeLessThanOrEqual(1);
+    });
+  }
 
   it("leaves its page where the reader scrolls it before the page has loaded", async function () {
     const { scrolled, loaded } = await scrollBeforeLoad("iframe[data-e2e-moved]", false);

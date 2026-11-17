@@ -403,7 +403,8 @@ export async function clickInPage(
  * Moves the active tab to a new tab group beside it, with the calls that
  * Obsidian makes when a tab is dropped on another tab group, or to a new
  * window, as the tab's menu does. Either way Obsidian moves the tab's
- * elements, and the frame drops its document and loads its copy again.
+ * elements, and a frame drops its document and loads its copy again; a
+ * source view has none.
  * Given `width`, the tab's view then has that width, in CSS pixels, before the
  * frame lays out its next document, as a tab group of another width gives it.
  */
@@ -411,9 +412,11 @@ export async function moveActiveTab(to: "group" | "window", width?: number): Pro
   await browser.executeObsidian(
     ({ app }, to, width) => {
       const leaf = app.workspace.getMostRecentLeaf()!;
-      const frame = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe")!;
-      frame.dataset.e2eMoved = "";
-      frame.contentDocument!.documentElement.dataset.e2eBefore = "";
+      const frame = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe");
+      if (frame) {
+        frame.dataset.e2eMoved = "";
+        frame.contentDocument!.documentElement.dataset.e2eBefore = "";
+      }
       const resize = (): void => {
         if (width !== undefined)
           leaf.view.containerEl

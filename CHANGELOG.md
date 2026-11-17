@@ -30,6 +30,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   blocks are no longer inlined, as browsers ignore them there, while imports written with comments
   or escapes, such as `@import /**/ url(…)` or `@\69mport`, now are. Unquoted URLs with an escaped
   `)` or `"` now resolve, and a linked stylesheet that imports itself no longer repeats its rules.
+- On Obsidian 1.5.3, the **Source** view stays scrolled as far as it was when its tab moves to
+  another tab group or window, instead of starting again from its top (#135).
 - A link in a page opens in the page's own tab, and with Ctrl or a middle click in a new tab beside
   it, also while a tab in another tab group or window is the active one, instead of from that tab.
   In a sidebar, a plain click now opens the link in the sidebar's tab, as one in a note there does

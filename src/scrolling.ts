@@ -1,6 +1,7 @@
 // Scrolling the page in the view's frame: at once, past the page's own smooth
 // scrolling, and back to where the frame's previous document of the same copy
-// was when its tab moved to another tab group or window (#126).
+// was when its tab moved to another tab group or window (#126). The source
+// view's source goes back to its place after such a move too (#135).
 
 /**
  * Scrolls a window or an element at once, also in a page whose own style
@@ -200,4 +201,44 @@ export function showPlace(
     for (const type of READER_INPUT)
       target.addEventListener(type, stop, { capture: true, passive: true, signal: pending.signal });
   }
+}
+
+/** An element's scroll position, kept for when the element loses it. */
+export interface KeptScrolling {
+  /**
+   * Scrolls the element back to where it was last scrolled to, if it has
+   * lost that place, as after Obsidian took it out of the page and inserted
+   * it again.
+   */
+  restore(): void;
+}
+
+/**
+ * Keeps where an element of the view is scrolled to, for when Obsidian takes
+ * the tab's elements out of the page and inserts them again, as when the tab
+ * moves to another tab group or window (#135). Chromium then shows the
+ * element from its start, without a scroll event. Obsidian 1.15.1 scrolls it
+ * back itself, and 1.5.3 does not. An element that has lost its place shows
+ * its start while its last scroll event left it elsewhere. One that is not
+ * laid out, as in a hidden tab or a window that has yet to lay it out, has
+ * nothing to scroll, and is left alone until a later `restore`.
+ */
+export function keepScrolling(element: HTMLElement): KeptScrolling {
+  let top = element.scrollTop;
+  let left = element.scrollLeft;
+  element.addEventListener(
+    "scroll",
+    () => {
+      top = element.scrollTop;
+      left = element.scrollLeft;
+    },
+    { passive: true },
+  );
+  return {
+    restore: () => {
+      if (!element.isConnected || element.clientHeight === 0) return;
+      if (element.scrollTop !== 0 || element.scrollLeft !== 0 || (top === 0 && left === 0)) return;
+      scrollInstantly(element, element, { top, left });
+    },
+  };
 }
