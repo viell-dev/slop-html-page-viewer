@@ -73,6 +73,11 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 - Shows a page with its local files: images and stylesheets in the vault load as they would next to
   the file on disk. A reference that does not resolve as a path finds its file as Obsidian's own
   links do, by name or by a partial path.
+
+  **Unreleased (#124):** this holds inside shadow DOM too, which pages saved with their web
+  components can contain: its images, stylesheets, and imports load as the rest of the page's do,
+  and with **Local files with scripts on** its files are copied into the page as well.
+
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
   browser would instead.
@@ -83,12 +88,20 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   also in shadow DOM, which pages saved with their web components can contain.
   Hovering an HTML link shows where it leads, and hovering an image shows its alt text, unless the
   page gives them titles of its own.
+
+  **Unreleased (#117):** so do links and images inside shadow DOM, and SVG links without text of
+  their own. An SVG link with text shows none: Chromium reads an SVG link's tooltip as its name for
+  assistive technology, in place of its text, so the viewer leaves the text as its name.
+
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Shows the source and the page side by side in its **Split** view, one above the other in a narrow
   pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole.
+
+  **Unreleased (#124):** also where the page's content is inside shadow DOM.
+
 - Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
   Ctrl+F while the viewer has focus, or the **Find in page** command opens a find bar, which
   highlights every match, up to 10,000, and moves between them with Enter and Shift+Enter; Escape

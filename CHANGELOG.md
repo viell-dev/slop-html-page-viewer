@@ -13,6 +13,12 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   collecting the page's text (#122, #121, #124).
 - A tab no longer shows a page's earlier contents under another page's name when the first page
   changes on disk just as the other opens in the tab (#115).
+- Content inside a page's shadow DOM, which pages saved with their web components can contain, is
+  shown as the rest of the page: its images load, also those that it names by file name only, its
+  stylesheets and imports apply, and with **Local files with scripts on** its files are copied into
+  a page with scripts on. In the split view, the two sides stay in step on such a page (#124).
+- Hovering a link or an image inside shadow DOM shows where the link leads and the image's alt
+  text, and hovering an SVG link without text of its own shows where it leads (#117, #124).
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 
