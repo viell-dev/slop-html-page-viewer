@@ -15,6 +15,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   specifies, and a stylesheet that cannot be read is left out, as a missing one is.
 - Links in SVG images open as other links do. A link to `#` scrolls to the top of the page, and a
   link to `#top` goes to the element named `top` when the page has one.
+- A refresh that finishes after another file has opened in the same tab no longer shows the
+  earlier file's contents there. Before, Obsidian then saved those contents over the file that the
+  tab showed once the tab moved on; the viewer no longer lets Obsidian save the files it shows.
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 

@@ -1,0 +1,222 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { button, frame, Harness, type HtmlView, message, settle } from "./support/harness";
+
+const FIRST = "<!doctype html><title>First</title><p>first original</p>";
+const SECOND = "<!doctype html><title>Second</title><p>second original</p>";
+
+/**
+ * Holds the next read of `path` until the test completes it, so that a test
+ * decides when a refresh's read finishes, without timing.
+ */
+function holdNextRead(
+  harness: Harness,
+  path: string,
+): { resolve(data: string): void; reject(error: Error): void } {
+  const vault = harness.app.vault;
+  const read = vault.read;
+  const held: { resolve?: (data: string) => void; reject?: (error: Error) => void } = {};
+  vault.read = async (file) => {
+    if (file.path !== path) return read(file);
+    vault.read = read;
+    return new Promise<string>((resolve, reject) => Object.assign(held, { resolve, reject }));
+  };
+  return {
+    resolve(data) {
+      assert.ok(held.resolve, `the view read ${path}`);
+      held.resolve(data);
+    },
+    reject(error) {
+      assert.ok(held.reject, `the view read ${path}`);
+      held.reject(error);
+    },
+  };
+}
+
+/** The text of the page in the view's frame, once the view has prepared it. */
+async function shownText(view: HtmlView): Promise<string | null> {
+  await settle();
+  const iframe = frame(view);
+  if (!iframe) return null;
+  return new DOMParser().parseFromString(iframe.srcdoc, "text/html").body.textContent;
+}
+
+function shownFile(view: HtmlView): string | null {
+  return view.contentEl.querySelector(".html-page-viewer__filename")?.textContent ?? null;
+}
+
+describe("refreshing", () => {
+  it("leaves a file that opened in the view meanwhile as it is", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "Review/first.html", FIRST);
+    const read = holdNextRead(harness, "Review/first.html");
+    button(view, "Refresh preview").click();
+
+    await harness.openFile(view, "Review/second.html", SECOND);
+    read.resolve("<p>stale first</p>");
+    await settle();
+
+    assert.equal(view.file?.path, "Review/second.html");
+    assert.equal(view.getViewData(), SECOND);
+    assert.equal(shownFile(view), "second.html");
+    assert.equal(await shownText(view), "second original");
+  });
+
+  it("shows no error for a file that the view has left", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "Review/first.html", FIRST);
+    const read = holdNextRead(harness, "Review/first.html");
+    button(view, "Refresh preview").click();
+
+    await harness.openFile(view, "Review/second.html", SECOND);
+    read.reject(new Error("permission denied"));
+    await settle();
+
+    assert.equal(message(view), null);
+    assert.equal(shownFile(view), "second.html");
+    assert.equal(await shownText(view), "second original");
+  });
+
+  it("ignores a read that finishes after the file was opened again", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "Review/first.html", FIRST);
+    const read = holdNextRead(harness, "Review/first.html");
+    button(view, "Refresh preview").click();
+
+    await harness.openFile(view, "Review/second.html", SECOND);
+    await harness.openFile(view, "Review/first.html", "<p>first, newer</p>");
+    read.resolve("<p>first, older</p>");
+    await settle();
+
+    assert.equal(view.getViewData(), "<p>first, newer</p>");
+    assert.equal(await shownText(view), "first, newer");
+  });
+
+  it("shows only the latest of two refreshes, whichever read finishes first", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "page.html", FIRST);
+    const earlier = holdNextRead(harness, "page.html");
+    button(view, "Refresh preview").click();
+    const later = holdNextRead(harness, "page.html");
+    button(view, "Refresh preview").click();
+
+    later.resolve("<p>later</p>");
+    await settle();
+    earlier.resolve("<p>earlier</p>");
+    await settle();
+    assert.equal(view.getViewData(), "<p>later</p>");
+    assert.equal(await shownText(view), "later");
+
+    // An error from the earlier refresh does not replace the later one's page either.
+    const first = holdNextRead(harness, "page.html");
+    button(view, "Refresh preview").click();
+    const second = holdNextRead(harness, "page.html");
+    button(view, "Refresh preview").click();
+    second.resolve("<p>latest</p>");
+    await settle();
+    first.reject(new Error("permission denied"));
+    await settle();
+    assert.equal(message(view), null);
+    assert.equal(await shownText(view), "latest");
+  });
+
+  it("yields to the contents that Obsidian gives the view meanwhile", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "page.html", FIRST);
+    const read = holdNextRead(harness, "page.html");
+    button(view, "Refresh preview").click();
+
+    // As when Obsidian sees the file change on disk and loads it again.
+    view.setViewData("<p>from Obsidian</p>", false);
+    read.resolve("<p>from the refresh</p>");
+    await settle();
+
+    assert.equal(view.getViewData(), "<p>from Obsidian</p>");
+    assert.equal(await shownText(view), "from Obsidian");
+  });
+
+  it("changes nothing once the view has closed", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "page.html", FIRST);
+    const read = holdNextRead(harness, "page.html");
+    button(view, "Refresh preview").click();
+
+    await view.onClose();
+    read.resolve("<p>after closing</p>");
+    await settle();
+
+    assert.equal(view.contentEl.childElementCount, 0);
+    assert.deepEqual(harness.app.writes, []);
+  });
+
+  it("shows the file's current contents, and an error once it cannot be read", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "page.html", FIRST);
+    const read = holdNextRead(harness, "page.html");
+    button(view, "Refresh preview").click();
+    read.resolve("<p>updated</p>");
+    await settle();
+    assert.equal(view.getViewData(), "<p>updated</p>");
+    assert.equal(await shownText(view), "updated");
+
+    const failing = holdNextRead(harness, "page.html");
+    button(view, "Refresh preview").click();
+    failing.reject(new Error("permission denied"));
+    await settle();
+    assert.equal(message(view), "Unable to read HTML file: permission denied");
+    assert.equal(frame(view), null);
+  });
+});
+
+// The view extends Obsidian's TextFileView, whose saving writes the view's data
+// to its file whenever that differs from what the view last read. The bundle
+// check in policy.test.ts cannot see those writes, which Obsidian's own code
+// makes; these tests model that saving (support/obsidian.ts), and
+// test/e2e/specs/read-only.e2e.ts checks it in Obsidian.
+describe("Obsidian's saving", () => {
+  it("never writes a refreshed view's data to its file", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "page.html", FIRST);
+    // The file changed without Obsidian noticing, so only the refresh reads it.
+    harness.app.files.set("page.html", "<p>changed on disk</p>");
+    button(view, "Refresh preview").click();
+    await settle();
+    assert.equal(view.getViewData(), "<p>changed on disk</p>");
+
+    view.requestSave();
+    assert.equal(view.dirty, false, "Obsidian never takes the view for changed");
+    await view.save();
+    await view.save(true);
+    await harness.openFile(view, "other.html", SECOND);
+    await view.onClose();
+
+    assert.deepEqual(harness.app.writes, []);
+    assert.equal(harness.app.files.get("page.html"), "<p>changed on disk</p>");
+    assert.equal(harness.app.files.get("other.html"), SECOND);
+  });
+
+  it("never writes a file when the view leaves it after a refresh it no longer owns", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    await harness.openFile(view, "Review/first.html", FIRST);
+    const read = holdNextRead(harness, "Review/first.html");
+    button(view, "Refresh preview").click();
+    await harness.openFile(view, "Review/second.html", SECOND);
+    read.resolve(FIRST);
+    await settle();
+
+    // As when the tab opens a note, which closes this view.
+    await view.onClose();
+
+    assert.deepEqual(harness.app.writes, []);
+    assert.equal(harness.app.files.get("Review/second.html"), SECOND);
+  });
+});
