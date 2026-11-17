@@ -18,6 +18,238 @@ import { READING_STYLE_ID } from "../src/reading";
 
 const VAULT = "app://vault-id/home/user/My%20Vault/";
 
+describe("CSS token boundaries (#91)", () => {
+  it("preserves strings and comments beside real and escaped URL tokens", () => {
+    const text = `a::after { content: 'url(ghost.png) @import "ghost.css";'; } /* url(ghost.png) */`;
+    assert.equal(absoluteUrls(text, VAULT + "css/site.css"), text);
+    assert.equal(
+      absoluteUrls(String.raw`a { background: u\72l(\41 b.png) }`, VAULT + "css/site.css"),
+      `a { background: url("${VAULT}css/Ab.png") }`,
+    );
+  });
+
+  it("respects escaped quotes, continuations, token boundaries and bad URL remnants", () => {
+    for (const text of [
+      String.raw`p { content: "quote\" url(ghost.png)" }`,
+      "p { content: 'continued\\\nurl(ghost.png)' }",
+      "#url(ghost.png) { --text: myurl(ghost.png) }",
+      "p { background: url(bad url(ghost.png)); }",
+      "/* unterminated url(ghost.png)",
+    ])
+      assert.equal(absoluteUrls(text, VAULT + "css/site.css"), text);
+  });
+
+  it("reads only real imports, keeping comments, strings and nested rules", async () => {
+    const ctx = context({ "Saved/real.css": "b { color: green }", "Saved/ghost.css": "BAD" });
+    const literal = `p::after { content: '@import "ghost.css"; url(ghost.png)'; } /* @import "ghost.css"; */ @media print { @import "ghost.css"; }`;
+    const result = await inlineStylesheet(
+      '@import/**/"real.css" screen;\n' + literal,
+      ctx.pageUrl,
+      ctx,
+    );
+    assert.deepEqual(ctx.reads, ["Saved/real.css"]);
+    assert.ok(result.includes(literal));
+    assert.ok(result.includes("@media screen"));
+  });
+
+  it("copies only URL tokens in style elements and inline styles", async () => {
+    const ctx = context({});
+    const reads: string[] = [];
+    const css = String.raw`content: 'url(ghost.png)'; /* url(ghost.png) */ background: u\72l(real.png)`;
+    const result = await preparePage(`<style>p { ${css} }</style><p style="${css}">Text</p>`, ctx, {
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          reads.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      },
+    });
+    assert.deepEqual(reads, ["Saved/real.png"]);
+    assert.equal(result.copiedFiles?.copied, 1);
+    const doc = parse(result.html);
+    for (const value of [
+      doc.querySelector("style")!.textContent,
+      doc.querySelector("p")!.getAttribute("style")!,
+    ]) {
+      assert.ok(value.includes("'url(ghost.png)'"));
+      assert.ok(value.includes("/* url(ghost.png) */"));
+      assert.ok(value.includes("data:image/png;base64,AQ=="));
+    }
+  });
+
+  it("reads and copies only real imports and URLs in a shadow root's stylesheets (#124)", async () => {
+    const literal = `p::after { content: 'url(ghost.png) @import "ghost.css";' } /* @import "ghost.css"; url(ghost.png) */`;
+    const css = `@import "real.css"; ${literal} a { background: url(real.png) }`;
+    const ctx = context({
+      "Saved/sheet.css": css,
+      "Saved/real.css": "REAL{}",
+      "Saved/ghost.css": "GHOST{}",
+    });
+    const reads: string[] = [];
+    const style = `content: 'url(ghost.png)'; /* url(ghost.png) */ background: url(real.png)`;
+    const html = [
+      `<div><template shadowrootmode="open">`,
+      `<style>${css}</style><link rel="stylesheet" href="sheet.css"><p style="${style}">x</p>`,
+      `</template></div>`,
+    ].join("");
+    const result = await preparePage(html, ctx, {
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          reads.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      },
+    });
+    // The link first, with its import, then the shadow root's own <style>.
+    assert.deepEqual(ctx.reads, ["Saved/sheet.css", "Saved/real.css", "Saved/real.css"]);
+    assert.deepEqual(reads, ["Saved/real.png"]);
+    assert.ok(!result.html.includes("GHOST"));
+    const content = parse(result.html).querySelector("template")!.content;
+    const sheets = [...content.querySelectorAll("style")].map((element) => element.textContent);
+    assert.equal(sheets.length, 2);
+    for (const value of [...sheets, content.querySelector("p")!.getAttribute("style")!]) {
+      assert.ok(value.includes("'url(ghost.png)"), value);
+      assert.ok(value.includes("/* "), value);
+      assert.ok(value.includes("data:image/png;base64,AQ=="), value);
+    }
+    for (const sheet of sheets) {
+      assert.ok(sheet.includes(literal), sheet);
+      assert.ok(sheet.startsWith("REAL{}"), sheet);
+    }
+  });
+});
+
+it("does not read or copy literal resources after malformed quoted functions", async () => {
+  for (const css of [
+    `a { b: url("x" ")"); } p::after { content: "url(ghost.png)" }`,
+    `a { b: url("x" /* ) " */ ); } p::after { content: "url(ghost.png)" }`,
+    `@import url("x" ")"); p::after { content: "@import 'ghost.css';" }`,
+    '@import "ghost.css?\\"\nscreen;',
+    'a { b: url("ghost.png?\\"\n ) }',
+    // U+0010 is not a hex digit: the escape ends before the newline, which ends a bad string.
+    'p::after { content: "\\\u0010\n" url(ghost.png) "" }',
+    'p::after { content: "\\\u0010\n" } @import "ghost.css"; p::after { content: "" }',
+    'a { b: url(} x); @import "ghost.css"; }',
+    '} a { @import "ghost.css"; }',
+    // A brace inside parentheses or brackets belongs to them, not to the rule.
+    'a { b: (}); @import "ghost.css"; }',
+    'a { b: [}]; @import "ghost.css"; }',
+    'a { b: calc(}); @import "ghost.css"; }',
+    // "\6" is U+0006, and the line continuation after it stands for nothing.
+    'a { b: url("ghost.pn\\6\\\n7") }',
+    // The newline that ends the media list's bad string must stay in the copy.
+    '@import "https://example.com/x.css" "bad\n; p::after { content: "url(ghost.png)" }',
+    // To CSS, U+FEFF starts a name here, not space, so this is no URL.
+    '@import "https://example.com/x.css" ﻿url("ghost.png");',
+  ]) {
+    const sheets = [`<style>${css}</style>`, '<link rel="stylesheet" href="sheet.css">'];
+    // A shadow root's stylesheets are prepared as the document's (#124).
+    const shadow = (sheet: string) =>
+      `<div><template shadowrootmode="open">${sheet}</template></div>`;
+    for (const html of [...sheets, ...sheets.map(shadow)]) {
+      const ctx = context({ "Saved/sheet.css": css, "Saved/ghost.css": "GHOST{}" });
+      const reads: string[] = [];
+      const result = await preparePage(html, ctx, {
+        copyFiles: {
+          size: () => 1,
+          async readBinary(path) {
+            reads.push(path);
+            return new Uint8Array([1]).buffer;
+          },
+        },
+      });
+      assert.deepEqual(ctx.reads, html.includes("<link") ? ["Saved/sheet.css"] : [], css);
+      assert.deepEqual(reads, [], css);
+      assert.ok(!result.html.includes("GHOST"), css);
+    }
+  }
+});
+
+it("imports the name that a hex escape before a line continuation makes", async () => {
+  // "\6" is U+0006, and the continuation after it stands for nothing.
+  const ctx = context({ "Saved/ghost.css": "GHOST{}" });
+  const result = await preparePage('<style>@import "gh\\6\\\nfst.css";</style>', ctx);
+  assert.deepEqual(ctx.reads, ["Saved/gh\u0006fst.css"]);
+  assert.ok(!result.html.includes("GHOST"));
+});
+
+it("leaves a style element that needs no change as it is", async () => {
+  // An SVG <style> can hold elements, which assigning its text would remove.
+  const ctx = context({});
+  const result = await preparePage(
+    '<svg><style>circle { fill: red }<g id="kept"></g></style></svg>',
+    ctx,
+  );
+  assert.ok(parse(result.html).querySelector("svg style #kept"), result.html);
+});
+
+it("leaves a NUL before url( in a linked stylesheet a function name, as CSS reads it", async () => {
+  // CSS reads U+0000 as U+FFFD, an identifier character; the HTML parser
+  // already does that for <style> text, but linked files keep it.
+  const css = "a { b: \0url(ghost.png) } c { d: url(real\0.png) }";
+  const link = '<link rel="stylesheet" href="sheet.css">';
+  for (const html of [link, `<div><template shadowrootmode="open">${link}</template></div>`]) {
+    const ctx = context({ "Saved/sheet.css": css });
+    const reads: string[] = [];
+    const result = await preparePage(html, ctx, {
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          reads.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      },
+    });
+    assert.deepEqual(reads, ["Saved/real�.png"], html);
+    assert.ok(result.html.includes("url(ghost.png)"), html);
+  }
+});
+
+it("ignores closers that do not match the innermost open block in an import's prelude", async () => {
+  // To CSS, the stray ")" is part of the first import's media list, which is
+  // then invalid, and the second import is unaffected.
+  const ctx = context({ "Saved/real.css": "REAL{}", "Saved/ghost.css": "GHOST{}" });
+  const result = await inlineStylesheet(
+    '@import "real.css" ); @import "ghost.css";',
+    ctx.pageUrl,
+    ctx,
+  );
+  assert.deepEqual(ctx.reads, ["Saved/real.css", "Saved/ghost.css"]);
+  assert.equal(result, "@media ) {\nREAL{}\n} GHOST{}");
+});
+
+it("processes linked stylesheet imports once, retaining the eight-file depth limit", async () => {
+  const files = Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => [
+      `Saved/${i}.css`,
+      `@import "${i + 1}.css"; .n${i} { color: red }`,
+    ]),
+  );
+  // A shadow root's links are prepared as the document's, with the same limits (#124).
+  const shadow = (html: string) => `<div><template shadowrootmode="open">${html}</template></div>`;
+  for (const place of [(html: string) => html, shadow]) {
+    const ctx = context(files);
+    await preparePage(place('<link rel="stylesheet" href="0.css">'), ctx);
+    assert.deepEqual(
+      ctx.reads,
+      Array.from({ length: 8 }, (_, i) => `Saved/${i}.css`),
+    );
+    const self = context({ "Saved/self.css": '@import "self.css"; .self { color: red }' });
+    const result = await preparePage(place('<link rel="stylesheet" href="self.css">'), self);
+    assert.deepEqual(self.reads, ["Saved/self.css"]);
+    assert.equal(result.html.split(".self").length - 1, 1);
+  }
+});
+
+it("handles repeated malformed URL openers without quadratic work", () => {
+  const css = "url(".repeat(20_000);
+  const start = performance.now();
+  assert.equal(absoluteUrls(css, VAULT + "site.css"), css);
+  assert.ok(performance.now() - start < 2_000, "80 KB of malformed CSS must finish within 2 s");
+});
+
 function context(
   files: Record<string, string>,
   page = "Saved/Example article.html",
@@ -154,6 +386,28 @@ describe("inlineStylesheet", () => {
     const ctx = context({ "print.css": "body { color: black }" });
     const css = await inlineStylesheet(`@import "print.css" print;`, `${VAULT}main.css`, ctx);
     assert.equal(css, "@media print {\nbody { color: black }\n}");
+  });
+
+  it("keeps the end of an import's media list as written", async () => {
+    // A newline there ends a bad string, and a space keeps a backslash from escaping the ";".
+    const ctx = context({ "print.css": "body { color: black }" });
+    for (const [source, result] of [
+      ['@import "print.css" "bad\n;', '@media "bad\n {\nbody { color: black }\n}'],
+      [
+        '@import "https://example.com/x.css" "bad\n;',
+        '@import url("https://example.com/x.css") "bad\n;',
+      ],
+      [
+        '@import "https://example.com/x.css" screen\\ ;',
+        '@import url("https://example.com/x.css") screen\\ ;',
+      ],
+      // Only CSS whitespace is trimmed at the start: U+00A0 and U+FEFF are name characters.
+      [
+        '@import "https://example.com/x.css"  ﻿url("x.png");',
+        '@import url("https://example.com/x.css")  ﻿url("x.png");',
+      ],
+    ])
+      assert.equal(await inlineStylesheet(source, `${VAULT}main.css`, ctx), result);
   });
 
   it("leaves imports it cannot inline as absolute imports", async () => {

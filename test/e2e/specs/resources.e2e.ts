@@ -24,6 +24,43 @@ const ORANGE: Color = [239, 108, 0];
 const IMAGE_PIXELS = 64 * 64;
 
 describe("A page's local files in Obsidian", function () {
+  it("keeps CSS resource-like text visible while loading real resources, also in shadow DOM (#91)", async function () {
+    await browser.executeObsidian(async ({ app }) => {
+      await app.vault.create(
+        "Css tokens.css",
+        `p::after { content: 'url(ghost.png)'; } p { color: rgb(46, 125, 50); } /* @import "ghost.css"; */`,
+      );
+      await app.vault.create(
+        "Css tokens.html",
+        `<link rel="stylesheet" href="Css tokens.css"><p>Text</p>` +
+          `<div id="host"><template shadowrootmode="closed"><link rel="stylesheet" href="Css tokens.css"><p>Shadow</p></template></div>`,
+      );
+    });
+    try {
+      await openInActiveTab("Css tokens.html");
+      await waitForPage();
+      const shown = await browser.execute((active) => {
+        const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+        const read = (p: Element) => ({
+          content: doc.defaultView!.getComputedStyle(p, "::after").content,
+          color: doc.defaultView!.getComputedStyle(p).color,
+        });
+        // With scripts off, the copy declares the shadow root open.
+        const shadow = doc.querySelector("#host")!.shadowRoot!.querySelector("p")!;
+        return { page: read(doc.querySelector("p")!), shadow: read(shadow) };
+      }, ACTIVE);
+      const expected = { content: '"url(ghost.png)"', color: "rgb(46, 125, 50)" };
+      expect(shown).toEqual({ page: expected, shadow: expected });
+    } finally {
+      await browser.executeObsidian(async ({ app }) => {
+        for (const path of ["Css tokens.html", "Css tokens.css"]) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file);
+        }
+      });
+    }
+  });
+
   before(async function () {
     // An image just outside the vault, which a page must not be able to show.
     const outside = path.join(path.dirname(await vaultFolder()), "outside.png");

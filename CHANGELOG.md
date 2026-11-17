@@ -25,6 +25,11 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   (#126).
 - A page follows a change of Obsidian's theme or of **Readable line length** made while the viewer
   was still preparing it (#140).
+- Preserve CSS strings and comments when resolving resources and copying local files, and avoid
+  stalls on repeated malformed `url(` text (#91). Stylesheet imports inside `@media` or style
+  blocks are no longer inlined, as browsers ignore them there, while imports written with comments
+  or escapes, such as `@import /**/ url(…)` or `@\69mport`, now are. Unquoted URLs with an escaped
+  `)` or `"` now resolve, and a linked stylesheet that imports itself no longer repeats its rules.
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 

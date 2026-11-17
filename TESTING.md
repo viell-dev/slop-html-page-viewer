@@ -88,6 +88,18 @@ on. Costs that could matter were measured in Obsidian in their pull requests, su
 second for every 8 MB copied into a page with scripts on (#58), and about 1.5 s for a search of a
 page with 80,009 elements, three times as long as before find left out hidden text (#121).
 
+**Unreleased (#91):** `css.test.ts` checks the scanner's token kinds and spans, bad strings, escapes
+(only 0-9, A-F, and a-f are hex digits) and line continuations, malformed URL recovery, and nesting
+in import preludes. The CSS token boundary cases in `document.test.ts` cover strings, comments,
+escaped URL names, whitespace-terminated hex escapes, U+0000 in linked stylesheets, top-level
+imports and the end of their media lists, and the local-file copying pass, in `<style>` elements
+and linked stylesheets, the document's and a shadow root's alike (#124). They also check that
+20,000 malformed URL openers preserve their text within 2 s, and that linked stylesheet imports keep
+their cycle and eight-file depth limits, also in a shadow root. `resources.e2e.ts` checks generated
+content beside an applied local stylesheet in real Obsidian, in the document and in a shadow root.
+`scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300 KB and 4 MB
+stylesheets, as observations rather than a check.
+
 ## Shown to fail
 
 On 2026-10-21, each of these deliberate breakages failed the check named:
@@ -205,6 +217,29 @@ part without a box as closed failed both tests of a part closed again, in both v
 showed a closed `<details>` element 418 pixels, and a closed accordion's panel 429 pixels, above the
 window's top. It also failed `move.test.ts`'s tests of those parts and of a page inside an element
 with `display: contents`, which kept its place only as a share of the body's height.
+
+**Unreleased (#91):** On 2026-11-17, each of these deliberate breakages failed the check named:
+
+- The regular expressions used before #91, which read URLs and imports inside CSS strings and
+  comments: `document.test.ts`, also with only a shadow root's `<style>` elements and linked
+  stylesheets in its cases (#124).
+- Counting a string that a newline ends as a string, or reading U+0010 to U+0019 as hex digits:
+  `css.test.ts` and `document.test.ts`.
+- Taking a malformed quoted `url(` as a URL: `css.test.ts` and `document.test.ts`.
+- Counting braces without the parentheses and brackets around them: `css.test.ts` and
+  `document.test.ts`.
+- Reading U+0000 in a linked stylesheet as anything but an identifier character, and processing
+  linked stylesheets again as the page's own styles: `document.test.ts`.
+- Leaving out of the second pass the `<style>` elements that links become only in the document,
+  not in a shadow root (#124): `document.test.ts`, where a 20-deep import chain linked from a
+  shadow root read 16 files rather than 8.
+- Removing a string's line continuations before decoding its escapes, so that `"gh\6\` and a
+  newline before `fst.css"` named `ghost.css`: `css.test.ts` and `document.test.ts`.
+- Trimming the end of an import's media list, which removed the newline that ends a bad string
+  there, or trimming JavaScript's whitespace at its start, which removed a U+FEFF that starts a
+  name there: `document.test.ts`.
+- Assigning every `<style>` element's text, even unchanged, which removed an SVG `<style>`
+  element's children: `document.test.ts`.
 
 ## Limits
 

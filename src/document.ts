@@ -13,6 +13,7 @@
 // vault files to. When the settings ask for it, the page's local images,
 // media, fonts, and scripts are then copied into it as data: URLs (#11).
 
+import { cssTokens, cssImports, type CssToken } from "./css";
 import { READING_STYLE_ID } from "./reading";
 
 /** What the view knows about the page and its vault. */
@@ -161,65 +162,74 @@ function cssString(value: string): string {
   return `"${value.replace(/["\\\n\r\f]/g, (char) => `\\${char.charCodeAt(0).toString(16)} `)}"`;
 }
 
-/**
- * A CSS escape: up to six hexadecimal digits with one whitespace after them,
- * or any other character but a newline, or nothing at the end. A backslash
- * before a newline is not an escape.
- */
-const CSS_ESCAPE = /\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[\t\n\f\r ])?|([^\n\f\r])|$)/gu;
-
-/** U+FFFD, which stands for a character that text cannot hold. */
-const REPLACEMENT_CHARACTER = String.fromCodePoint(0xfffd);
-
-/**
- * Decodes the escapes in CSS text as CSS Syntax 3 consumes an escaped code
- * point: a number that is zero, a surrogate, or past U+10FFFF, and an escape
- * at the end, stand for U+FFFD. It never throws, whatever a page holds.
- */
-function unescapeCss(value: string): string {
-  return value.replace(CSS_ESCAPE, (_, hex?: string, char?: string) => {
-    if (hex === undefined) return char ?? REPLACEMENT_CHARACTER;
-    const code = Number.parseInt(hex, 16);
-    const valid = code !== 0 && (code < 0xd800 || code > 0xdfff) && code <= 0x10ffff;
-    return valid ? String.fromCodePoint(code) : REPLACEMENT_CHARACTER;
-  });
+/** Rewrites resource spans, preserving all other source text. */
+function rewriteCssUrls(
+  css: string,
+  replace: (token: string, reference: string) => string,
+  tokens: readonly CssToken[] = cssTokens(css),
+): string {
+  let result = "";
+  let cursor = 0;
+  for (const token of tokens) {
+    if (token.kind !== "url") continue;
+    result +=
+      css.slice(cursor, token.start) + replace(css.slice(token.start, token.end), token.value);
+    cursor = token.end;
+  }
+  return result + css.slice(cursor);
 }
 
-const URL_TOKEN =
-  /url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^)"'\s\\]|\\.)*))\s*\)/gi;
-const IMPORT_RULE =
-  /@import\s+(?:url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^)"'\s\\]|\\.)*))\s*\)|"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)')\s*([^;]*);/gi;
+/**
+ * A `url()` token made absolute against its stylesheet's URL, or `token`
+ * itself when its reference does not resolve.
+ */
+function absoluteUrl(
+  token: string,
+  reference: string,
+  sheetUrl: string,
+  context?: PageContext,
+): string {
+  // An empty reference or a fragment refers to the document, as in SVG filters.
+  if (reference === "" || reference.startsWith("#")) return token;
+  const absolute = resolve(reference, sheetUrl);
+  if (absolute === null) return token;
+  return `url(${cssString((context && locatedUrl(reference, absolute, context)) ?? absolute)})`;
+}
 
 /**
  * Makes every `url()` in a stylesheet absolute, against the stylesheet's own
  * URL, with a reference that does not resolve as a path located by name when
  * the context can (`locatedUrl`).
  */
-export function absoluteUrls(css: string, sheetUrl: string, context?: PageContext): string {
-  return css.replace(
-    URL_TOKEN,
-    (token: string, double?: string, single?: string, bare?: string) => {
-      const reference = unescapeCss(double ?? single ?? bare ?? "");
-      // An empty reference or a fragment refers to the document, as in SVG filters.
-      if (reference === "" || reference.startsWith("#")) return token;
-      const absolute = resolve(reference, sheetUrl);
-      if (absolute === null) return token;
-      return `url(${cssString((context && locatedUrl(reference, absolute, context)) ?? absolute)})`;
-    },
+export function absoluteUrls(
+  css: string,
+  sheetUrl: string,
+  context?: PageContext,
+  tokens: readonly CssToken[] = cssTokens(css),
+): string {
+  return rewriteCssUrls(
+    css,
+    (token, reference) => absoluteUrl(token, reference, sheetUrl, context),
+    tokens,
   );
 }
 
 /** Replaces only the `url()`s in CSS that `locatedUrl` locates by name. */
-function locateCssUrls(css: string, baseUrl: string, context: PageContext): string {
-  return css.replace(
-    URL_TOKEN,
-    (token: string, double?: string, single?: string, bare?: string) => {
-      const reference = unescapeCss(double ?? single ?? bare ?? "");
+function locateCssUrls(
+  css: string,
+  baseUrl: string,
+  context: PageContext,
+  tokens: readonly CssToken[] = cssTokens(css),
+): string {
+  return rewriteCssUrls(
+    css,
+    (token, reference) => {
       const absolute =
         reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
       const located = absolute === null ? null : locatedUrl(reference, absolute, context);
       return located === null ? token : `url(${cssString(located)})`;
     },
+    tokens,
   );
 }
 
@@ -363,7 +373,8 @@ function locateReferences(root: ParentNode, baseUrl: string, context: PageContex
   }
   for (const element of root.querySelectorAll("[style]")) {
     const style = element.getAttribute("style") ?? "";
-    if (/url\(/i.test(style)) element.setAttribute("style", locateCssUrls(style, baseUrl, context));
+    const replaced = locateCssUrls(style, baseUrl, context);
+    if (replaced !== style) element.setAttribute("style", replaced);
   }
 }
 
@@ -377,16 +388,22 @@ export async function inlineStylesheet(
   sheetUrl: string,
   context: PageContext,
   seen: ReadonlySet<string> = new Set(),
+  tokens: readonly CssToken[] = cssTokens(css),
 ): Promise<string> {
-  const imports: { start: number; end: number; text: string }[] = [];
-  for (const match of css.matchAll(IMPORT_RULE)) {
-    const [rule, a, b, c, d, e, media] = match;
-    const reference = unescapeCss(a ?? b ?? c ?? d ?? e ?? "");
+  const replacements: { start: number; end: number; text: string }[] = [];
+  for (const match of cssImports(tokens)) {
+    const rule = css.slice(match.start, match.end);
+    const media = css.slice(match.mediaStart, match.end - 1);
+    const reference = match.reference;
     const absolute = resolve(reference, sheetUrl);
     const located = absolute === null ? null : locatedUrl(reference, absolute, context);
     const target = located ?? absolute;
     const path = target === null ? null : vaultPath(target, context.vaultUrl);
-    const conditions = media.trim();
+    // Trim only CSS whitespace, only at the start. JavaScript's whitespace also
+    // covers characters such as U+FEFF that CSS reads as part of a name. Keep
+    // the end as written: a newline there ends a bad string, and a space after
+    // a backslash keeps it from escaping what follows.
+    const conditions = media.replace(/^[\t\n\f\r ]+/, "");
     let text =
       target === null
         ? rule
@@ -403,16 +420,26 @@ export async function inlineStylesheet(
         text = conditions === "" ? inner : `@media ${conditions} {\n${inner}\n}`;
       }
     }
-    imports.push({ start: match.index, end: match.index + rule.length, text });
+    replacements.push({ start: match.start, end: match.end, text });
   }
 
+  // Imports and URLs share the same scan; never rescan each intervening segment.
+  for (const token of tokens) {
+    if (token.kind !== "url") continue;
+    const text = absoluteUrl(css.slice(token.start, token.end), token.value, sheetUrl, context);
+    replacements.push({ start: token.start, end: token.end, text });
+  }
+  replacements.sort((a, b) => a.start - b.start);
   let result = "";
   let cursor = 0;
-  for (const { start, end, text } of imports) {
-    result += absoluteUrls(css.slice(cursor, start), sheetUrl, context) + text;
+  for (const { start, end, text } of replacements) {
+    // A URL inside an import rule, as in `@import url(...)`, is part of the
+    // rule's replacement already.
+    if (start < cursor) continue;
+    result += css.slice(cursor, start) + text;
     cursor = end;
   }
-  return result + absoluteUrls(css.slice(cursor), sheetUrl, context);
+  return result + css.slice(cursor);
 }
 
 /**
@@ -439,6 +466,10 @@ async function inlineStylesheets(
   baseUrl: string,
   context: PageContext,
 ): Promise<void> {
+  // The <style> elements that links become have their imports inlined
+  // already. Preparing them again would read the files again, with the import
+  // depth and cycle checks restarted.
+  const originalStyles = [...root.querySelectorAll("style")];
   for (const link of [...root.querySelectorAll("link")].filter(isStylesheetLink)) {
     const href = link.getAttribute("href") ?? "";
     const resolved = resolve(href, baseUrl);
@@ -459,13 +490,16 @@ async function inlineStylesheets(
     link.replaceWith(style);
   }
 
-  for (const style of root.querySelectorAll("style")) {
+  for (const style of originalStyles) {
     const css = style.textContent ?? "";
-    if (/@import/i.test(css)) {
-      style.textContent = styleElementText(await inlineStylesheet(css, baseUrl, context));
-    } else if (/url\(/i.test(css)) {
-      style.textContent = styleElementText(locateCssUrls(css, baseUrl, context));
-    }
+    const tokens = cssTokens(css);
+    const text = styleElementText(
+      cssImports(tokens).length > 0
+        ? await inlineStylesheet(css, baseUrl, context, new Set(), tokens)
+        : locateCssUrls(css, baseUrl, context, tokens),
+    );
+    // Assigning replaces the element's children, such as those of an SVG <style>.
+    if (text !== css) style.textContent = text;
   }
 }
 
@@ -655,19 +689,27 @@ class FileCopier {
   }
 }
 
-/** Visits the `url()`s in CSS, putting what `visit` returns in their place. */
-async function visitCssUrls(css: string, baseUrl: string, visit: Visit): Promise<string> {
+/**
+ * Visits the `url()`s in CSS, given its URL tokens, putting what `visit`
+ * returns in their place.
+ */
+async function visitCssUrls(
+  css: string,
+  baseUrl: string,
+  visit: Visit,
+  urls: readonly CssToken[],
+): Promise<string> {
   let result = "";
   let cursor = 0;
-  for (const match of css.matchAll(URL_TOKEN)) {
-    const [token, double, single, bare] = match;
-    const reference = unescapeCss(double ?? single ?? bare ?? "");
+  for (const match of urls) {
+    const token = css.slice(match.start, match.end);
+    const reference = match.value;
     const absolute =
       reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
     const replaced = absolute === null ? null : await visit(absolute);
     result +=
-      css.slice(cursor, match.index) + (replaced === null ? token : `url(${cssString(replaced)})`);
-    cursor = match.index + token.length;
+      css.slice(cursor, match.start) + (replaced === null ? token : `url(${cssString(replaced)})`);
+    cursor = match.end;
   }
   return result + css.slice(cursor);
 }
@@ -693,7 +735,22 @@ async function visitSrcset(srcset: string, baseUrl: string, visit: Visit): Promi
  * scripts load, in document order: their attributes, then `<style>` elements
  * and `style` attributes. A reference that `visit` gives a URL for gets it.
  */
-async function visitFileReferences(root: ParentNode, baseUrl: string, visit: Visit): Promise<void> {
+async function visitFileReferences(
+  root: ParentNode,
+  baseUrl: string,
+  visit: Visit,
+  scans: Map<string, readonly CssToken[]>,
+): Promise<void> {
+  // Both passes visit the same URL tokens, and only those are kept between
+  // them: a whole scan holds an object for every few bytes of CSS.
+  const urls = (css: string): readonly CssToken[] => {
+    let found = scans.get(css);
+    if (!found) {
+      found = cssTokens(css).filter((token) => token.kind === "url");
+      scans.set(css, found);
+    }
+    return found;
+  };
   for (const element of root.querySelectorAll(Object.keys(COPIED_ATTRIBUTES).join(", "))) {
     for (const name of COPIED_ATTRIBUTES[element.localName] ?? []) {
       const value = element.getAttribute(name);
@@ -710,14 +767,12 @@ async function visitFileReferences(root: ParentNode, baseUrl: string, visit: Vis
   }
   for (const style of root.querySelectorAll("style")) {
     const css = style.textContent ?? "";
-    if (!/url\(/i.test(css)) continue;
-    const replaced = await visitCssUrls(css, baseUrl, visit);
+    const replaced = await visitCssUrls(css, baseUrl, visit, urls(css));
     if (replaced !== css) style.textContent = replaced;
   }
   for (const element of root.querySelectorAll("[style]")) {
     const css = element.getAttribute("style") ?? "";
-    if (!/url\(/i.test(css)) continue;
-    const replaced = await visitCssUrls(css, baseUrl, visit);
+    const replaced = await visitCssUrls(css, baseUrl, visit, urls(css));
     if (replaced !== css) element.setAttribute("style", replaced);
   }
 }
@@ -736,9 +791,10 @@ async function copyReferencedFiles(
   vaultUrl: string,
 ): Promise<CopiedFiles> {
   const copier = new FileCopier(files, vaultUrl);
-  for (const root of roots) await visitFileReferences(root, baseUrl, copier.note);
+  const scans = new Map<string, readonly CssToken[]>();
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.note, scans);
   copier.plan();
-  for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy, scans);
   return copier.result;
 }
 
