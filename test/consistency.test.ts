@@ -184,6 +184,12 @@ describe("CI", () => {
     assert.match(ci, /^\s*name: e2e$/m);
     assert.deepEqual(required, [...oses.map((os) => `verify (${os})`), "e2e"].sort());
   });
+
+  it("runs the stress tests in the required jobs, beside the unit tests", () => {
+    const ci = read(path.join(".github", "workflows", "ci.yml"));
+    assert.match(ci, /^ {6}- run: npm test\n {6}- run: npm run test:stress$/m);
+    assert.ok(fs.readdirSync("test").some((file) => file.endsWith(".stress.ts")));
+  });
 });
 
 describe("tests", () => {
@@ -201,8 +207,9 @@ describe("tests", () => {
 
   it("skip none and focus on none", () => {
     const dirs = ["test", path.join("test", "e2e", "specs")];
+    const tests = /\.(test|stress|e2e)\.ts$/;
     for (const dir of dirs) {
-      for (const file of fs.readdirSync(dir).filter((name) => /\.(test|e2e)\.ts$/.test(name))) {
+      for (const file of fs.readdirSync(dir).filter((name) => tests.test(name))) {
         const text = read(path.join(dir, file));
         assert.doesNotMatch(text, /\b(?:it|describe|test|suite)\.(?:skip|only)\s*\(/, file);
         assert.doesNotMatch(text, /[{,]\s*(?:skip|only)\s*:\s*true/, file);

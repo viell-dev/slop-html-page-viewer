@@ -40,6 +40,7 @@ jobs:
         run: npm run format:check
       - run: npm run build
       - run: npm test
+      - run: npm run test:stress
       - if: runner.os == 'Linux'
         run: npm audit --audit-level=high
 

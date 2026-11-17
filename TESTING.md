@@ -7,7 +7,8 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 
 - **Unit tests** (`npm test`) run the plugin's code in a jsdom window, with a stand-in for the parts
   of Obsidian's API that it uses. They are required in CI on Linux and Windows. They prove logic,
-  not Obsidian's behavior.
+  not Obsidian's behavior. **Stress tests** (`npm run test:stress`) run the same way on pages at
+  the sizes that once broke the plugin, and are required in CI with them.
 - **Consistency tests** (`test/consistency.test.ts`, part of `npm test`), **linting**
   (`npm run lint`), and **formatting** (`npm run format:check`) keep the versions, changelog,
   release notes, documented settings, unreleased notices and their changelog issue references,
@@ -63,7 +64,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                        |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                    |
 | Installing the release's zip, turning the plugin off and on, updating it, and restarting Obsidian keep its settings, extensions, and view                                          | `release.test.ts`: the zip holds the plugin's folder; `extensions.test.ts`: the viewer gives up only its own extensions; `settings.test.ts`: missing and damaged settings | `lifecycle.e2e.ts`                                                                                                               |
-| Large pages stay usable                                                                                                                                                            | `find.test.ts`: at most 10,000 matches; `split.test.ts`: alignment past its limit; `settings.test.ts`: copy limits                                                        | `corpus.e2e.ts`: every page, the 600 KB page with 500 images too, opens and passes its checks within 15 s                        |
+| Large pages stay usable                                                                                                                                                            | `find.test.ts`: at most 10,000 matches; `split.test.ts`: alignment past its limit; `settings.test.ts`: copy limits; `document.stress.ts`: 130,000 templates               | `corpus.e2e.ts`: every page, the 600 KB page with 500 images too, opens and passes its checks within 15 s                        |
 
 `release.test.ts` also invokes the packaging command in disposable synthetic checkouts: protected
 paths, unowned contents and links are refused without deleting their targets; fresh, empty and
@@ -150,8 +151,8 @@ On 2026-11-17, these failed `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1:
   shadow root that the page did not declare, and one on a link copied by SVG `<use>`, each started
   a navigation that nothing canceled.
 
-Collecting a page's templates by passing them all to one call failed `document.test.ts` on a page
-with more of them than a call can take.
+Collecting a page's templates by passing them all to one call failed the test now in
+`document.stress.ts` on a page with more of them than a call can take.
 
 **Unreleased (#115):** On 2026-11-17, with the view as 0.5.2 has it, Obsidian's reload of a changed
 file that finished after another file opened in the tab showed the first file's contents under the

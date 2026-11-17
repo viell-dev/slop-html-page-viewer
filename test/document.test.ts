@@ -435,16 +435,6 @@ describe("preparePage", () => {
     assert.doesNotMatch(await prepare(html, context({})), new RegExp(SHADOW_ROOT_MARK));
   });
 
-  it("declares open every shadow root of a page with more of them than a call takes arguments", async () => {
-    // V8 refuses a call with about 125,000 arguments or more.
-    const count = 130_000;
-    const inner = `<template shadowrootmode="closed"></template>`.repeat(count);
-    const html = `<div><template shadowrootmode="open">${inner}</template></div>`;
-    const output = await prepare(html, context({}), { openShadowRoots: true });
-    assert.equal(output.split(`shadowrootmode="open"`).length - 1, count + 1);
-    assert.doesNotMatch(output, /closed/);
-  });
-
   it("makes the copy's root inert only when asked, and leaves a page's own inert root", async () => {
     const asked = await preparePage("<p>x</p>", context({}), { inertUntilWatched: true });
     assert.equal(asked.madeInert, true);
