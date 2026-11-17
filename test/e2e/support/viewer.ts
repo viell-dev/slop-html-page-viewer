@@ -385,6 +385,54 @@ export async function clickInPage(selector: string, modifiers: string[] = []): P
   }
   throw new Error(`Three clicks at ${selector} missed it`);
 }
+
+/**
+ * Moves the active tab to a new tab group beside it, with the calls that
+ * Obsidian makes when a tab is dropped on another tab group, or to a new
+ * window, as the tab's menu does. Either way Obsidian moves the tab's
+ * elements, and the frame drops its document and loads its copy again.
+ * Given `width`, the tab's view then has that width, in CSS pixels, before the
+ * frame lays out its next document, as a tab group of another width gives it.
+ */
+export async function moveActiveTab(to: "group" | "window", width?: number): Promise<void> {
+  await browser.executeObsidian(
+    ({ app }, to, width) => {
+      const leaf = app.workspace.getMostRecentLeaf()!;
+      const frame = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe")!;
+      frame.dataset.e2eMoved = "";
+      frame.contentDocument!.documentElement.dataset.e2eBefore = "";
+      const resize = (): void => {
+        if (width !== undefined)
+          leaf.view.containerEl
+            .querySelector<HTMLElement>(".view-content")
+            ?.style.setProperty("width", `${width}px`);
+      };
+      if (to === "window") {
+        app.workspace.moveLeafToPopout(leaf);
+        resize();
+        return;
+      }
+      // Not in Obsidian's API types; 1.5.3 and 1.15.1 have them.
+      interface Parent {
+        children: unknown[];
+        removeChild(child: unknown): void;
+        insertChild(index: number, child: unknown): void;
+        selectTabIndex(index: number): void;
+      }
+      const moved = leaf as unknown as { parent: Parent; setDimension(size: null): void };
+      const split = app.workspace.getLeaf("split", "vertical") as unknown as { parent: Parent };
+      moved.parent.removeChild(leaf);
+      moved.setDimension(null);
+      split.parent.insertChild(-1, leaf);
+      split.parent.selectTabIndex(split.parent.children.indexOf(leaf));
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      resize();
+    },
+    to,
+    width,
+  );
+}
+
 /** The active tab's file path and view type. */
 export async function activeFile(): Promise<{ path: string | null; type: string | null }> {
   return browser.executeObsidian(({ app }) => {
