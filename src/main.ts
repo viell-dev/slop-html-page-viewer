@@ -22,6 +22,7 @@ import {
 import { type PaneChoice, watchLinks } from "./links";
 import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
+import { isPinned, type ScrollPlace, scrollInstantly, scrollPlace, showPlace } from "./scrolling";
 import {
   DEFAULT_SETTINGS,
   readSettings,
@@ -832,11 +833,8 @@ class HtmlPageViewerView extends TextFileView {
       poll();
     };
     const watched = new WeakSet<Document>();
-    /**
-     * Where the frame's previous document was scrolled to when it went away,
-     * for the next one to show the page there again (#126).
-     */
-    let place: ScrollPlace | null = null;
+    /** Where the frame's previous document was scrolled to when the frame dropped it (#126). */
+    const frame: { place: ScrollPlace | null } = { place: null };
     const watch = (): boolean => {
       // Only a page with Obsidian's origin (scripts off) can be reached.
       const doc = iframe.contentDocument;
@@ -851,42 +849,13 @@ class HtmlPageViewerView extends TextFileView {
         });
         // Only now that its links lead where the view decides can the page act.
         if (madeInert) doc.documentElement.removeAttribute("inert");
-        this.restyle(doc);
-        // The listeners that the view adds for this document outside it, as on
-        // the split view's source, which outlive it unless removed.
-        const showing = new AbortController();
-        let placed = false;
         // Obsidian moves the tab's elements when the tab moves to another tab
         // group or window, and the frame then drops this document and loads
         // the copy again. Look for the next document once the script moving
         // the frame has run: while pagehide runs, this one is still the
-        // frame's, and a timer would end with a window that closes. Its layout
-        // is still there too, so it can say where it is scrolled to; one that
-        // has not been placed yet keeps the place it was to show.
-        doc.defaultView?.addEventListener("pagehide", () => {
-          queueMicrotask(look);
-          showing.abort();
-          if (placed) place = scrollPlace(doc);
-        });
-        // Search the page, follow its scrolling in the split view, and show it
-        // where the previous document was, as soon as its text is there,
-        // before its images load.
-        const parsed = (): void => {
-          this.restyle(doc);
-          this.runFind();
-          if (place) showPlace(doc, place);
-          placed = true;
-          if (this.mode === "split") this.syncScrolling(iframe, doc, showing.signal);
-        };
-        if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", parsed);
-        else parsed();
-        // Keys pressed in the page go to its own document, not to Obsidian.
-        doc.addEventListener("keydown", (event) => {
-          if (isFindKey(event)) {
-            event.preventDefault();
-            this.openFind();
-          }
-        });
+        // frame's, and a timer would end with a window that closes.
+        doc.defaultView?.addEventListener("pagehide", () => queueMicrotask(look));
+        this.showDocument(iframe, doc, frame);
       }
       return true;
     };
@@ -898,6 +867,53 @@ class HtmlPageViewerView extends TextFileView {
     }
 
     look();
+  }
+
+  /**
+   * Shows a document of the frame as the view shows its page, once the view
+   * watches it: in the reading style that the view shows, where the frame's
+   * previous document was, with the find bar's matches, in step with the
+   * source in the split view, and with the find keys. `frame.place` is where
+   * the previous document was scrolled to when the frame dropped it, as when
+   * its tab moved to another tab group or window (#126).
+   */
+  private showDocument(
+    iframe: HTMLIFrameElement,
+    doc: Document,
+    frame: { place: ScrollPlace | null },
+  ): void {
+    this.restyle(doc);
+    // The listeners that the view adds for this document outside it, as on
+    // the split view's source, which outlive it unless removed.
+    const showing = new AbortController();
+    let placed = false;
+    // While pagehide runs, the document still has its layout, so it can say
+    // where it is scrolled to; one that has not been placed yet keeps the
+    // place that it was to show.
+    doc.defaultView?.addEventListener("pagehide", () => {
+      showing.abort();
+      if (placed) frame.place = scrollPlace(doc);
+    });
+    // Search the page, follow its scrolling in the split view, and show it
+    // where the previous document was, as soon as its text is there, before
+    // its images load. The reader's input in the view, as in the split view's
+    // source or the find bar, also counts as their own scrolling.
+    const parsed = (): void => {
+      this.restyle(doc);
+      this.runFind();
+      if (frame.place) showPlace(doc, frame.place, [this.contentEl], showing.signal);
+      placed = true;
+      if (this.mode === "split") this.syncScrolling(iframe, doc, showing.signal);
+    };
+    if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", parsed);
+    else parsed();
+    // Keys pressed in the page go to its own document, not to Obsidian.
+    doc.addEventListener("keydown", (event) => {
+      if (isFindKey(event)) {
+        event.preventDefault();
+        this.openFind();
+      }
+    });
   }
 
   /**
@@ -938,9 +954,7 @@ class HtmlPageViewerView extends TextFileView {
           (element) => {
             const box = element.getBoundingClientRect();
             if (box.width === 0 && box.height === 0) return null;
-            // A fixed or sticky element is where the window is, not where it is in the page.
-            const position = win.getComputedStyle(element).position;
-            return position === "fixed" || position === "sticky" ? null : box.top + win.scrollY;
+            return isPinned(element, win) ? null : box.top + win.scrollY;
           },
           { lines, height: root.scrollHeight },
         ),
@@ -1325,99 +1339,6 @@ function scrollToRange(range: Range): void {
   const box = range.getBoundingClientRect?.();
   if (!win || !box || (box.width === 0 && box.height === 0)) return;
   if (box.top < 0 || box.bottom > win.innerHeight) win.scrollBy(0, box.top - win.innerHeight / 2);
-}
-
-/**
- * Scrolls a window or an element at once, also in a page whose own style
- * scrolls smoothly, which would move it in steps that each report a scroll. A
- * Chromium that does not know "instant" throws; then the style of the page's
- * `root` is set aside for the move.
- */
-function scrollInstantly(target: Element | Window, root: HTMLElement, to: ScrollToOptions): void {
-  try {
-    target.scrollTo({ ...to, behavior: "instant" as ScrollBehavior });
-  } catch {
-    const saved = root.style.getPropertyValue("scroll-behavior");
-    // eslint-disable-next-line obsidianmd/no-static-styles-assignment -- the page's root, for one move
-    root.style.setProperty("scroll-behavior", "auto");
-    target.scrollTo(to);
-    if (saved) root.style.setProperty("scroll-behavior", saved);
-    else root.style.removeProperty("scroll-behavior");
-  }
-}
-
-/**
- * Where a page is scrolled to, by what it shows at the window's top (#126):
- * the innermost element there, as its index among its parent's children at
- * each level down from the body, and how far the window's top is into the
- * element, as a share of its height. Another document of the same copy holds
- * the same elements, so the place is the same in it, also where it lays the
- * page out at another width.
- */
-export interface ScrollPlace {
-  readonly path: readonly number[];
-  readonly into: number;
-  /** How far the window is scrolled sideways, in pixels. */
-  readonly left: number;
-}
-
-/** Where `doc`'s window is scrolled to, or null at the page's top. */
-export function scrollPlace(doc: Document): ScrollPlace | null {
-  const win = doc.defaultView;
-  const body = doc.body;
-  if (!win || !body || (win.scrollY <= 0 && win.scrollX <= 0)) return null;
-  const atTop = (element: Element): boolean => {
-    const box = element.getBoundingClientRect();
-    if (box.top > 0 || box.bottom <= 0) return false;
-    // A fixed or sticky element is where the window is, not where it is in the page.
-    const position = win.getComputedStyle(element).position;
-    return position !== "fixed" && position !== "sticky";
-  };
-  const path: number[] = [];
-  let element: Element = body;
-  for (;;) {
-    const index = [...element.children].findIndex(atTop);
-    if (index === -1) break;
-    path.push(index);
-    element = element.children[index];
-  }
-  const box = element.getBoundingClientRect();
-  return { path, into: box.height > 0 ? -box.top / box.height : 0, left: win.scrollX };
-}
-
-/**
- * How far `doc`'s window scrolls down to show `place` at its top, or null
- * without a body. Where the document lacks the place's element, the deepest
- * of its parents that it has stands in for it.
- */
-export function placeTop(doc: Document, place: ScrollPlace): number | null {
-  const win = doc.defaultView;
-  const body = doc.body;
-  if (!win || !body) return null;
-  let element: Element = body;
-  for (const index of place.path) {
-    const child: Element | null = element.children.item(index);
-    if (child === null) break;
-    element = child;
-  }
-  const box = element.getBoundingClientRect();
-  return win.scrollY + box.top + place.into * box.height;
-}
-
-/**
- * Scrolls a document to a place. Until the page has loaded, its images can
- * still move its content, or leave it too short to reach the place, so it is
- * placed again when it loads.
- */
-function showPlace(doc: Document, place: ScrollPlace): void {
-  const win = doc.defaultView;
-  if (!win) return;
-  const show = (): void => {
-    const top = placeTop(doc, place);
-    if (top !== null) scrollInstantly(win, doc.documentElement, { top, left: place.left });
-  };
-  show();
-  if (doc.readyState !== "complete") win.addEventListener("load", show, { once: true });
 }
 
 function createIconButton(parent: HTMLElement, icon: string, label: string): HTMLButtonElement {

@@ -167,8 +167,8 @@ Record material settings decisions and their rationale in the owning issue or pu
 
 - `src/main.ts`: plugin, view lifecycle, toolbar, source highlighting, and sandbox selection.
 - `src/document.ts`: the rendered copy, resource paths, stylesheets, and optional local-file copying.
-- `src/reading.ts`, `src/links.ts`, `src/find.ts`, and `src/split.ts`: reading style, navigation,
-  search, and synchronized scrolling.
+- `src/reading.ts`, `src/links.ts`, `src/find.ts`, `src/split.ts`, and `src/scrolling.ts`: reading
+  style, navigation, search, synchronized scrolling, and a page's place across a tab's move.
 - `src/settings.ts` and `src/extensions.ts`: saved settings, controls, and extension registration.
 - `test/support/`: jsdom and Obsidian stand-ins for unit tests. Keep their behavior aligned with the
   real host; they cannot establish host behavior themselves.

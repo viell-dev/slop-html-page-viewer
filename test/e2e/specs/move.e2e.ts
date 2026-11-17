@@ -1,3 +1,5 @@
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { browser, expect } from "@wdio/globals";
 import {
   ACTIVE,
@@ -9,8 +11,11 @@ import {
 
 /** A page whose paragraphs wrap onto more lines in a narrower pane. */
 const PARAGRAPHS = "Saved/Long paragraphs.html";
+/** The same paragraphs, followed by an image that arrives only when the test says. */
+const HELD = "Saved/Held image.html";
 
-async function createParagraphsPage(): Promise<void> {
+/** Writes a page of 60 long paragraphs to `path`, followed by `after`. */
+async function writeParagraphsPage(path = PARAGRAPHS, after = ""): Promise<void> {
   const words =
     "Each paragraph of this synthetic page runs long enough to wrap onto several lines, so that its height depends on the width that the page is laid out at.";
   const paragraphs = Array.from(
@@ -18,22 +23,59 @@ async function createParagraphsPage(): Promise<void> {
     (_, index) =>
       `<p id="p${index + 1}">Paragraph ${index + 1}. ${words.repeat(1 + (index % 3))}</p>`,
   ).join("\n");
-  const html = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>Long paragraphs</title>\n</head>\n<body>\n${paragraphs}\n</body>\n</html>\n`;
+  const html = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>Long paragraphs</title>\n</head>\n<body>\n${paragraphs}\n${after}</body>\n</html>\n`;
   await browser.executeObsidian(
     async ({ app }, path, html) => {
-      if (!app.vault.getAbstractFileByPath(path)) await app.vault.create(path, html);
+      const existing = app.vault.getAbstractFileByPath(path);
+      if (existing) await app.vault.modify(existing as never, html);
+      else await app.vault.create(path, html);
     },
-    PARAGRAPHS,
+    path,
     html,
   );
 }
 
+/**
+ * A server whose image never arrives until `release`, which refuses it then
+ * and afterwards: a page that shows it has its text long before it loads, as
+ * a saved page whose images are on a host that no longer answers has.
+ */
+async function heldImage(): Promise<{ url: string; release(): void; close(): void }> {
+  const held: http.ServerResponse[] = [];
+  let released = false;
+  const refuse = (response: http.ServerResponse): void => {
+    response.writeHead(404);
+    response.end();
+  };
+  const server = http.createServer((_request, response) => {
+    if (released) refuse(response);
+    else held.push(response);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}/held.png`,
+    release: () => {
+      released = true;
+      for (const response of held.splice(0)) refuse(response);
+    },
+    close: () => {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+}
+
 interface PageState {
-  /** Whether the frame shows the page in a document that has loaded, after a move a new one. */
-  loaded: boolean;
+  /** Whether the frame shows the page's copy, after a move in a new document. */
+  shown: boolean;
+  /** How far the page's document has loaded. */
+  readyState: DocumentReadyState;
   inWindow: boolean;
   /** The number of the first paragraph that the page shows at its top. */
   top: number;
+  /** How far the page is scrolled down, in CSS pixels. */
+  scrollY: number;
   /** The widths of the page's text and of the frame's viewport, in CSS pixels. */
   text: number;
   viewport: number;
@@ -79,12 +121,11 @@ async function pageState(moved: boolean): Promise<PageState | null> {
         lines.findIndex((each) => each.offsetTop + each.offsetHeight > source.scrollTop + 1) + 1;
     }
     return {
-      loaded:
-        doc.URL === "about:srcdoc" &&
-        doc.readyState === "complete" &&
-        doc.documentElement.dataset.e2eBefore === undefined,
+      shown: doc.URL === "about:srcdoc" && doc.documentElement.dataset.e2eBefore === undefined,
+      readyState: doc.readyState,
       inWindow: frame.ownerDocument !== document,
       top: Number(/Paragraph (\d+)/.exec(paragraph?.textContent ?? "")?.[1] ?? 0),
+      scrollY: win.scrollY,
       text: doc.body.getBoundingClientRect().width,
       viewport: doc.documentElement.clientWidth,
       background: win.getComputedStyle(doc.documentElement).backgroundColor,
@@ -93,19 +134,117 @@ async function pageState(moved: boolean): Promise<PageState | null> {
   }, moved);
 }
 
-/** Waits until the moved tab's frame has loaded its page again, and the view has placed it. */
-async function waitForMovedPage(): Promise<PageState> {
+/**
+ * Waits until the frame of the tab that moveActiveTab moved shows its page
+ * again and `ready` holds for what it shows: by default, until the page has
+ * loaded, when the view has placed it for the last time.
+ */
+async function waitForMovedPage(
+  ready: (state: PageState) => boolean = (state) => state.readyState === "complete",
+  what = "its page loaded again",
+): Promise<PageState> {
   let state: PageState | null = null;
+  try {
+    await browser.waitUntil(
+      async () => {
+        state = await pageState(true);
+        return state?.shown === true && ready(state);
+      },
+      { timeout: 10_000 },
+    );
+  } catch {
+    throw new Error(`The moved tab did not show ${what}: ${JSON.stringify(state)}`);
+  }
+  return state!;
+}
+
+/** Waits until the active tab's page has its text, before it has loaded. */
+async function waitForParsedPage(): Promise<void> {
+  await browser.waitUntil(
+    async () => {
+      const state = await pageState(false);
+      return state?.shown === true && state.readyState === "interactive";
+    },
+    { timeoutMsg: "the page did not reach the state between parsing and loading" },
+  );
+}
+
+/** Waits for two animation frames of Obsidian's window, after the split view's following. */
+async function nextFrames(): Promise<void> {
+  await browser.execute(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+}
+
+/**
+ * Turns the mouse wheel down over the element of Obsidian's main window that
+ * `selector` finds, as a reader scrolls, until the moved tab's page shows a
+ * paragraph after `from` at its top and has stopped scrolling.
+ */
+async function wheelDown(selector: string, from: number): Promise<PageState> {
+  const point = await browser.execute((selector) => {
+    const box = document.querySelector(selector)!.getBoundingClientRect();
+    return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+  }, selector);
+  await browser
+    .action("wheel")
+    .scroll({ x: point.x, y: point.y, deltaX: 0, deltaY: 1200, duration: 100 })
+    .perform();
+  let state: PageState | null = null;
+  let last = -1;
   await browser.waitUntil(
     async () => {
       state = await pageState(true);
-      return state?.loaded === true;
+      const settled = state !== null && state.top > from + 2 && state.scrollY === last;
+      last = state?.scrollY ?? -1;
+      return settled;
     },
-    { timeout: 10_000, timeoutMsg: "the moved tab did not show its page again" },
+    { timeout: 5000, interval: 200, timeoutMsg: "the reader's wheel did not scroll the page" },
   );
-  // Then a moment for the scroll events that placing it makes to be followed.
-  await browser.pause(500);
-  return (await pageState(true))!;
+  return state!;
+}
+
+/**
+ * Moves the active tab's page, scrolled to paragraph 30 of HELD, to another
+ * tab group while its image is held, so that it has its text again long
+ * before it loads. The reader then turns the wheel over `selector`, and only
+ * then does the image fail, which lets the page load. Returns what the moved
+ * page showed after the reader's scrolling, and once it had loaded.
+ */
+async function scrollBeforeLoad(
+  selector: string,
+  split: boolean,
+): Promise<{ scrolled: PageState; loaded: PageState }> {
+  const image = await heldImage();
+  try {
+    await writeParagraphsPage(
+      HELD,
+      `<img src="${image.url}" alt="An image that arrives only when the test says" width="16" height="16">\n`,
+    );
+    await openInActiveTab(HELD);
+    if (split) await clickToolbarButton("Split");
+    await waitForParsedPage();
+    await scrollToParagraph(30, 0.5);
+    expect(await pageState(false)).toMatchObject({ top: 30 });
+
+    await moveActiveTab("group");
+    await waitForMovedPage(
+      (state) => state.readyState === "interactive" && state.top === 30,
+      "its page at paragraph 30 before it loaded",
+    );
+    const scrolled = await wheelDown(selector, 30);
+    expect(scrolled.readyState).toBe("interactive");
+
+    image.release();
+    await waitForMovedPage();
+    await nextFrames();
+    return { scrolled, loaded: (await pageState(true))! };
+  } finally {
+    image.close();
+  }
 }
 
 /** Scrolls the active tab's page to show `fraction` of paragraph `number`'s height above its top. */
@@ -196,7 +335,7 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
   });
 
   it("shows its page where it was, in another tab group, where the page wraps differently", async function () {
-    await createParagraphsPage();
+    await writeParagraphsPage();
     await openInActiveTab(PARAGRAPHS);
     // Without the theme's line width, the page takes the pane's width.
     await clickToolbarButton("Theme ON");
@@ -217,7 +356,7 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
   });
 
   it("shows its page where it was, in a new window", async function () {
-    await createParagraphsPage();
+    await writeParagraphsPage();
     await openInActiveTab(PARAGRAPHS);
     await waitForPage();
     await scrollToParagraph(40, 0.25);
@@ -294,7 +433,14 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
     }, ACTIVE);
 
     await moveActiveTab("group");
-    const after = await waitForMovedPage();
+    // The source follows the placed page an animation frame later.
+    const after = await waitForMovedPage(
+      (state) =>
+        state.readyState === "complete" &&
+        Math.abs(state.top - 12) <= 1 &&
+        Math.abs((state.line ?? 0) - 20) <= 1,
+      "its page at paragraph 12 and its source at line 20",
+    );
     expect(Math.abs(after.top - 12)).toBeLessThanOrEqual(1);
     expect(Math.abs((after.line ?? 0) - 20)).toBeLessThanOrEqual(1);
 
@@ -316,5 +462,21 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
         () => (window as unknown as { e2eDroppedReads: number }).e2eDroppedReads,
       ),
     ).toBe(0);
+  });
+
+  it("leaves its page where the reader scrolls it before the page has loaded", async function () {
+    const { scrolled, loaded } = await scrollBeforeLoad("iframe[data-e2e-moved]", false);
+    expect(loaded.readyState).toBe("complete");
+    expect(loaded.top).toBe(scrolled.top);
+  });
+
+  it("leaves both sides of the split view where the reader scrolls its source before the page has loaded", async function () {
+    const { scrolled, loaded } = await scrollBeforeLoad(
+      `${ACTIVE} .html-page-viewer__split .html-page-viewer__source`,
+      true,
+    );
+    expect(loaded.readyState).toBe("complete");
+    expect(loaded.top).toBe(scrolled.top);
+    expect(Math.abs((loaded.line ?? 0) - (scrolled.line ?? 0))).toBeLessThanOrEqual(1);
   });
 });

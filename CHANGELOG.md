@@ -20,8 +20,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - Hovering a link or an image inside shadow DOM shows where the link leads and the image's alt
   text, and hovering an SVG link without text, labels, icons, or HTML content inside shows where it
   leads (#117, #124).
-- A page keeps its place, and the theme and line width that it shows, when its tab moves to another
-  tab group or window, and the split view's two sides stay in step there (#126).
+- When its tab moves to another tab group or window, a page keeps the theme and line width that it
+  shows and, if it scrolls as a whole, its place, and the split view's two sides stay in step there
+  (#126).
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 

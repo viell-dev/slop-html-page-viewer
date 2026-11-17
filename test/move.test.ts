@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { JSDOM } from "jsdom";
-import "./support/dom";
-import { placeTop, scrollPlace } from "../src/main";
+import { placeTop, scrollPlace } from "../src/scrolling";
 
 /**
  * A page laid out as its elements' `data-top` and `data-height` say, in page
- * pixels, scrolled down by `scrollY`. jsdom lays nothing out itself, and
+ * pixels, scrolled down by `scrollY`; an element with `data-hidden` has no
+ * box, as one that `display: none` hides. jsdom lays nothing out itself, and
  * Obsidian's frames are measured in Obsidian (move.e2e.ts).
  */
 function laidOut(body: string, scrollY: number): Document {
@@ -19,6 +19,12 @@ function laidOut(body: string, scrollY: number): Document {
       const top = Number(this.getAttribute("data-top") ?? 0) - scrollY;
       const height = Number(this.getAttribute("data-height") ?? 0);
       return { top, bottom: top + height, height, width: height > 0 ? 100 : 0 };
+    },
+  });
+  Object.defineProperty(window.Element.prototype, "getClientRects", {
+    configurable: true,
+    value(this: Element) {
+      return this.hasAttribute("data-hidden") ? [] : [this.getBoundingClientRect()];
     },
   });
   return window.document;
@@ -70,10 +76,17 @@ describe("a page's place across a move to another tab group or window (#126)", (
     assert.equal(placeTop(laidOut(narrower, 300), place), 2200);
   });
 
-  it("falls back to the deepest parent that the other document has", () => {
-    assert.equal(
-      placeTop(laidOut(PAGE, 0), { path: [1, 7, 2], into: 0.5, left: 0 }),
-      900 + 0.5 * 1000,
-    );
+  it("falls back to the top of the deepest parent that the other document has", () => {
+    assert.equal(placeTop(laidOut(PAGE, 0), { path: [1, 7, 2], into: 0.5, left: 0 }), 900);
+  });
+
+  it("shows a part that the other document shows closed from its top", () => {
+    // The reader was in the second section's last paragraph, which the
+    // document that the frame loads next shows closed, as a <details> element
+    // or a part that a checkbox opens in the page's styles is.
+    const place = scrollPlace(laidOut(PAGE, 1650));
+    assert.deepEqual(place, { path: [1, 2], into: 0.5, left: 0 });
+    const closed = PAGE.replace('<p data-top="1400"', '<p data-hidden data-top="1400"');
+    assert.equal(placeTop(laidOut(closed, 0), place), 900);
   });
 });
