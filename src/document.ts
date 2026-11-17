@@ -67,6 +67,11 @@ export function withoutQuery(url: string): string {
   return url.replace(/[?#].*$/, "");
 }
 
+/** An explicit empty fragment counts too: URL.hash is empty for both page and page#. */
+export function isPageFragment(url: URL, pageUrl: string): boolean {
+  return url.href.includes("#") && withoutQuery(url.href) === withoutQuery(pageUrl);
+}
+
 /**
  * Returns the vault path of a URL inside the vault, or null for any other URL.
  * A URL resolves its own dot segments, so a path that has them once decoded
@@ -259,7 +264,7 @@ function locateSrcset(srcset: string, baseUrl: string, context: PageContext): st
 function linkTooltip(reference: string, absolute: string, context: PageContext): string | null {
   const url = new URL(absolute);
   if (url.protocol === "javascript:") return null;
-  if (url.hash !== "" && withoutQuery(url.href) === withoutQuery(context.pageUrl)) return null;
+  if (isPageFragment(url, context.pageUrl)) return null;
   const opened = locatedUrl(reference, absolute, context) ?? absolute;
   // The vault's own folder has no path to show.
   if (withoutQuery(opened) === withoutQuery(context.vaultUrl)) return null;

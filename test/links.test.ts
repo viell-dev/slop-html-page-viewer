@@ -10,7 +10,7 @@ describe("linkTarget", () => {
   const cases: [string, ReturnType<typeof linkTarget>][] = [
     [`${PAGE}#details`, { kind: "fragment", id: "details" }],
     [`${PAGE}?1700000000#Caf%C3%A9`, { kind: "fragment", id: "Café" }],
-    [`${PAGE}#`, { kind: "vault", path: "Saved/Example article.html" }],
+    [`${PAGE}#`, { kind: "fragment", id: "" }],
     [`${VAULT}Saved/Other%20page.html`, { kind: "vault", path: "Saved/Other page.html" }],
     [`${VAULT}Saved/Other%20page.html#part`, { kind: "vault", path: "Saved/Other page.html" }],
     [`${VAULT}Notes/Topic.md`, { kind: "vault", path: "Notes/Topic.md" }],
@@ -63,19 +63,22 @@ describe("watchLinks", () => {
     <h2 id="details">Details</h2>
     <p id="plain">text</p>`;
 
-  function setUp(): {
+  function setUp(extra = ""): {
     doc: Document;
     calls: string[];
     scrolled: string[];
     click: (id: string, init?: MouseEventInit) => boolean;
   } {
-    const doc = new DOMParser().parseFromString(`<base href="${PAGE}">${BODY}`, "text/html");
+    const doc = new DOMParser().parseFromString(
+      `<base href="${PAGE}">${BODY}${extra}`,
+      "text/html",
+    );
     const calls: string[] = [];
     const scrolled: string[] = [];
     Object.defineProperty(window.Element.prototype, "scrollIntoView", {
       configurable: true,
       value(this: Element) {
-        scrolled.push(this.id);
+        scrolled.push(this.id || this.localName);
       },
     });
     const actions: LinkActions = {
@@ -126,6 +129,82 @@ describe("watchLinks", () => {
     const { calls, scrolled, click } = setUp();
     assert.equal(click("fragment"), true);
     assert.deepEqual(scrolled, ["details"]);
+    assert.deepEqual(calls, []);
+  });
+
+  it("resolves SVG links with the effective base and preserves their reference", () => {
+    const { doc, calls, click, scrolled } = setUp(
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+      <a id="svg" href="Other%20page.html"><text id="svg-inner">other</text></a>
+      <a id="legacy" xlink:href="../Notes/Topic.md"/>
+      <a id="svg-web" href="https://example.com/"/>
+      <a id="svg-out" href="../../../secret.html"/>
+      <a id="svg-fragment" href="#details"/>
+      <a id="precedence" href="Other%20page.html" xlink:href="wrong"/>
+    </svg>`,
+    );
+    click("svg-inner", { ctrlKey: true });
+    click("legacy", { button: 1 });
+    click("svg-web");
+    click("svg-out");
+    click("svg-fragment");
+    click("precedence");
+    assert.deepEqual(calls, [
+      "vault Saved/Other page.html tab Other%20page.html",
+      "vault Notes/Topic.md tab ../Notes/Topic.md",
+      "external https://example.com/",
+      "refuse app://vault-id/home/secret.html",
+      "vault Saved/Other page.html false Other%20page.html",
+    ]);
+    assert.deepEqual(scrolled, ["details"]);
+    doc.querySelector("base")!.setAttribute("href", "https://example.com/base/");
+    click("svg");
+    assert.equal(calls.at(-1), "external https://example.com/base/Other%20page.html");
+  });
+
+  it("scrolls empty fragments and resolves real targets before the top fallback", () => {
+    const { doc, calls, click, scrolled } = setUp(
+      `<a id="empty" href="#">top</a><a id="top-link" href="#top">top</a><h2 id="top">Top target</h2><a id="encoded" href="#Caf%C3%A9">cafe</a><h2 id="Café"></h2>`,
+    );
+    click("empty");
+    click("top-link");
+    click("encoded");
+    doc.getElementById("top")!.remove();
+    const named = doc.createElement("a");
+    named.setAttribute("name", "top");
+    doc.body.append(named);
+    click("top-link");
+    doc.querySelector('[name="top"]')!.remove();
+    click("top-link");
+    assert.deepEqual(scrolled, ["html", "top", "Café", "a", "html"]);
+    assert.deepEqual(calls, []);
+  });
+
+  it("handles outer links when nested HTML or SVG anchors have no reference", () => {
+    const { calls, click } = setUp(
+      `<a href="https://example.com/"><table><tr><td><a id="nested" name="x">text</a></td></tr></table></a><a href="Other%20page.html"><svg><a><text id="svg-nested">text</text></a></svg></a>`,
+    );
+    assert.equal(click("nested"), true);
+    assert.equal(click("svg-nested"), true);
+    assert.deepEqual(calls, [
+      "external https://example.com/",
+      "vault Saved/Other page.html false Other%20page.html",
+    ]);
+  });
+
+  it("ignores named form fields and tries raw fragments before decoded fragments", () => {
+    const { click, scrolled } = setUp(
+      `<input name="top"><a id="top-link" href="#top">top</a><a id="raw" href="#a%20b">raw</a><h2 id="a%20b"></h2><h2 id="a b"></h2><a id="named" href="#section">section</a><input name="section"><a name="section" id="anchor"></a>`,
+    );
+    click("top-link");
+    click("raw");
+    click("named");
+    assert.deepEqual(scrolled, ["html", "a%20b", "anchor"]);
+  });
+
+  it("prevents an unparsable reference without taking an action", () => {
+    const { calls, click } = setUp('<a id="bad" href="http://[bad">bad</a>');
+    assert.equal(click("bad"), true);
     assert.deepEqual(calls, []);
   });
 

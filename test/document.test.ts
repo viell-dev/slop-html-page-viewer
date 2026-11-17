@@ -560,8 +560,8 @@ describe("tooltips", () => {
   });
 
   it("shows none for a link within the page, a javascript: link, or the vault's own folder", async () => {
-    const html = `<a href="#fn1">1</a><a href="javascript:void(0)">js</a><a href="../">vault</a><a>no href</a>`;
-    assert.deepEqual(await titles(html, "a"), [null, null, null, null]);
+    const html = `<a href="#">top</a><a href="#fn1">1</a><a href="javascript:void(0)">js</a><a href="../">vault</a><a>no href</a>`;
+    assert.deepEqual(await titles(html, "a"), [null, null, null, null, null]);
   });
 
   it("shows an image's alt text, and keeps every title the page has", async () => {

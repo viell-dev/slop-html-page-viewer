@@ -45,15 +45,74 @@ async function frameLocation(): Promise<string> {
 describe("Links in a page in Obsidian", function () {
   beforeEach(async function () {
     await browser.executeObsidian(({ app }) => {
-      // Start each test with one tab.
-      app.workspace.iterateAllLeaves((leaf) => {
-        if (
-          leaf !== app.workspace.getMostRecentLeaf() &&
-          leaf.getRoot() === app.workspace.rootSplit
-        )
-          leaf.detach();
+      // A link's file read can finish after its click test. Never reuse that leaf (#111).
+      const fresh = app.workspace.getLeaf("tab");
+      app.workspace.setActiveLeaf(fresh, { focus: true });
+      const old: (typeof fresh)[] = [];
+      app.workspace.iterateRootLeaves((leaf) => {
+        if (leaf !== fresh) old.push(leaf);
       });
+      for (const leaf of old) leaf.detach();
     });
+  });
+
+  it("handles SVG references and empty fragments without reopening the page", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await waitForPage();
+    await recordWindowOpen();
+    const beforeScroll = await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+      doc.body.insertAdjacentHTML(
+        "beforeend",
+        `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><a id="svg-web" href="https://example.com/svg"><text>web</text></a><a id="svg-note" xlink:href="../Notes/Topic.md"><text>note</text></a></svg><a id="empty" href="#">top</a>`,
+      );
+      (doc.querySelector("#svg-web text") as Element).dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      doc.documentElement.dataset.e2e = "retained";
+      doc.defaultView!.scrollTo(0, 1000);
+      const beforeScroll = doc.defaultView!.scrollY;
+      doc
+        .querySelector("#empty")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      return beforeScroll;
+    }, ACTIVE);
+    expect(beforeScroll).toBeGreaterThan(0);
+    expect(await openedUrls()).toEqual(["https://example.com/svg"]);
+    expect(
+      await browser.execute((active) => {
+        const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+        return [doc.documentElement.dataset.e2e, doc.defaultView!.scrollY];
+      }, ACTIVE),
+    ).toEqual(["retained", 0]);
+    await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+      doc
+        .querySelector("#svg-note")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    }, ACTIVE);
+    await browser.waitUntil(async () => (await activeFile()).path === "Notes/Topic.md");
+  });
+
+  it("intercepts outer links around reference-free HTML and SVG anchors", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await waitForPage();
+    await recordWindowOpen();
+    const prevented = await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+      doc.body.insertAdjacentHTML(
+        "beforeend",
+        `<a href="https://example.com/html"><table><tr><td><a id="nested" name="x">text</a></td></tr></table></a><a href="https://example.com/svg"><svg><a><text id="svg-nested">text</text></a></svg></a>`,
+      );
+      return ["nested", "svg-nested"].map((id) => {
+        const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+        doc.getElementById(id)!.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+    }, ACTIVE);
+    expect(prevented).toEqual([true, true]);
+    expect(await openedUrls()).toEqual(["https://example.com/html", "https://example.com/svg"]);
+    expect(await frameLocation()).toBe("about:srcdoc");
   });
 
   it("opens a web link outside Obsidian and keeps the page in the frame", async function () {
@@ -106,10 +165,27 @@ describe("Links in a page in Obsidian", function () {
         });
         return count;
       });
+    const expected = await browser.executeObsidian(async ({ app }) =>
+      app.vault.read(app.vault.getAbstractFileByPath("Mirror/about.html") as never),
+    );
+    const shown = async () =>
+      browser.executeObsidian(({ app }, expected) => {
+        let found = false;
+        app.workspace.iterateRootLeaves((leaf) => {
+          const view = leaf.view as unknown as {
+            file?: { path: string } | null;
+            getViewData?: () => string;
+          };
+          if (view.file?.path === "Mirror/about.html" && view.getViewData?.() === expected)
+            found = true;
+        });
+        return found;
+      }, expected);
     const before = await tabs();
     await clickInPage('a[href="about.html"]', [CONTROL]);
-    await browser.waitUntil(async () => (await tabs()) === before + 1, {
-      timeoutMsg: "no new tab opened",
+    // file is assigned before vault.read finishes; data proves setViewData has run (#111).
+    await browser.waitUntil(async () => (await tabs()) === before + 1 && (await shown()), {
+      timeoutMsg: "no new tab opened Mirror/about.html",
     });
   });
 
