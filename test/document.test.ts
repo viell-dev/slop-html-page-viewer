@@ -576,6 +576,38 @@ describe("preparePage", () => {
         await prepare(`<link rel="stylesheet" href="diary.md">`, ctx),
         /Private text/,
       );
+      const shadow = `<div><template shadowrootmode="open"><link rel="stylesheet" href="diary.md"><style>@import "diary.md";</style></template></div>`;
+      assert.doesNotMatch(await prepare(shadow, ctx), /Private text/);
+    });
+
+    it("prepares the content of shadow roots and templates as the document's (#124)", async () => {
+      const html = [
+        `<div><template shadowrootmode="open">`,
+        `<link rel="stylesheet" href="site.css"><style>@import "site.css";</style>`,
+        `<img src="card.png"><p style="background: url(card.png)">x</p>`,
+        `<div><template shadowrootmode="closed"><img srcset="sprites/025.png 2x"></template></div>`,
+        `</template></div>`,
+      ].join("");
+      const ctx = locating();
+      const copy = parse(await prepare(html, ctx));
+      const outer = copy.querySelector("template")?.content;
+      const inner = outer?.querySelector("template")?.content;
+      const sheet = `body { background: url("${url("Theme/bg.png")}") }`;
+      assert.equal(outer?.querySelector("link"), null);
+      assert.deepEqual(
+        [...(outer?.querySelectorAll("style") ?? [])].map((style) => style.textContent),
+        [sheet, sheet],
+      );
+      assert.equal(outer?.querySelector("img")?.getAttribute("src"), url("Shared/card.png"));
+      assert.equal(
+        outer?.querySelector("p")?.getAttribute("style"),
+        `background: url("${url("Shared/card.png")}")`,
+      );
+      assert.equal(
+        inner?.querySelector("img")?.getAttribute("srcset"),
+        `${url("Assets/sprites/025.png")} 2x`,
+      );
+      assert.deepEqual(ctx.reads, ["Theme/site.css", "Theme/site.css"]);
     });
 
     it("locates url()s in style attributes and style elements, and leaves the rest", async () => {
@@ -655,6 +687,75 @@ describe("tooltips", () => {
   it("resolves links against the page's own base, as the frame does", async () => {
     const html = `<base href="https://example.com/docs/"><a href="guide.html">guide</a>`;
     assert.deepEqual(await titles(html, "a"), ["https://example.com/docs/guide.html"]);
+  });
+
+  it("gives links and images in shadow roots and templates theirs, also nested ones (#124)", async () => {
+    const html = [
+      `<div><template shadowrootmode="closed"><a href="https://example.com/a">a</a>`,
+      `<img src="a.png" alt="In a shadow root">`,
+      `<p><template shadowrootmode="open"><a href="glossary.html">b</a></template></p></template></div>`,
+      `<template><area href="Other%20page.html"></template>`,
+    ].join("");
+    const copy = parse(await prepare(html, page()));
+    const found: (string | null)[] = [];
+    const visit = (root: ParentNode): void => {
+      for (const element of root.querySelectorAll("a, area, img, template")) {
+        if (element instanceof window.HTMLTemplateElement) visit(element.content);
+        else found.push(element.getAttribute("title"));
+      }
+    };
+    visit(copy);
+    assert.deepEqual(found, [
+      "https://example.com/a",
+      "In a shadow root",
+      "Shared/glossary.html",
+      "Saved/Other page.html",
+    ]);
+  });
+
+  describe("SVG links (#117)", () => {
+    const XLINK = "http://www.w3.org/1999/xlink";
+
+    async function svgTitles(html: string): Promise<[string, string | null, string | null][]> {
+      const copy = parse(await prepare(`<svg>${html}</svg>`, page()));
+      return [...copy.querySelectorAll("svg a")].map((link) => [
+        link.id,
+        link.getAttributeNS(XLINK, "title"),
+        link.getAttribute("title"),
+      ]);
+    }
+
+    it("shows where a link without text leads, as Chromium shows it, with href winning", async () => {
+      const html = [
+        `<a id="web" href="https://example.com/"><rect/></a>`,
+        `<a id="legacy" xlink:href="Other%20page.html"><circle/></a>`,
+        `<a id="both" href="glossary.html" xlink:href="https://example.com/"> <path/> </a>`,
+        `<a id="fragment" href="#part"><rect/></a>`,
+        `<a id="none"><rect/></a>`,
+      ].join("");
+      assert.deepEqual(await svgTitles(html), [
+        ["web", "https://example.com/", null],
+        ["legacy", "Saved/Other page.html", null],
+        ["both", "Shared/glossary.html", null],
+        ["fragment", null, null],
+        ["none", null, null],
+      ]);
+    });
+
+    it("leaves a link with text, whose name a tooltip would replace, or with a title of its own", async () => {
+      const html = [
+        `<a id="text" href="https://example.com/"><text>A label</text></a>`,
+        `<a id="child" href="https://example.com/"><title>Its own</title><rect/></a>`,
+        `<a id="xlink" href="https://example.com/" xlink:title="Its own"><rect/></a>`,
+        `<a id="attribute" href="https://example.com/" title="Its own"><rect/></a>`,
+      ].join("");
+      assert.deepEqual(await svgTitles(html), [
+        ["text", null, null],
+        ["child", null, null],
+        ["xlink", "Its own", null],
+        ["attribute", null, "Its own"],
+      ]);
+    });
   });
 });
 describe("copying local files (#11)", () => {
@@ -905,6 +1006,45 @@ describe("copying local files (#11)", () => {
     );
     assert.doesNotMatch(outside.html, /;base64,/);
     assert.deepEqual(elsewhere.asked, [], "nothing outside the vault is asked about");
+  });
+
+  it("copies the files that shadow roots and templates name, within the page's limits (#124)", async () => {
+    const files = {
+      "Saved/a.png": "A",
+      "Saved/b.png": "B",
+      "Saved/x.woff2": "F",
+      "Saved/notes.md": "Private text",
+    };
+    const copy = localFiles(files, { "Saved/b.png": 7_000_000 });
+    const html = [
+      `<img src="a.png">`,
+      `<div><template shadowrootmode="closed"><img src="a.png"><img src="notes.md">`,
+      `<style>@font-face { src: url(x.woff2) }</style>`,
+      `<div><template shadowrootmode="open">${`<img src="b.png">`.repeat(5)}</template></div>`,
+      `</template></div>`,
+    ].join("");
+    const prepared = await preparePage(html, context({}), { copyFiles: copy });
+    const page = parse(prepared.html);
+    const outer = page.querySelector("template")?.content;
+    const inner = outer?.querySelector("template")?.content;
+    assert.equal(page.querySelector("img")?.getAttribute("src"), data("image/png", "A"));
+    assert.deepEqual(
+      [...(outer?.querySelectorAll("img") ?? [])].map((image) => image.getAttribute("src")),
+      [data("image/png", "A"), "notes.md"],
+    );
+    assert.equal(
+      outer?.querySelector("style")?.textContent,
+      `@font-face { src: url("${data("font/woff2", "F")}") }`,
+    );
+    // Four copies of 7 MB fit in the page's 32 MB, a fifth does not.
+    assert.deepEqual(
+      [...(inner?.querySelectorAll("img") ?? [])].map((image) =>
+        image.getAttribute("src")?.startsWith("data:"),
+      ),
+      [true, true, true, true, false],
+    );
+    assert.deepEqual(prepared.copiedFiles, { copied: 3, leftOut: 1 });
+    assert.deepEqual(copy.reads.sort(), ["Saved/a.png", "Saved/b.png", "Saved/x.woff2"]);
   });
 
   it("copies nothing unless asked", async () => {

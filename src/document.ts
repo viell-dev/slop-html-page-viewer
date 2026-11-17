@@ -255,6 +255,21 @@ function locateSrcset(srcset: string, baseUrl: string, context: PageContext): st
   });
 }
 
+const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
+
+/**
+ * A link's reference: its `href`, which wins over the legacy `xlink:href`,
+ * a reference only on SVG elements. Clicks and tooltips read links alike.
+ */
+export function linkReference(link: Element): string | null {
+  return (
+    link.getAttribute("href") ??
+    (link.namespaceURI === SVG_NAMESPACE ? link.getAttributeNS(XLINK_NAMESPACE, "href") : null)
+  );
+}
+
 /**
  * What a link's tooltip shows: the vault path of the file that a click opens
  * (see `openVaultPath` in main.ts), or the address of anything else. A link
@@ -272,19 +287,41 @@ function linkTooltip(reference: string, absolute: string, context: PageContext):
 }
 
 /**
+ * Whether an SVG link keeps what it has: a title of its own, or text, which
+ * would stop being its name. Chromium shows an SVG link's `xlink:title`, or
+ * else its `<title>` child, as its tooltip, never a `title` attribute, and
+ * reads either as the link's name, before its text (SVG-AAM).
+ */
+function keepsSvgLink(link: Element): boolean {
+  const titled =
+    link.hasAttribute("title") ||
+    link.hasAttributeNS(XLINK_NAMESPACE, "title") ||
+    [...link.children].some(
+      (child) => child.localName === "title" && child.namespaceURI === SVG_NAMESPACE,
+    );
+  return titled || (link.textContent ?? "").trim() !== "";
+}
+
+/**
  * Gives links and images without a title one (#42). A browser shows a link's
  * address in its status bar, which the viewer's frame does not have, and an
- * image's alt text only when the image does not load. A page's own titles stay.
+ * image's alt text only when the image does not load. A page's own titles
+ * stay. An SVG link gets the tooltip as its `xlink:title`, which Chromium
+ * shows, only when it has no text (`keepsSvgLink`).
  */
-function addTooltips(doc: Document, baseUrl: string, context: PageContext): void {
-  for (const link of doc.querySelectorAll("a[href], area[href]")) {
-    if (link.hasAttribute("title")) continue;
-    const reference = (link.getAttribute("href") ?? "").trim();
+function addTooltips(root: ParentNode, baseUrl: string, context: PageContext): void {
+  for (const link of root.querySelectorAll("a, area")) {
+    const svg = link.namespaceURI === SVG_NAMESPACE;
+    if (svg ? keepsSvgLink(link) : link.hasAttribute("title")) continue;
+    const reference = linkReference(link)?.trim();
+    if (reference === undefined) continue;
     const absolute = resolve(reference, baseUrl);
     const tooltip = absolute === null ? null : linkTooltip(reference, absolute, context);
-    if (tooltip !== null) link.setAttribute("title", tooltip);
+    if (tooltip === null) continue;
+    if (svg) link.setAttributeNS(XLINK_NAMESPACE, "xlink:title", tooltip);
+    else link.setAttribute("title", tooltip);
   }
-  for (const image of doc.querySelectorAll("img[alt]")) {
+  for (const image of root.querySelectorAll("img[alt]")) {
     const alt = image.getAttribute("alt")?.trim() ?? "";
     if (alt !== "" && !image.hasAttribute("title")) image.setAttribute("title", alt);
   }
@@ -295,9 +332,9 @@ function addTooltips(doc: Document, baseUrl: string, context: PageContext): void
  * Obsidian's link resolution finds for them, as the previous fork did. A
  * reference that resolves, or that nothing matches, stays as written.
  */
-function locateReferences(doc: Document, baseUrl: string, context: PageContext): void {
+function locateReferences(root: ParentNode, baseUrl: string, context: PageContext): void {
   if (!context.exists || !context.locate) return;
-  for (const element of doc.querySelectorAll(Object.keys(RESOURCE_ATTRIBUTES).join(", "))) {
+  for (const element of root.querySelectorAll(Object.keys(RESOURCE_ATTRIBUTES).join(", "))) {
     for (const name of RESOURCE_ATTRIBUTES[element.localName] ?? []) {
       const value = element.getAttribute(name);
       if (value === null || value.trim() === "") continue;
@@ -310,7 +347,7 @@ function locateReferences(doc: Document, baseUrl: string, context: PageContext):
       if (located !== null) element.setAttribute(name, located);
     }
   }
-  for (const element of doc.querySelectorAll("[style]")) {
+  for (const element of root.querySelectorAll("[style]")) {
     const style = element.getAttribute("style") ?? "";
     if (/url\(/i.test(style)) element.setAttribute("style", locateCssUrls(style, baseUrl, context));
   }
@@ -376,6 +413,46 @@ export function styleElementText(css: string): string {
 function isStylesheetLink(element: Element): element is HTMLLinkElement {
   const rel = (element.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
   return rel.includes("stylesheet") && !rel.includes("alternate") && element.hasAttribute("href");
+}
+
+/**
+ * Replaces a document's or a template content's stylesheet links to `.css`
+ * files in the vault with their text, and inlines the imports of its
+ * `<style>` elements, as Obsidian's policy allows only inline styles.
+ */
+async function inlineStylesheets(
+  root: ParentNode,
+  baseUrl: string,
+  context: PageContext,
+): Promise<void> {
+  for (const link of [...root.querySelectorAll("link")].filter(isStylesheetLink)) {
+    const href = link.getAttribute("href") ?? "";
+    const resolved = resolve(href, baseUrl);
+    const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
+    const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
+    if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
+    const css = await readStylesheet(context, path);
+    if (css === null) continue;
+    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
+    const style = link.ownerDocument.createElement("style");
+    for (const name of ["media", "title"]) {
+      const value = link.getAttribute(name);
+      if (value !== null) style.setAttribute(name, value);
+    }
+    style.textContent = styleElementText(
+      await inlineStylesheet(css, sheetUrl, context, new Set([path])),
+    );
+    link.replaceWith(style);
+  }
+
+  for (const style of root.querySelectorAll("style")) {
+    const css = style.textContent ?? "";
+    if (/@import/i.test(css)) {
+      style.textContent = styleElementText(await inlineStylesheet(css, baseUrl, context));
+    } else if (/url\(/i.test(css)) {
+      style.textContent = styleElementText(locateCssUrls(css, baseUrl, context));
+    }
+  }
 }
 
 /** How the view reads the vault's files to copy them into a page (#11). */
@@ -602,8 +679,8 @@ async function visitSrcset(srcset: string, baseUrl: string, visit: Visit): Promi
  * scripts load, in document order: their attributes, then `<style>` elements
  * and `style` attributes. A reference that `visit` gives a URL for gets it.
  */
-async function visitFileReferences(doc: Document, baseUrl: string, visit: Visit): Promise<void> {
-  for (const element of doc.querySelectorAll(Object.keys(COPIED_ATTRIBUTES).join(", "))) {
+async function visitFileReferences(root: ParentNode, baseUrl: string, visit: Visit): Promise<void> {
+  for (const element of root.querySelectorAll(Object.keys(COPIED_ATTRIBUTES).join(", "))) {
     for (const name of COPIED_ATTRIBUTES[element.localName] ?? []) {
       const value = element.getAttribute(name);
       if (value === null || value.trim() === "") continue;
@@ -617,13 +694,13 @@ async function visitFileReferences(doc: Document, baseUrl: string, visit: Visit)
       if (replaced !== null) element.setAttribute(name, replaced);
     }
   }
-  for (const style of doc.querySelectorAll("style")) {
+  for (const style of root.querySelectorAll("style")) {
     const css = style.textContent ?? "";
     if (!/url\(/i.test(css)) continue;
     const replaced = await visitCssUrls(css, baseUrl, visit);
     if (replaced !== css) style.textContent = replaced;
   }
-  for (const element of doc.querySelectorAll("[style]")) {
+  for (const element of root.querySelectorAll("[style]")) {
     const css = element.getAttribute("style") ?? "";
     if (!/url\(/i.test(css)) continue;
     const replaced = await visitCssUrls(css, baseUrl, visit);
@@ -634,18 +711,20 @@ async function visitFileReferences(doc: Document, baseUrl: string, visit: Visit)
 /**
  * Copies the vault files that a page's images, media, fonts, and scripts
  * refer to into the page as `data:` URLs, for a page with scripts on, which
- * cannot load them otherwise. Other references stay as they are.
+ * cannot load them otherwise. Other references stay as they are. The roots
+ * share the page's limits, in their order: the document, then the content of
+ * each template.
  */
 async function copyReferencedFiles(
-  doc: Document,
+  roots: readonly ParentNode[],
   baseUrl: string,
   files: LocalFiles,
   vaultUrl: string,
 ): Promise<CopiedFiles> {
   const copier = new FileCopier(files, vaultUrl);
-  await visitFileReferences(doc, baseUrl, copier.note);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.note);
   copier.plan();
-  await visitFileReferences(doc, baseUrl, copier.copy);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy);
   return copier.result;
 }
 
@@ -690,8 +769,6 @@ export interface PreparedPage {
   readonly madeInert: boolean;
 }
 
-const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
-
 /**
  * The HTML templates in a document or a template's content, including those
  * in their own content: a shadow root declared inside another one is there.
@@ -714,8 +791,8 @@ function templates(root: ParentNode, found: HTMLTemplateElement[] = []): HTMLTem
  * templates. `shadowroot` is the attribute's earlier name, which the
  * Chromium in older Obsidian installers still reads.
  */
-function openShadowRoots(doc: Document): void {
-  for (const template of templates(doc)) {
+function openShadowRoots(found: readonly HTMLTemplateElement[]): void {
+  for (const template of found) {
     for (const name of ["shadowrootmode", "shadowroot"]) {
       if (/^closed$/i.test(template.getAttribute(name) ?? "")) template.setAttribute(name, "open");
     }
@@ -744,49 +821,32 @@ export async function preparePage(
   const pageBase = doc.querySelector("base[href]")?.getAttribute("href") ?? "";
   const baseUrl = resolve(pageBase, context.pageUrl) ?? context.pageUrl;
 
-  locateReferences(doc, baseUrl, context);
-  addTooltips(doc, baseUrl, context);
-
-  for (const link of [...doc.querySelectorAll("link")].filter(isStylesheetLink)) {
-    const href = link.getAttribute("href") ?? "";
-    const resolved = resolve(href, baseUrl);
-    const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
-    const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
-    if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
-    const css = await readStylesheet(context, path);
-    if (css === null) continue;
-    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
-    const style = doc.createElement("style");
-    for (const name of ["media", "title"]) {
-      const value = link.getAttribute(name);
-      if (value !== null) style.setAttribute(name, value);
-    }
-    style.textContent = styleElementText(
-      await inlineStylesheet(css, sheetUrl, context, new Set([path])),
-    );
-    link.replaceWith(style);
-  }
-
-  for (const style of doc.querySelectorAll("style")) {
-    const css = style.textContent ?? "";
-    if (/@import/i.test(css)) {
-      style.textContent = styleElementText(await inlineStylesheet(css, baseUrl, context));
-    } else if (/url\(/i.test(css)) {
-      style.textContent = styleElementText(locateCssUrls(css, baseUrl, context));
-    }
+  // A template's content is outside the document's tree, and the shadow roots
+  // that a page declares come from templates, so each template's content is
+  // prepared as the document is. Their references resolve against the
+  // document's base, as the frame resolves them. Content without elements has
+  // nothing to prepare.
+  const found = templates(doc);
+  const roots: ParentNode[] = [doc];
+  for (const { content } of found) if (content.firstElementChild !== null) roots.push(content);
+  for (const root of roots) {
+    locateReferences(root, baseUrl, context);
+    addTooltips(root, baseUrl, context);
+    await inlineStylesheets(root, baseUrl, context);
   }
 
   // After locating and copying, so that the references are final.
   const copiedFiles = options.copyFiles
-    ? await copyReferencedFiles(doc, baseUrl, options.copyFiles, context.vaultUrl)
+    ? await copyReferencedFiles(roots, baseUrl, options.copyFiles, context.vaultUrl)
     : undefined;
 
   // A refresh would navigate the frame away from the copy, past the policy
   // below, which governs what the page loads but not where it navigates.
+  // Chromium acts on one only in the document's tree, not in a shadow root.
   for (const refresh of doc.querySelectorAll("meta[http-equiv]")) {
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
-  if (options.openShadowRoots) openShadowRoots(doc);
+  if (options.openShadowRoots) openShadowRoots(found);
   const root = doc.documentElement;
   const madeInert = options.inertUntilWatched === true && !root.hasAttribute("inert");
   if (madeInert) root.setAttribute("inert", "");

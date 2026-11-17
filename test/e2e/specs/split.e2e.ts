@@ -25,16 +25,55 @@ async function sides(): Promise<{ source: Box; page: Box }> {
   }, ACTIVE);
 }
 
-/** The number of the first paragraph the page shows at its top. */
+/** The number of the first paragraph the page shows at its top, also in a shadow root. */
 async function topParagraph(): Promise<number> {
   return browser.execute((active) => {
     const frame = document.querySelector<HTMLIFrameElement>(
       `${active} iframe.html-page-viewer__frame`,
     );
-    const paragraphs = [...(frame?.contentDocument?.querySelectorAll("p") ?? [])];
+    // In source order: a shadow root's paragraphs before its host's own content.
+    const paragraphs: Element[] = [];
+    const collect = (root: ParentNode): void => {
+      for (const element of root.querySelectorAll("*")) {
+        if (element.localName === "p") paragraphs.push(element);
+        if (element.shadowRoot) collect(element.shadowRoot);
+      }
+    };
+    if (frame?.contentDocument) collect(frame.contentDocument);
     const first = paragraphs.find((paragraph) => paragraph.getBoundingClientRect().bottom > 1);
     return Number(/Paragraph (\d+)/.exec(first?.textContent ?? "")?.[1] ?? 0);
   }, ACTIVE);
+}
+
+/** Scrolls the split view's source to the top of a line, from 1. */
+async function scrollSourceTo(line: number): Promise<void> {
+  await browser.execute(
+    (active, line) => {
+      const source = document.querySelector<HTMLElement>(
+        `${active} .html-page-viewer__split .html-page-viewer__source`,
+      );
+      const element = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[
+        line - 1
+      ];
+      if (!source || !element) throw new Error(`No line ${line}`);
+      source.scrollTop = element.offsetTop;
+    },
+    ACTIVE,
+    line,
+  );
+}
+
+/**
+ * Waits until `read` gives a value within one of `expected`, for at most five
+ * seconds, and returns the last value it gave, so that a test that fails says
+ * where the side stopped.
+ */
+async function settledNear(read: () => Promise<number>, expected: number): Promise<number> {
+  let value = await read();
+  await browser
+    .waitUntil(async () => Math.abs((value = await read()) - expected) <= 1, { timeout: 5000 })
+    .catch(() => undefined);
+  return value;
 }
 
 /** The number of the first line the source shows at its top. */
@@ -159,5 +198,33 @@ describe("The split view in Obsidian", function () {
       timeout: 5000,
       timeoutMsg: "the source did not follow the page to line 26",
     });
+  });
+
+  it("keeps in step with a page whose article is in a shadow root (#124)", async function () {
+    // In the shadow root, after a tall figure, paragraph N is on line 9 + N.
+    await openInActiveTab("Saved/Shadow page.html");
+    await clickToolbarButton("Split");
+    await waitForPage();
+
+    await scrollSourceTo(39);
+    const followed = await settledNear(topParagraph, 30);
+    expect(followed).toBeGreaterThanOrEqual(29);
+    expect(followed).toBeLessThanOrEqual(31);
+
+    await browser.execute((active) => {
+      const frame = document.querySelector<HTMLIFrameElement>(
+        `${active} iframe.html-page-viewer__frame`,
+      );
+      const win = frame?.contentWindow;
+      const article = frame?.contentDocument?.getElementById("article")?.shadowRoot;
+      const paragraph = [...(article?.querySelectorAll("p") ?? [])].find((p) =>
+        p.textContent?.startsWith("Paragraph 40 "),
+      );
+      if (!win || !paragraph) throw new Error("No paragraph 40");
+      win.scrollTo(0, paragraph.getBoundingClientRect().top + win.scrollY);
+    }, ACTIVE);
+    const line = await settledNear(topLine, 49);
+    expect(line).toBeGreaterThanOrEqual(48);
+    expect(line).toBeLessThanOrEqual(50);
   });
 });

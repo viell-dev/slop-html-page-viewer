@@ -80,6 +80,41 @@ describe("pairing a page's elements with their source lines", () => {
     );
   });
 
+  it("pairs a shadow root's elements with the lines of the template that declared it (#124)", () => {
+    const source = [
+      "<body>",
+      "<p>before</p>",
+      `<article><template shadowrootmode="open">`,
+      "<h2>inside</h2>",
+      "<p>inside</p>",
+      "</template>",
+      "<p>light</p></article>",
+      "<p>after</p>",
+    ].join("\n");
+    // As the frame shows the page: its parser attaches the shadow root in the template's place.
+    const doc = new DOMParser().parseFromString(
+      "<body><p>before</p><article><p>light</p></article><p>after</p>",
+      "text/html",
+    );
+    const host = doc.querySelector("article");
+    if (!host) throw new Error("No article");
+    host.attachShadow({ mode: "open" }).innerHTML = "<h2>inside</h2><p>inside</p>";
+    assert.deepEqual(
+      anchorElements(doc.body, startTags(source)).map(({ element, line }) => [
+        element.localName,
+        line,
+      ]),
+      [
+        ["p", 2],
+        ["article", 3],
+        ["h2", 4],
+        ["p", 5],
+        ["p", 7],
+        ["p", 8],
+      ],
+    );
+  });
+
   /** The page's paired elements, as names and lines, for HTML one element to a line. */
   function paired(lines: string[]): [string, number][] {
     const html = lines.join("\n");

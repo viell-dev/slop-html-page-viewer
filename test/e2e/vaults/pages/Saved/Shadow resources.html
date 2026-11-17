@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shadow resources</title>
+</head>
+<body>
+<p>An image and stylesheets inside shadow DOM, as a page saved with its web components holds them.</p>
+<div id="image"><template shadowrootmode="open"><img src="figure.png" alt="A green square, found by name" width="64" height="64"></template></div>
+<div id="linked"><template shadowrootmode="open"><link rel="stylesheet" href="Shadow styles.css"><div class="square"></div></template></div>
+<div id="imported"><template shadowrootmode="closed"><style>@import "Shadow import.css";</style><div class="square"></div></template></div>
+</body>
+</html>

@@ -138,6 +138,11 @@ export function anchorElements(body: Element, tags: readonly StartTag[]): Anchor
   const collect = (parent: ParentNode): void => {
     for (const child of parent.children) {
       elements.push(child);
+      // A shadow root's elements come from the template that declared it,
+      // whose tags the source has before the host's own content. The view
+      // follows only a page with scripts off, whose copy declares every
+      // shadow root open.
+      if (child.shadowRoot) collect(child.shadowRoot);
       // A template's elements are in its content, not among its children;
       // they show nowhere, but their tags are in the source.
       collect(child.localName === "template" ? (child as HTMLTemplateElement).content : child);
