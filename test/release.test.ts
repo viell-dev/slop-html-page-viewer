@@ -771,6 +771,51 @@ describe("package output safety", () => {
     assert.ok(!fs.existsSync(path.dirname(home)));
   });
 
+  it("prints only the plan for a fresh publish dry run, without GitHub writes", (t) => {
+    const { root, checkout, run } = fixture(t);
+    const out = path.join(root, "output");
+    assert.equal(run(out).status, 0);
+    fs.mkdirSync(path.join(checkout, ".github", "release-notes"), { recursive: true });
+    fs.writeFileSync(path.join(checkout, ".github", "release-notes", "1.2.0.md"), "Notes");
+    fs.writeFileSync(
+      path.join(checkout, "github.mjs"),
+      `
+      globalThis.fetch = async (url, options) => {
+        if (options?.method !== "GET") throw new Error("Unexpected GitHub write");
+        if (url.includes("/releases?")) return new Response("[]");
+        return new Response("{}", { status: 404 });
+      };
+    `,
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "./github.mjs",
+        "scripts/release.ts",
+        "publish",
+        "1.2.0",
+        "--sha",
+        "candidate",
+        "--assets",
+        out,
+        "--dry-run",
+      ],
+      { cwd: checkout, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const lines = result.stdout.trim().split("\n");
+    assert.equal(lines[0], "Dry run: publishing would");
+    assert.equal(lines[1], "- create the tag 1.2.0 at candidate");
+    assert.equal(lines[2], "- create a draft release 1.2.0");
+    assert.deepEqual(
+      lines.slice(3, -1).map((line) => line.split(" (")[0]),
+      assetNames("1.2.0").map((name) => `- upload ${name}`),
+    );
+    assert.equal(lines.at(-1), "- publish the release 1.2.0 as the latest");
+    assert.doesNotMatch(result.stdout, /Tagged |Created |Uploaded |Published /);
+  });
+
   it("reads marked package assets in the publish dry run before checking GitHub", (t) => {
     const { root, checkout, run } = fixture(t);
     const out = path.join(root, "output");

@@ -117,7 +117,8 @@ gh workflow run release.yml -f version=<version> -f dry_run=true
 
 It checks the version and the commit's CI, runs the unit tests, builds and packages the plugin,
 keeps the assets as the run's `release-<version>` artifact, and lists the changes that publishing
-would make. Add `--ref <branch>` to try another branch. Locally, with a build of the commit:
+would make. Publishing steps appear only in that plan, without the real run's completion messages.
+Add `--ref <branch>` to try another branch. Locally, with a build of the commit:
 
 ```sh
 npm run build

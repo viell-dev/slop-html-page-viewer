@@ -479,8 +479,10 @@ async function main(): Promise<void> {
       const notes = fs.readFileSync(path.join(".github", "release-notes", `${target}.md`), "utf8");
       const real = new RestGitHub();
       const github = options.has("dry-run") ? new DryRun(real) : real;
-      const result = await publish(github, { version: target, sha, assets, notes }, (line) =>
-        console.log(line),
+      const result = await publish(
+        github,
+        { version: target, sha, assets, notes },
+        github instanceof DryRun ? undefined : (line) => console.log(line),
       );
       if (github instanceof DryRun) {
         console.log(
