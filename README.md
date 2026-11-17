@@ -78,6 +78,10 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   components can contain: its images, stylesheets, and imports load as the rest of the page's do,
   and with **Local files with scripts on** its files are copied into the page as well.
 
+  **Unreleased (#91):** a stylesheet names files only with its `url()`s and top-level `@import`
+  rules, in shadow DOM too. Text inside CSS strings and comments, such as
+  `content: "url(icon.png)"`, stays as the page has it.
+
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
   browser would instead.
@@ -131,9 +135,6 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 - Never writes to the files it opens.
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).
-
-**Unreleased (#91):** CSS resource rewriting preserves quoted strings and comments; only URL tokens
-and stylesheet import rules name resources.
 
 ### Limits
 

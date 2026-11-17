@@ -77,6 +77,48 @@ describe("CSS token boundaries (#91)", () => {
       assert.ok(value.includes("data:image/png;base64,AQ=="));
     }
   });
+
+  it("reads and copies only real imports and URLs in a shadow root's stylesheets (#124)", async () => {
+    const literal = `p::after { content: 'url(ghost.png) @import "ghost.css";' } /* @import "ghost.css"; url(ghost.png) */`;
+    const css = `@import "real.css"; ${literal} a { background: url(real.png) }`;
+    const ctx = context({
+      "Saved/sheet.css": css,
+      "Saved/real.css": "REAL{}",
+      "Saved/ghost.css": "GHOST{}",
+    });
+    const reads: string[] = [];
+    const style = `content: 'url(ghost.png)'; /* url(ghost.png) */ background: url(real.png)`;
+    const html = [
+      `<div><template shadowrootmode="open">`,
+      `<style>${css}</style><link rel="stylesheet" href="sheet.css"><p style="${style}">x</p>`,
+      `</template></div>`,
+    ].join("");
+    const result = await preparePage(html, ctx, {
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          reads.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      },
+    });
+    // The link first, with its import, then the shadow root's own <style>.
+    assert.deepEqual(ctx.reads, ["Saved/sheet.css", "Saved/real.css", "Saved/real.css"]);
+    assert.deepEqual(reads, ["Saved/real.png"]);
+    assert.ok(!result.html.includes("GHOST"));
+    const content = parse(result.html).querySelector("template")!.content;
+    const sheets = [...content.querySelectorAll("style")].map((element) => element.textContent);
+    assert.equal(sheets.length, 2);
+    for (const value of [...sheets, content.querySelector("p")!.getAttribute("style")!]) {
+      assert.ok(value.includes("'url(ghost.png)"), value);
+      assert.ok(value.includes("/* "), value);
+      assert.ok(value.includes("data:image/png;base64,AQ=="), value);
+    }
+    for (const sheet of sheets) {
+      assert.ok(sheet.includes(literal), sheet);
+      assert.ok(sheet.startsWith("REAL{}"), sheet);
+    }
+  });
 });
 
 it("does not read or copy literal resources after malformed quoted functions", async () => {
@@ -96,7 +138,11 @@ it("does not read or copy literal resources after malformed quoted functions", a
     'a { b: [}]; @import "ghost.css"; }',
     'a { b: calc(}); @import "ghost.css"; }',
   ]) {
-    for (const html of [`<style>${css}</style>`, '<link rel="stylesheet" href="sheet.css">']) {
+    const sheets = [`<style>${css}</style>`, '<link rel="stylesheet" href="sheet.css">'];
+    // A shadow root's stylesheets are prepared as the document's (#124).
+    const shadow = (sheet: string) =>
+      `<div><template shadowrootmode="open">${sheet}</template></div>`;
+    for (const html of [...sheets, ...sheets.map(shadow)]) {
       const ctx = context({ "Saved/sheet.css": css, "Saved/ghost.css": "GHOST{}" });
       const reads: string[] = [];
       const result = await preparePage(html, ctx, {
@@ -108,7 +154,7 @@ it("does not read or copy literal resources after malformed quoted functions", a
           },
         },
       });
-      assert.deepEqual(ctx.reads, html.startsWith("<link") ? ["Saved/sheet.css"] : [], css);
+      assert.deepEqual(ctx.reads, html.includes("<link") ? ["Saved/sheet.css"] : [], css);
       assert.deepEqual(reads, [], css);
       assert.ok(!result.html.includes("GHOST"), css);
     }
@@ -119,19 +165,22 @@ it("leaves a NUL before url( in a linked stylesheet a function name, as CSS read
   // CSS reads U+0000 as U+FFFD, an identifier character; the HTML parser
   // already does that for <style> text, but linked files keep it.
   const css = "a { b: \0url(ghost.png) } c { d: url(real\0.png) }";
-  const ctx = context({ "Saved/sheet.css": css });
-  const reads: string[] = [];
-  const result = await preparePage('<link rel="stylesheet" href="sheet.css">', ctx, {
-    copyFiles: {
-      size: () => 1,
-      async readBinary(path) {
-        reads.push(path);
-        return new Uint8Array([1]).buffer;
+  const link = '<link rel="stylesheet" href="sheet.css">';
+  for (const html of [link, `<div><template shadowrootmode="open">${link}</template></div>`]) {
+    const ctx = context({ "Saved/sheet.css": css });
+    const reads: string[] = [];
+    const result = await preparePage(html, ctx, {
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          reads.push(path);
+          return new Uint8Array([1]).buffer;
+        },
       },
-    },
-  });
-  assert.deepEqual(reads, ["Saved/real�.png"]);
-  assert.ok(result.html.includes("url(ghost.png)"));
+    });
+    assert.deepEqual(reads, ["Saved/real�.png"], html);
+    assert.ok(result.html.includes("url(ghost.png)"), html);
+  }
 });
 
 it("ignores closers that do not match the innermost open block in an import's prelude", async () => {
@@ -154,16 +203,20 @@ it("processes linked stylesheet imports once, retaining the eight-file depth lim
       `@import "${i + 1}.css"; .n${i} { color: red }`,
     ]),
   );
-  const ctx = context(files);
-  await preparePage('<link rel="stylesheet" href="0.css">', ctx);
-  assert.deepEqual(
-    ctx.reads,
-    Array.from({ length: 8 }, (_, i) => `Saved/${i}.css`),
-  );
-  const self = context({ "Saved/self.css": '@import "self.css"; .self { color: red }' });
-  const result = await preparePage('<link rel="stylesheet" href="self.css">', self);
-  assert.deepEqual(self.reads, ["Saved/self.css"]);
-  assert.equal(result.html.split(".self").length - 1, 1);
+  // A shadow root's links are prepared as the document's, with the same limits (#124).
+  const shadow = (html: string) => `<div><template shadowrootmode="open">${html}</template></div>`;
+  for (const place of [(html: string) => html, shadow]) {
+    const ctx = context(files);
+    await preparePage(place('<link rel="stylesheet" href="0.css">'), ctx);
+    assert.deepEqual(
+      ctx.reads,
+      Array.from({ length: 8 }, (_, i) => `Saved/${i}.css`),
+    );
+    const self = context({ "Saved/self.css": '@import "self.css"; .self { color: red }' });
+    const result = await preparePage(place('<link rel="stylesheet" href="self.css">'), self);
+    assert.deepEqual(self.reads, ["Saved/self.css"]);
+    assert.equal(result.html.split(".self").length - 1, 1);
+  }
 });
 
 it("handles repeated malformed URL openers without quadratic work", () => {

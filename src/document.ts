@@ -462,7 +462,9 @@ async function inlineStylesheets(
   baseUrl: string,
   context: PageContext,
 ): Promise<void> {
-  // Capture original styles before links become styles, preserving import depth/cycles.
+  // The <style> elements that links become have their imports inlined
+  // already. Preparing them again would read the files again, with the import
+  // depth and cycle checks restarted.
   const originalStyles = [...root.querySelectorAll("style")];
   for (const link of [...root.querySelectorAll("link")].filter(isStylesheetLink)) {
     const href = link.getAttribute("href") ?? "";
