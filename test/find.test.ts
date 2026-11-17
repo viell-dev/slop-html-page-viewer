@@ -12,6 +12,46 @@ function texts(html: string, query: string): string[] {
 }
 
 describe("finding text in a page", () => {
+  it("excludes nonpainted fallback and SVG resources, but keeps SVG text", () => {
+    const hidden =
+      "<iframe>needle</iframe><progress>needle</progress><meter>needle</meter>" +
+      "<svg>needle" +
+      ["defs", "symbol", "clipPath", "mask", "pattern", "marker"]
+        .map((tag) => "<" + tag + "><text>needle</text></" + tag + ">")
+        .join("") +
+      "</svg>";
+    assert.deepEqual(texts(hidden, "needle"), []);
+    assert.deepEqual(texts("<svg><g><text>needle</text></g></svg>", "needle"), ["needle"]);
+    assert.deepEqual(
+      findRanges(
+        pageRuns(styled('<canvas style="content-visibility:hidden">needle</canvas>')),
+        "needle",
+      ).ranges,
+      [],
+    );
+  });
+  it("finds only a closed select's chosen text", () => {
+    assert.deepEqual(
+      texts("<select><option>other</option><option selected>needle</option></select>", "needle"),
+      ["needle"],
+    );
+    assert.deepEqual(
+      texts("<select><option selected>other</option><option>needle</option></select>", "needle"),
+      [],
+    );
+  });
+  it("walks composed shadow content once, keeping ranges in one tree", () => {
+    const doc = parse('<div id="host"><span slot="named">slotted</span><b>unassigned</b></div>');
+    const shadow = doc.getElementById("host")!.attachShadow({ mode: "open" });
+    shadow.innerHTML = 'before<slot name="named">fallback</slot>after<div id="nested"></div>';
+    shadow.getElementById("nested")!.attachShadow({ mode: "open" }).innerHTML =
+      "<p>nested <em>word</em></p>";
+    const runs = pageRuns(doc);
+    for (const word of ["before", "slotted", "after", "nested word"])
+      assert.equal(findRanges(runs, word).ranges[0]?.toString(), word);
+    for (const word of ["unassigned", "fallback", "beforeslotted", "slottedafter"])
+      assert.deepEqual(findRanges(runs, word).ranges, []);
+  });
   it("ignores case, and finds a match across elements within a block", () => {
     assert.deepEqual(texts("<p>Saved <b>Pa</b>ge, saved page</p>", "saved page"), [
       "Saved Page",
@@ -182,6 +222,21 @@ describe("the find bar", () => {
     button(view, "Source").click();
     return { harness, view };
   }
+
+  it("does not collect text for an empty query", async (t) => {
+    const { view } = await sourceView();
+    const source = view.contentEl.querySelector(".html-page-viewer__source")!;
+    const spy = t.mock.method(source, "querySelectorAll");
+    button(view, "Find in page").click();
+    assert.equal(spy.mock.callCount(), 0);
+    input(view).value = "page";
+    press(input(view), "Enter");
+    assert.equal(spy.mock.callCount(), 1);
+    input(view).value = "";
+    press(input(view), "Enter");
+    assert.equal(spy.mock.callCount(), 1);
+    assert.equal(count(view), "");
+  });
 
   it("finds in the source view, and moves from match to match", async () => {
     const { view } = await sourceView();

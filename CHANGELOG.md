@@ -8,7 +8,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
-Nothing that changes the plugin.
+- Find leaves out unpainted fallback and SVG resource text, includes a closed select's chosen text,
+  and searches and highlights text in shadow roots and slots. Opening an empty find bar avoids
+  collecting the page's text.
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 

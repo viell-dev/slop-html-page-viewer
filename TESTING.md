@@ -71,6 +71,13 @@ preservation, and marked assets reaching the publish dry run's GitHub check. The
 output test rejects any GitHub write and requires only the proposed changes, without messages
 claiming publication completed; the library tests also assert that real state is unchanged.
 
+Find regression coverage (#121, #122, #124): `find.test.ts` checks fallback and SVG exclusions,
+closed selected options, composed shadow content, range boundaries, and empty-query collection.
+`find.e2e.ts` compares each fixture word with screenshot pixels, asserts the entire fixture fits
+the frame, and checks nested declarative roots, slots, and painted highlights on both hosts.
+The #121 measurements retain `checkVisibility()` and avoid text collection for empty queries;
+nonempty searches still walk the page.
+
 There is no standing benchmark suite: timings on CI's shared runners vary too much to fail a build
 on. Costs that could matter were measured in Obsidian in their pull requests, such as about a
 second for every 8 MB copied into a page with scripts on (#58), and about 1.5 s for a search of a
@@ -168,9 +175,10 @@ with more of them than a call can take.
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`
   for icons, inside a link around the `<svg>`, which is followed as usual.
-- Find in the page still counts some text that Obsidian never paints, such as text directly
-  inside a progress bar and text inside SVG `<defs>`, and leaves out a closed select's chosen
-  option (#122).
+- Find counts a closed select's chosen option text, but Chromium paints no Custom Highlight on
+  that native label. Selects with `multiple`, list boxes (`size` above one), and option `label`
+  attributes are not searched. Shadow matches stay within one tree; SVG `<use>` copies live in
+  inaccessible browser shadow trees and are not searched (#122, #124).
 - The 15 s limit for a corpus page is a ceiling against a page that hangs, not a measure of speed.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request

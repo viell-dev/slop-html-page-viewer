@@ -84,7 +84,21 @@ describe("Finding text in Obsidian", function () {
       `<video class="videofallback" width="60" height="30">videofallback</video>`,
       `<audio class="audiofallback">audiofallback</audio>`,
     ];
+    html.push(
+      '<iframe class="iframetext" style="width:60px;height:20px">iframetext</iframe>',
+      '<progress class="progresstext">progresstext</progress><meter class="metertext">metertext</meter>',
+      '<canvas class="cvcanvas" style="content-visibility:hidden" width="60" height="30">cvcanvas</canvas>',
+      ...["defs", "symbol", "clipPath", "mask", "pattern", "marker"].map(
+        (tag) =>
+          `<svg width="240" height="30" class="${tag}word"><${tag}><text y="24">${tag}word</text></${tag}></svg>`,
+      ),
+      '<svg width="240" height="30" class="svgdirect">svgdirect</svg>',
+      '<svg width="240" height="30" class="svgcontrol"><g><text y="24">svgcontrol</text></g></svg>',
+      '<select><option class="unchosen">unchosen</option><option class="chosen" selected>chosen</option></select>',
+    );
     const shown = [
+      "svgcontrol",
+      "chosen",
       "visibleword",
       "overrideword",
       "contentsword",
@@ -110,18 +124,31 @@ describe("Finding text in Obsidian", function () {
       "cvcaption",
       "cvcell",
       ...boxless,
+      "iframetext",
+      "progresstext",
+      "metertext",
+      "cvcanvas",
+      "defsword",
+      "symbolword",
+      "clipPathword",
+      "maskword",
+      "patternword",
+      "markerword",
+      "svgdirect",
+      "unchosen",
     ];
     const words = [...shown, ...hidden];
     // Colours without green: smoothing a glyph's edge against the white background
     // adds green, so an edge pixel never matches another word's colour.
     const colors = words.map((_, index): Color => [
-      40 + 40 * (index % 6),
+      30 + 30 * (index % 8),
       0,
-      60 * Math.floor(index / 6),
+      45 * Math.floor(index / 8),
     ]);
     const style = [
       "body { margin: 8px; background: #fff; font: bold 24px/1.25 sans-serif; }",
-      "p, table { margin: 0; }",
+      "p, table { margin: 0; } svg { fill: currentColor; } select { font: inherit; }",
+      `select { color: rgb(${colors[shown.indexOf("chosen")].join(", ")}); }`,
       ...words.map((word, index) => `.${word} { color: rgb(${colors[index].join(", ")}); }`),
     ].join("\n");
     await browser.executeObsidian(
@@ -135,6 +162,12 @@ describe("Finding text in Obsidian", function () {
     );
     await openInActiveTab("Saved/Find visibility.html");
     await waitForPage();
+    expect(
+      await browser.execute((active) => {
+        const doc = document.querySelector<HTMLIFrameElement>(active + " iframe")!.contentDocument!;
+        return doc.documentElement.scrollHeight <= doc.documentElement.clientHeight;
+      }, ACTIVE),
+    ).toBe(true);
     await saveScreenshot("find-visibility");
     const frame = await browser.$(`${ACTIVE} iframe.html-page-viewer__frame`);
     const shot = decodePng(
@@ -174,6 +207,7 @@ describe("Finding text in Obsidian", function () {
     for (const word of shown) {
       await find(word);
       expect([word, await findCount()]).toEqual([word, "1 of 1"]);
+      if (word === "chosen") expect(await framePixels(CURRENT)).toBe(0);
     }
     for (const word of hidden) {
       await find(word);
@@ -186,6 +220,31 @@ describe("Finding text in Obsidian", function () {
       expect([word, await findCount()]).toEqual([word, "1 of 3"]);
     }
     await closeFind();
+  });
+
+  it("finds and paints highlights in nested shadow roots and slots", async function () {
+    await browser.executeObsidian(async ({ app }) => {
+      const path = "Saved/Find shadow.html";
+      const html =
+        '<div><template shadowrootmode="closed"><p>shadow <em>phrase</em></p><slot name="named">fallbackword</slot><div><template shadowrootmode="open"><p>nestedword</p></template></div></template><span slot="named">slottedword</span><span>unassignedword</span></div>';
+      const old = app.vault.getAbstractFileByPath(path);
+      if (old) await app.vault.modify(old as never, html);
+      else await app.vault.create(path, html);
+    });
+    await openInActiveTab("Saved/Find shadow.html");
+    await waitForPage();
+    await browser.$(ACTIVE + ' button[aria-label="Find in page"]').click();
+    for (const word of ["shadow phrase", "nestedword", "slottedword"]) {
+      await find(word);
+      expect(await findCount()).toBe("1 of 1");
+      expect(await framePixels(CURRENT)).toBeGreaterThan(20);
+    }
+    for (const word of ["unassignedword", "fallbackword", "phraseslottedword"]) {
+      await find(word);
+      expect(await findCount()).toBe("No matches");
+    }
+    await closeFind();
+    expect(await framePixels(CURRENT)).toBe(0);
   });
 
   it("finds in a page, highlights the matches, and moves from one to the next", async function () {

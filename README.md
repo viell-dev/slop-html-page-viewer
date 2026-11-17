@@ -94,7 +94,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   highlights every match, up to 10,000, and moves between them with Enter and Shift+Enter; Escape
   closes it, and closing keeps the query. In the page, a match stays within a paragraph or another
   block, and leaves out text that the page hides, such as with `display: none`,
-  `visibility: hidden`, or zero opacity. In the split view, it finds in the source, which the page
+  `visibility: hidden`, or zero opacity. It also searches open shadow roots and their slotted
+  content; matches stop at a shadow or slot boundary. A closed select's chosen text is searched,
+  but Chromium cannot highlight that label. In the split view, it finds in the source, which the page
   follows.
 - Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
   shows, also after a note in between. A new tab starts rendered.
