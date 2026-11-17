@@ -94,9 +94,7 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   highlights every match, up to 10,000, and moves between them with Enter and Shift+Enter; Escape
   closes it, and closing keeps the query. In the page, a match stays within a paragraph or another
   block, and leaves out text that the page hides, such as with `display: none`,
-  `visibility: hidden`, or zero opacity. It also searches open shadow roots and their slotted
-  content; matches stop at a shadow or slot boundary. A closed select's chosen text is searched,
-  but Chromium cannot highlight that label. In the split view, it finds in the source, which the page
+  `visibility: hidden`, or zero opacity. In the split view, it finds in the source, which the page
   follows.
 - Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
   shows, also after a note in between. A new tab starts rendered.
@@ -156,6 +154,12 @@ and **Split** form a group named **View mode**, in which the selected one says i
 find bar. In it, Enter moves to the next match and Shift+Enter to the previous one, Escape closes
 it, and the number of matches is announced as it changes. The **Find in page** command has no
 hotkey of its own; one can be set in **Settings → Hotkeys**.
+
+**Unreleased (#122):** Find excludes unpainted fallback and SVG resource text, keeps painted
+SVG text (including direct `foreignObject` text), and searches a closed select's chosen text.
+Chromium cannot highlight that native label; multiple selects, list boxes, and option `label`
+attributes remain unsupported. Find also searches open shadow roots and slots, with matches
+ending at tree boundaries, and avoids collecting text for an empty query (#121, #124).
 
 ## Troubleshooting
 

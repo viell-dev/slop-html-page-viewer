@@ -7,6 +7,7 @@ import zlib from "node:zlib";
 export type Color = readonly [red: number, green: number, blue: number];
 
 export interface Pixels {
+  readonly rgb: Buffer;
   readonly width: number;
   readonly height: number;
   /** How many pixels are within `tolerance` of `color` in every channel. */
@@ -100,6 +101,7 @@ export function decodePng(png: Buffer): Pixels {
   }
 
   return {
+    rgb: Buffer.from(pixels.filter((_, index) => index % channels < 3)),
     width,
     height,
     count(color, tolerance = 6) {

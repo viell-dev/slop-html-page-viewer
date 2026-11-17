@@ -73,9 +73,11 @@ claiming publication completed; the library tests also assert that real state is
 
 Find regression coverage (#121, #122, #124): `find.test.ts` checks fallback and SVG exclusions,
 closed selected options, composed shadow content, range boundaries, and empty-query collection.
-`find.e2e.ts` compares each fixture word with screenshot pixels, asserts the entire fixture fits
-the frame, and checks nested declarative roots, slots, and painted highlights on both hosts.
-The #121 measurements retain `checkVisibility()` and avoid text collection for empty queries;
+`find.e2e.ts` compares paired screenshots with each word transparent, asserts the entire fixture fits
+the frame, and checks nested declarative roots, slots, painted highlights, and unchanged shadow
+structural selectors before, during, and after searching on both hosts.
+The #121 decision retains `checkVisibility()` (SVG switch branches pin it) and avoids collection
+for empty queries;
 nonempty searches still walk the page.
 
 There is no standing benchmark suite: timings on CI's shared runners vary too much to fail a build

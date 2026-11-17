@@ -75,9 +75,9 @@ function isHidden(element: Element, style: CSSStyleDeclaration | undefined): boo
   // display:contents has no box of its own, but shows its children; opacity has no effect.
   if (style?.display === "contents") return false;
   if (style?.opacity === "0") return true;
-  // checkVisibility() catches what computed styles do not show, such as the
-  // children of a progress bar, which have no box. It takes no options: the
-  // traversal already prunes zero-opacity ancestors, and a descendant can
+  // checkVisibility() catches what computed styles do not show, such as
+  // SVG switch branches rejected by systemLanguage, which have no box.
+  // It takes no options: traversal already prunes zero-opacity ancestors, and a descendant can
   // override visibility.
   return element.checkVisibility ? !element.checkVisibility() : false;
 }
@@ -222,7 +222,11 @@ export function pageRuns(doc: Document): TextRun[] {
         if (
           !closed &&
           textVisible &&
-          (element.namespaceURI !== "http://www.w3.org/2000/svg" || element.closest("text"))
+          // SVG paints text in text elements and directly in foreignObject,
+          // but ignores raw text in its other containers.
+          (element.namespaceURI !== "http://www.w3.org/2000/svg" ||
+            element.localName === "foreignObject" ||
+            element.closest("text"))
         )
           nodes.push(child as Text);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
@@ -316,6 +320,7 @@ export class Highlighter {
   private readonly api: HighlightApi | null;
   private matches: Range[] = [];
   private current: Range | null = null;
+  private readonly sheets = new Map<ShadowRoot, CSSStyleSheet>();
 
   constructor(win: Window | null) {
     this.api = highlightApi(win);
@@ -347,12 +352,16 @@ export class Highlighter {
       const root = range.startContainer.getRootNode();
       if (root.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
         const shadow = root as ShadowRoot;
-        if (!shadow.getElementById(FIND_STYLE_ID)) {
-          // eslint-disable-next-line obsidianmd/prefer-create-el -- the page's shadow tree lacks Obsidian helpers
-          const style = shadow.ownerDocument.createElement("style");
-          style.id = FIND_STYLE_ID;
-          style.textContent = FIND_STYLE;
-          shadow.append(style);
+        if (!this.sheets.has(shadow)) {
+          // Construct in the frame's realm: sheets cannot be adopted across documents.
+          // Adoption leaves structural selectors (including :last-child) unchanged.
+          const realm = shadow.ownerDocument.defaultView;
+          if (realm) {
+            const sheet = new realm.CSSStyleSheet();
+            sheet.replaceSync(FIND_STYLE);
+            shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet];
+            this.sheets.set(shadow, sheet);
+          }
         }
       }
       all?.add(range);
@@ -363,6 +372,10 @@ export class Highlighter {
   }
 
   clear(): void {
+    for (const [shadow, sheet] of this.sheets) {
+      shadow.adoptedStyleSheets = shadow.adoptedStyleSheets.filter((entry) => entry !== sheet);
+    }
+    this.sheets.clear();
     const all = this.api?.registry.get(MATCH_HIGHLIGHT);
     for (const range of this.matches) all?.delete(range);
     if (this.current) this.api?.registry.get(CURRENT_HIGHLIGHT)?.delete(this.current);

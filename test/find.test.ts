@@ -13,6 +13,9 @@ function texts(html: string, query: string): string[] {
 
 describe("finding text in a page", () => {
   it("excludes nonpainted fallback and SVG resources, but keeps SVG text", () => {
+    assert.deepEqual(texts("<svg><foreignObject>needle</foreignObject></svg>", "needle"), [
+      "needle",
+    ]);
     const hidden =
       "<iframe>needle</iframe><progress>needle</progress><meter>needle</meter>" +
       "<svg>needle" +
@@ -39,6 +42,21 @@ describe("finding text in a page", () => {
       texts("<select><option selected>other</option><option>needle</option></select>", "needle"),
       [],
     );
+  });
+  it("excludes unsupported select labels and separates control runs", () => {
+    for (const attributes of ["multiple", 'size="3"', 'style="visibility:hidden"']) {
+      assert.deepEqual(
+        findRanges(
+          pageRuns(styled(`<select ${attributes}><option>needle</option></select>`)),
+          "needle",
+        ).ranges,
+        [],
+      );
+    }
+    assert.deepEqual(texts('<select><option label="other">needle</option></select>', "needle"), []);
+    for (const query of ["foobar", "barbaz"]) {
+      assert.deepEqual(texts("<p>foo<select><option>bar</option></select>baz</p>", query), []);
+    }
   });
   it("walks composed shadow content once, keeping ranges in one tree", () => {
     const doc = parse('<div id="host"><span slot="named">slotted</span><b>unassigned</b></div>');
