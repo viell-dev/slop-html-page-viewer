@@ -8,26 +8,30 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
+Nothing that changes the plugin.
+
+## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
+
 - **Rendered**, **Source**, and **Split** form a labelled group, and the selected one says it is
   pressed, so that screen readers announce which view mode a tab shows.
-- A page that cannot be prepared for display shows an error, with Refresh and the source view still
-  available, instead of being shown without its protections. Escapes in a page's CSS decode as CSS
-  specifies, and a stylesheet that cannot be read is left out, as a missing one is.
-- Links in SVG images open as other links do. A link to `#` scrolls to the top of the page, and a
-  link to `#top` goes to the element named `top` when the page has one.
+- Security: a page that cannot be prepared for display shows an error, with Refresh and the source
+  view still available, instead of being shown without its protections. Escapes in a page's CSS
+  decode as CSS specifies, and a stylesheet that cannot be read is left out, as a missing one is.
+- Links in SVG drawn in the page open as other links do. A link to `#` scrolls to the top of the
+  page, and a link to `#top` goes to the element named `top` when the page has one.
 - A refresh that finishes after another file has opened in the same tab no longer shows the
   earlier file's contents there. Before, Obsidian then saved those contents over the file that the
   tab showed once the tab moved on; the viewer no longer lets Obsidian save the files it shows.
 - Find in the page leaves out text that CSS hides, and closing the find bar keeps a query typed just
   before it closed.
-- With scripts on, a page's frame is isolated from the vault's files from the moment it is
+- Security: with scripts on, a page's frame is isolated from the vault's files from the moment it is
   created. On some Obsidian versions, such as 1.5.3, such a page could, rarely, load vault files
   that it names, such as its images, without the **Local files with scripts on** setting.
-- Links inside a page's shadow DOM, which pages saved with their web components can contain,
-  open in Obsidian as other links do, and the page stays in its frame.
-- After a tab moves to another tab group or window, its page follows links in Obsidian as soon as
-  it shows again. Before, a link clicked before the page had loaded again navigated the frame away
-  from the page.
+- Security: links inside a page's shadow DOM, which pages saved with their web components can
+  contain, open in Obsidian as other links do, and the page stays in its frame.
+- Security: after a tab moves to another tab group or window, its page follows links in Obsidian as
+  soon as it shows again. Before, a link clicked before the page had loaded again navigated the
+  frame away from the page.
 
 ## [0.5.1](.github/release-notes/0.5.1.md) - 2026-10-24
 

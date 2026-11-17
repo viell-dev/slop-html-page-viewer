@@ -68,6 +68,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   them, so a link opens in the frame itself. For the same reason, the find bar then finds only in
   the source view, and the split view's sides scroll apart.
 - **A link to a part of another page** opens that page at its top.
+- **A link that SVG `<use>` copies** from elsewhere in the page does nothing when clicked: the
+  viewer cannot tell which copied link it is, and the page stays in its frame.
 - **Files outside the vault never load**, even when a page refers to them, and links to them are
   refused.
 
