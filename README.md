@@ -156,8 +156,11 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   beginning** when its tab moves to another tab group or window, as does a page that scrolls only
   inside such a part, such as a main column beside a sidebar, or a wide table or code block in a box
   of its own. Only the place of the page as a whole is kept. A part that the page opens, such as a
-  `<details>` element or a section that a checkbox shows, is closed again; a page whose place was
-  inside it shows the closed part at the window's top.
+  `<details>` element or a section that a checkbox shows, is closed again. A page whose place was
+  inside it shows the closed part at the window's top: a `<details>` element with its summary, and a
+  section that the page's styles close by its height from where its content would begin, so that a
+  heading just before it is just above the window's top. For a section that they hide so that it
+  takes no space, the page shows the element around it from that element's top.
 - **A link to a part of another page** opens that page at its top.
 - **A link that SVG `<use>` copies** from elsewhere in the page does nothing when clicked: the
   viewer cannot tell which copied link it is, and the page stays in its frame.

@@ -14,16 +14,27 @@ const PARAGRAPHS = "Saved/Long paragraphs.html";
 /** The same paragraphs, followed by an image that arrives only when the test says. */
 const HELD = "Saved/Held image.html";
 
-/** Writes a page of 60 long paragraphs to `path`, followed by `after`. */
-async function writeParagraphsPage(path = PARAGRAPHS, after = ""): Promise<void> {
+/**
+ * Long paragraphs numbered from `first`, with the ids `${prefix}${number}`,
+ * which wrap onto more lines in a narrower pane.
+ */
+function paragraphs(first: number, count: number, prefix = "p", name = "Paragraph"): string {
   const words =
     "Each paragraph of this synthetic page runs long enough to wrap onto several lines, so that its height depends on the width that the page is laid out at.";
-  const paragraphs = Array.from(
-    { length: 60 },
-    (_, index) =>
-      `<p id="p${index + 1}">Paragraph ${index + 1}. ${words.repeat(1 + (index % 3))}</p>`,
-  ).join("\n");
-  const html = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>Long paragraphs</title>\n</head>\n<body>\n${paragraphs}\n${after}</body>\n</html>\n`;
+  return Array.from({ length: count }, (_, index) => {
+    const number = first + index;
+    return `<p id="${prefix}${number}">${name} ${number}. ${words.repeat(1 + ((number - 1) % 3))}</p>`;
+  }).join("\n");
+}
+
+/** Writes a page of 60 long paragraphs to `path`, followed by `after`. */
+async function writeParagraphsPage(path = PARAGRAPHS, after = ""): Promise<void> {
+  await writePage(path, "Long paragraphs", "", `${paragraphs(1, 60)}\n${after}`);
+}
+
+/** Writes a page with `head` and `body` to `path` in the vault. */
+async function writePage(path: string, title: string, head: string, body: string): Promise<void> {
+  const html = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>${title}</title>\n${head}</head>\n<body>\n${body}</body>\n</html>\n`;
   await browser.executeObsidian(
     async ({ app }, path, html) => {
       const existing = app.vault.getAbstractFileByPath(path);
@@ -249,21 +260,85 @@ async function scrollBeforeLoad(
 
 /** Scrolls the active tab's page to show `fraction` of paragraph `number`'s height above its top. */
 async function scrollToParagraph(number: number, fraction: number): Promise<void> {
+  await scrollToElement(`p${number}`, fraction);
+}
+
+/** Scrolls the active tab's page to show `fraction` of element `id`'s height above its top. */
+async function scrollToElement(id: string, fraction: number): Promise<void> {
   await browser.execute(
-    (active, number, fraction) => {
+    (active, id, fraction) => {
       const frame = document.querySelector<HTMLIFrameElement>(
         `${active} iframe.html-page-viewer__frame`,
       );
       const doc = frame?.contentDocument;
-      const paragraph = doc?.getElementById(`p${number}`);
-      if (!doc?.defaultView || !paragraph) throw new Error(`No paragraph ${number}`);
-      const box = paragraph.getBoundingClientRect();
+      const element = doc?.getElementById(id);
+      if (!doc?.defaultView || !element) throw new Error(`No element ${id}`);
+      const box = element.getBoundingClientRect();
       doc.defaultView.scrollTo(0, doc.defaultView.scrollY + box.top + fraction * box.height);
     },
     ACTIVE,
-    number,
+    id,
     fraction,
   );
+}
+
+/**
+ * A page with two parts that the reader opens: a `<details>` element, and an
+ * accordion, as CSS-only pages make them, whose checkbox lifts the height
+ * limit that keeps its panel closed.
+ */
+const CLOSED_PARTS = "Saved/Closed parts.html";
+
+async function writeClosedPartsPage(): Promise<void> {
+  await writePage(
+    CLOSED_PARTS,
+    "Closed parts",
+    `<style>
+.panel { max-height: 0; overflow: hidden; }
+#accordion-open:checked ~ .panel { max-height: none; }
+</style>
+`,
+    `${paragraphs(1, 5)}
+<details id="details"><summary>Details</summary>
+${paragraphs(1, 8, "d", "Inside the details")}
+</details>
+${paragraphs(6, 5)}
+<div id="accordion"><input type="checkbox" id="accordion-open"><label for="accordion-open">Accordion</label>
+<div class="panel" id="accordion-panel">
+${paragraphs(1, 8, "a", "Inside the accordion")}
+</div>
+</div>
+${paragraphs(11, 50)}
+`,
+  );
+}
+
+/**
+ * Where the element `id` is in the window of the page that moveActiveTab
+ * moved, how far that page is scrolled, and whether its parts are open.
+ */
+async function movedClosedParts(
+  id: string,
+): Promise<{ top: number; scrollY: number; details: boolean; accordion: boolean } | null> {
+  return browser.executeObsidian(({ app }, id) => {
+    const docs: Document[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      const doc =
+        leaf.view.containerEl.querySelector<HTMLIFrameElement>(
+          "iframe[data-e2e-moved]",
+        )?.contentDocument;
+      if (doc) docs.push(doc);
+    });
+    const doc = docs[0];
+    const element = doc?.getElementById(id);
+    if (!doc?.defaultView || !element) return null;
+    return {
+      top: element.getBoundingClientRect().top,
+      scrollY: doc.defaultView.scrollY,
+      details: doc.querySelector("details")!.open,
+      accordion: doc.querySelector<HTMLInputElement>("#accordion-open")!.checked,
+    };
+  }, id);
 }
 
 /** Switches Obsidian's base theme, as its appearance settings do. */
@@ -368,6 +443,57 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
     expect(after.inWindow).toBe(true);
     expect(after.top).toBe(40);
   });
+
+  // The frame's new document shows the part closed, as the page's copy has
+  // it. Chromium keeps a closed <details> element's content laid out, so that
+  // it still reports a box there; the accordion's content keeps its own box
+  // and height too, inside a panel that clips it to none. The <details>
+  // element comes to the top with its summary, the panel where its content
+  // would begin, below its label.
+  for (const [part, inside, top] of [
+    ["details", "d6", "details"],
+    ["accordion", "a6", "accordion-panel"],
+  ] as const) {
+    it(`shows the ${part} that its page was inside, closed again, at the window's top`, async function () {
+      await writeClosedPartsPage();
+      await openInActiveTab(CLOSED_PARTS);
+      await waitForPage();
+      await browser.execute(
+        (active, part) => {
+          const doc = document.querySelector<HTMLIFrameElement>(
+            `${active} iframe.html-page-viewer__frame`,
+          )!.contentDocument!;
+          if (part === "details") doc.querySelector("details")!.open = true;
+          else doc.querySelector<HTMLInputElement>("#accordion-open")!.checked = true;
+        },
+        ACTIVE,
+        part,
+      );
+      await scrollToElement(inside, 0.5);
+      const before = await browser.execute(
+        (active, inside) => {
+          const doc = document.querySelector<HTMLIFrameElement>(
+            `${active} iframe.html-page-viewer__frame`,
+          )!.contentDocument!;
+          const box = doc.getElementById(inside)!.getBoundingClientRect();
+          return { top: box.top, bottom: box.bottom };
+        },
+        ACTIVE,
+        inside,
+      );
+      expect(before.top).toBeLessThan(0);
+      expect(before.bottom).toBeGreaterThan(0);
+
+      await moveActiveTab("group");
+      await waitForMovedPage();
+      const after = await movedClosedParts(top);
+      expect(after).not.toBeNull();
+      expect(after!.details || after!.accordion).toBe(false);
+      expect(after!.scrollY).toBeGreaterThan(0);
+      expect(after!.top).toBeGreaterThanOrEqual(-1);
+      expect(after!.top).toBeLessThanOrEqual(1);
+    });
+  }
 
   it("keeps the theme and line width that the view changed in the page in place", async function () {
     await setDark(false);

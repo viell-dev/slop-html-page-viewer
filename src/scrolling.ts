@@ -50,22 +50,37 @@ export interface ScrollPlace {
 }
 
 /**
+ * Whether an element has no box of its own but shows its children, as the
+ * wrapper that SvelteKit puts around a page's content does.
+ */
+function isContents(element: Element, win: Window): boolean {
+  return win.getComputedStyle(element).display === "contents";
+}
+
+/**
  * Where `doc`'s window is scrolled to, or null at the page's top. Only the
  * window's scrolling counts: a region of the page that scrolls by itself is
- * not part of the place.
+ * not part of the place. An element with `display: contents` is on the way
+ * down to the element at the top when one of its children is.
  */
 export function scrollPlace(doc: Document): ScrollPlace | null {
   const win = doc.defaultView;
   const body = doc.body;
   if (!win || !body || (win.scrollY <= 0 && win.scrollX <= 0)) return null;
-  const atTop = (element: Element): boolean => {
+  const holdsTop = (element: Element): boolean => {
     const box = element.getBoundingClientRect();
-    return box.top <= 0 && box.bottom > 0 && !isPinned(element, win);
+    if (box.top <= 0 && box.bottom > 0) return !isPinned(element, win);
+    return (
+      box.width === 0 &&
+      box.height === 0 &&
+      isContents(element, win) &&
+      [...element.children].some(holdsTop)
+    );
   };
   const path: number[] = [];
   let element: Element = body;
   for (;;) {
-    const index = [...element.children].findIndex(atTop);
+    const index = [...element.children].findIndex(holdsTop);
     if (index === -1) break;
     path.push(index);
     element = element.children[index];
@@ -74,25 +89,62 @@ export function scrollPlace(doc: Document): ScrollPlace | null {
   return { path, into: box.height > 0 ? -box.top / box.height : 0, left: win.scrollX };
 }
 
+/** Values of `overflow` that clip an element's content to its padding box. */
+const CLIPPING = new Set(["auto", "clip", "hidden", "scroll"]);
+
 /**
  * How far `doc`'s window scrolls down to show `place` at its top, or null
- * without a body. Where the document shows the place's element in no box, as
- * when a `<details>` element or a part that a checkbox opens in the page's
- * styles is closed again, or lacks it, the page is shown from the top of the
- * deepest of the element's parents that it shows.
+ * without a body.
+ *
+ * Where the document no longer shows the way down to the place's element, the
+ * page is shown from the top of the deepest element on that way that it still
+ * shows. So a part that the page opens and the document has closed again
+ * comes to the window's top: a `<details>` element with its summary; a part
+ * that the page's styles close by its height, as with `max-height: 0` and
+ * `overflow: hidden`, where its content would begin; and a part that they
+ * hide with `display: none`, with the element around it. An element counts
+ * as not shown when it has no box; when `checkVisibility()` says so, as for
+ * the content of a closed `<details>` element, which Chromium keeps laid out
+ * and so reports a box for; and when an element above it that clips its
+ * overflow leaves none of it in view. The body's own overflow is not counted,
+ * since it can be the window's. An element with `display: contents` has no
+ * box but shows its children, so the way passes through it.
  */
 export function placeTop(doc: Document, place: ScrollPlace): number | null {
   const win = doc.defaultView;
   const body = doc.body;
   if (!win || !body) return null;
   let element: Element = body;
+  let shown: Element = body;
+  // The band of the window, in its coordinates, that the elements above
+  // `element` clip their content to.
+  let clipTop = -Infinity;
+  let clipBottom = Infinity;
+  const fallback = (): number => win.scrollY + shown.getBoundingClientRect().top;
   for (const index of place.path) {
     const child: Element | null = element.children.item(index);
-    if (child === null || child.getClientRects().length === 0)
-      return win.scrollY + element.getBoundingClientRect().top;
+    if (child === null) return fallback();
     element = child;
+    const style = win.getComputedStyle(child);
+    if (style.display === "contents") continue;
+    const box = child.getBoundingClientRect();
+    if (
+      child.getClientRects().length === 0 ||
+      (child.checkVisibility ? !child.checkVisibility() : false) ||
+      clipTop >= clipBottom ||
+      box.top >= clipBottom ||
+      box.bottom <= clipTop
+    )
+      return fallback();
+    if (CLIPPING.has(style.overflowY)) {
+      const top = box.top + child.clientTop;
+      clipTop = Math.max(clipTop, top);
+      clipBottom = Math.min(clipBottom, top + child.clientHeight);
+    }
+    shown = child;
   }
-  const box = element.getBoundingClientRect();
+  if (element !== shown) return fallback();
+  const box = shown.getBoundingClientRect();
   return win.scrollY + box.top + place.into * box.height;
 }
 

@@ -1,30 +1,52 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { JSDOM } from "jsdom";
-import { placeTop, scrollPlace } from "../src/scrolling";
+import { placeTop, type ScrollPlace, scrollPlace, showPlace } from "../src/scrolling";
 
 /**
  * A page laid out as its elements' `data-top` and `data-height` say, in page
- * pixels, scrolled down by `scrollY`; an element with `data-hidden` has no
- * box, as one that `display: none` hides. jsdom lays nothing out itself, and
- * Obsidian's frames are measured in Obsidian (move.e2e.ts).
+ * pixels, scrolled down by `scrollY`, with what Chromium reports for parts
+ * that it does not show:
+ * - an element with `data-hidden`, and its content, have no box, as with
+ *   `display: none`;
+ * - an element with `display: contents` has no box, but its children do;
+ * - the content of a closed `<details>` element keeps its box, since Chromium
+ *   keeps it laid out, but `checkVisibility()` returns false for it.
+ * An element's padding box is its whole box. jsdom lays nothing out itself,
+ * and Obsidian's frames are measured in Obsidian (move.e2e.ts).
  */
 function laidOut(body: string, scrollY: number): Document {
   const { window } = new JSDOM(`<!doctype html><html><body>${body}</body></html>`);
   Object.defineProperty(window, "scrollY", { configurable: true, value: scrollY });
   Object.defineProperty(window, "scrollX", { configurable: true, value: 0 });
+  const boxless = (element: Element): boolean =>
+    element.closest("[data-hidden]") !== null ||
+    window.getComputedStyle(element).display === "contents";
   Object.defineProperty(window.Element.prototype, "getBoundingClientRect", {
     configurable: true,
     value(this: Element) {
+      if (boxless(this)) return { top: 0, bottom: 0, height: 0, width: 0 };
       const top = Number(this.getAttribute("data-top") ?? 0) - scrollY;
       const height = Number(this.getAttribute("data-height") ?? 0);
-      return { top, bottom: top + height, height, width: height > 0 ? 100 : 0 };
+      return { top, bottom: top + height, height, width: 100 };
     },
   });
   Object.defineProperty(window.Element.prototype, "getClientRects", {
     configurable: true,
     value(this: Element) {
-      return this.hasAttribute("data-hidden") ? [] : [this.getBoundingClientRect()];
+      return boxless(this) ? [] : [this.getBoundingClientRect()];
+    },
+  });
+  Object.defineProperty(window.Element.prototype, "checkVisibility", {
+    configurable: true,
+    value(this: Element) {
+      return !boxless(this) && this.closest("details:not([open]) > :not(summary)") === null;
+    },
+  });
+  Object.defineProperty(window.Element.prototype, "clientHeight", {
+    configurable: true,
+    get(this: Element) {
+      return this.getBoundingClientRect().height;
     },
   });
   return window.document;
@@ -68,25 +90,176 @@ describe("a page's place across a move to another tab group or window (#126)", (
     const place = scrollPlace(laidOut(PAGE, 1100));
     assert.ok(place);
     // The same elements, wrapped onto more lines: twice as tall.
-    const narrower = PAGE.replace(
-      /data-(top|height)="(\d+)"/g,
-      (_, name: string, value: string) => `data-${name}="${Number(value) * 2}"`,
-    );
-    assert.equal(placeTop(laidOut(narrower, 0), place), 2200);
-    assert.equal(placeTop(laidOut(narrower, 300), place), 2200);
+    assert.equal(placeTop(laidOut(narrower(PAGE), 0), place), 2200);
+    assert.equal(placeTop(laidOut(narrower(PAGE), 300), place), 2200);
+  });
+
+  it("passes through an element with display: contents, as around a SvelteKit page", () => {
+    const wrapped = `<div style="display: contents">${PAGE}</div>`;
+    const place = scrollPlace(laidOut(wrapped, 1100));
+    assert.deepEqual(place, { path: [0, 1, 1], into: 0.25, left: 0 });
+    assert.equal(placeTop(laidOut(narrower(wrapped), 0), place), 2200);
   });
 
   it("falls back to the top of the deepest parent that the other document has", () => {
     assert.equal(placeTop(laidOut(PAGE, 0), { path: [1, 7, 2], into: 0.5, left: 0 }), 900);
   });
 
-  it("shows a part that the other document shows closed from its top", () => {
+  it("shows a part that the other document hides with display: none from its top", () => {
     // The reader was in the second section's last paragraph, which the
-    // document that the frame loads next shows closed, as a <details> element
-    // or a part that a checkbox opens in the page's styles is.
+    // document that the frame loads next hides, as a page's styles hide a
+    // part that a checkbox opens.
     const place = scrollPlace(laidOut(PAGE, 1650));
     assert.deepEqual(place, { path: [1, 2], into: 0.5, left: 0 });
     const closed = PAGE.replace('<p data-top="1400"', '<p data-hidden data-top="1400"');
     assert.equal(placeTop(laidOut(closed, 0), place), 900);
+  });
+
+  it("shows a <details> element that the other document has closed from its top", () => {
+    const open = `<p data-top="0" data-height="200">Before</p>
+<details open data-top="200" data-height="820">
+  <summary data-top="200" data-height="20">Details</summary>
+  <p data-top="220" data-height="400">First inside</p>
+  <p data-top="620" data-height="400">Second inside</p>
+</details>
+<p data-top="1020" data-height="2000">After</p>`;
+    const place = scrollPlace(laidOut(open, 820));
+    assert.deepEqual(place, { path: [1, 2], into: 0.5, left: 0 });
+    // Closed, the element is its summary's height, and the paragraph after it
+    // moves up; its content keeps the boxes it has inside the element.
+    const closed = open
+      .replace(
+        '<details open data-top="200" data-height="820">',
+        '<details data-top="200" data-height="20">',
+      )
+      .replace('<p data-top="1020"', '<p data-top="220"');
+    assert.equal(placeTop(laidOut(closed, 0), place), 200);
+  });
+
+  it("shows a part that the other document clips to no height, or to less, from its top", () => {
+    // jsdom reads overflow-y, but not the overflow shorthand that pages use.
+    const open = `<p data-top="0" data-height="200">Before</p>
+<div data-top="200" data-height="820">
+  <label data-top="200" data-height="20">Accordion</label>
+  <div style="overflow-y: hidden" data-top="220" data-height="800">
+    <p data-top="220" data-height="400">First inside</p>
+    <p data-top="620" data-height="400">Second inside</p>
+  </div>
+</div>
+<p data-top="1020" data-height="2000">After</p>`;
+    const place = scrollPlace(laidOut(open, 820));
+    assert.deepEqual(place, { path: [1, 1, 1], into: 0.5, left: 0 });
+    // Closed by a height limit of none, the panel keeps its content's boxes
+    // but shows none of them: the panel is at the top, below its label.
+    const closed = open
+      .replace('<div data-top="200" data-height="820">', '<div data-top="200" data-height="20">')
+      .replace('data-top="220" data-height="800"', 'data-top="220" data-height="0"')
+      .replace('<p data-top="1020"', '<p data-top="220"');
+    assert.equal(placeTop(laidOut(closed, 0), place), 220);
+    // Limited to 300 pixels, the panel shows only the first paragraph's
+    // beginning: the panel is at the top.
+    const shorter = closed
+      .replace('<div data-top="200" data-height="20">', '<div data-top="200" data-height="320">')
+      .replace('data-top="220" data-height="0"', 'data-top="220" data-height="300"');
+    assert.equal(placeTop(laidOut(shorter, 0), place), 220);
+    // A place in what the panel still shows is kept.
+    const inFirst: ScrollPlace = { path: [1, 1, 0], into: 0.25, left: 0 };
+    assert.equal(placeTop(laidOut(shorter, 0), inFirst), 320);
+  });
+
+  it("shows a closed panel where it is, also without an element of its own around it", () => {
+    // The element around the panel is the body: its top is the page's top.
+    const unwrapped = `<p data-top="0" data-height="2000">Before</p>
+<label data-top="2000" data-height="20">Accordion</label>
+<div style="overflow-y: hidden" data-top="2020" data-height="0">
+  <p data-top="2020" data-height="400">First inside</p>
+  <p data-top="2420" data-height="400">Second inside</p>
+</div>
+<p data-top="2020" data-height="2000">After</p>`;
+    assert.equal(placeTop(laidOut(unwrapped, 0), { path: [2, 1], into: 0.5, left: 0 }), 2020);
+  });
+});
+
+/** The same elements, wrapped onto more lines: twice as tall. */
+function narrower(page: string): string {
+  return page.replace(
+    /data-(top|height)="(\d+)"/g,
+    (_, name: string, value: string) => `data-${name}="${Number(value) * 2}"`,
+  );
+}
+
+/**
+ * A page of PAGE's layout that has its text but has not loaded, and the
+ * heights that the view scrolls its window to.
+ */
+async function loadingPage(): Promise<{ doc: Document; scrolls: number[] }> {
+  const doc = laidOut(PAGE, 0);
+  const win = doc.defaultView!;
+  // jsdom loads the page by itself, a moment after it is made.
+  if (doc.readyState !== "complete")
+    await new Promise((resolve) => win.addEventListener("load", resolve, { once: true }));
+  Object.defineProperty(doc, "readyState", { configurable: true, value: "interactive" });
+  const scrolls: number[] = [];
+  win.scrollTo = ((options: ScrollToOptions) => {
+    scrolls.push(options.top ?? Number.NaN);
+  }) as typeof win.scrollTo;
+  return { doc, scrolls };
+}
+
+/** An element of the view, in Obsidian's own document, as its split view's source is. */
+function viewElement(): HTMLElement {
+  const { window } = new JSDOM(`<!doctype html><div class="view"><div>Source</div></div>`);
+  return window.document.querySelector<HTMLElement>(".view")!;
+}
+
+const PLACE: ScrollPlace = { path: [1, 1], into: 0.25, left: 0 };
+
+describe("placing a moved page again when it loads (#126)", () => {
+  // The view's AbortController is its Obsidian window's, whose signals the
+  // frame's window accepts as Chromium does; jsdom accepts only its own.
+  Object.defineProperty(globalThis, "AbortController", {
+    configurable: true,
+    value: new JSDOM().window.AbortController,
+  });
+
+  it("places it at once, and again when it loads, once, without the reader's input", async () => {
+    const { doc, scrolls } = await loadingPage();
+    showPlace(doc, PLACE, [viewElement()], new AbortController().signal);
+    assert.deepEqual(scrolls, [1100]);
+    doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
+    doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
+    assert.deepEqual(scrolls, [1100, 1100]);
+  });
+
+  for (const type of ["keydown", "pointerdown", "touchstart", "wheel"]) {
+    for (const where of ["the page", "the view"]) {
+      it(`leaves it where it is when it loads after a ${type} in ${where}`, async () => {
+        const { doc, scrolls } = await loadingPage();
+        const view = viewElement();
+        showPlace(doc, PLACE, [view], new AbortController().signal);
+        const target = where === "the page" ? doc.querySelector("h2")! : view.firstElementChild!;
+        const realm = target.ownerDocument.defaultView!;
+        target.dispatchEvent(new realm.Event(type, { bubbles: true }));
+        doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
+        assert.deepEqual(scrolls, [1100]);
+      });
+    }
+  }
+
+  it("leaves it alone after the frame drops the document", async () => {
+    const { doc, scrolls } = await loadingPage();
+    const showing = new AbortController();
+    showPlace(doc, PLACE, [viewElement()], showing.signal);
+    showing.abort();
+    doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
+    assert.deepEqual(scrolls, [1100]);
+  });
+
+  it("places a page that has already loaded once", async () => {
+    const { doc, scrolls } = await loadingPage();
+    Object.defineProperty(doc, "readyState", { configurable: true, value: "complete" });
+    showPlace(doc, PLACE, [viewElement()], new AbortController().signal);
+    doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
+    assert.deepEqual(scrolls, [1100]);
   });
 });

@@ -60,7 +60,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | The source view shows every character of the file, highlighted as HTML reads it                                                                                                    | `source.test.ts`, including random markup                                                                                                                                 | `viewer.e2e.ts`                                                                                                                  |
 | The find bar finds in the source and the page, and moves with Enter, Shift+Enter, and Escape                                                                                       | `find.test.ts`: close paths, no-`checkVisibility` fallback, `content-visibility`                                                                                          | `find.e2e.ts`: Ctrl+F; finds exactly the words that the page paints                                                              |
 | The split view keeps its two sides in step                                                                                                                                         | `split.test.ts`, also with shadow roots                                                                                                                                   | `split.e2e.ts`, both ways, on a smoothly scrolling page, and with shadow roots on an article, on the body, and declared late     |
-| **Unreleased (#126):** A tab moved to another tab group or window keeps its reading style, and the place of a page that scrolls as a whole; the split view follows only its page   | `move.test.ts`: the place, by the element at the window's top, also in a part shown closed                                                                                | `move.e2e.ts`: a narrower tab group, a new window, a theme changed in place, the split view, the reader scrolling before load    |
+| **Unreleased (#126):** A tab moved to another tab group or window keeps its reading style, and the place of a page that scrolls as a whole; the split view follows only its page   | `move.test.ts`: the place, by the element at the window's top, through `display: contents` and in parts closed again; placing again at `load` until the reader's input    | `move.e2e.ts`: a narrower tab group, a new window, a theme changed in place, the split view, scrolling before load, closed parts |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                  |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                        |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                    |
@@ -200,7 +200,11 @@ the page showed paragraph 19 or 21 in place of 30. Keeping the split view's foll
 document that the frame dropped failed only the split view's test, which counted six measurements
 of that document after the move. Placing the page again when it had loaded, even after the reader
 had scrolled it with the mouse wheel, in the page or in the split view's source, failed both tests
-of the reader's scrolling: the page showed paragraph 30 again in place of 41 or 42.
+of the reader's scrolling: the page showed paragraph 30 again in place of 41 or 42. Treating only a
+part without a box as closed failed both tests of a part closed again, in both versions: the page
+showed a closed `<details>` element 418 pixels, and a closed accordion's panel 429 pixels, above the
+window's top. It also failed `move.test.ts`'s tests of those parts and of a page inside an element
+with `display: contents`, which kept its place only as a share of the body's height.
 
 ## Limits
 
@@ -232,8 +236,10 @@ of the reader's scrolling: the page showed paragraph 30 again in place of 41 or 
   on those versions a link around HTML without a label of its own has neither (#117).
 - **Unreleased (#126):** After a tab moves, the view stops placing its page again once the reader
   presses a key or a pointer button, touches the screen, or turns the mouse wheel, in the page or
-  elsewhere in the view. `move.e2e.ts` scrolls with the mouse wheel; the other kinds of input are
-  not tested.
+  elsewhere in the view. `move.e2e.ts` scrolls with the mouse wheel. `move.test.ts` stops the
+  placement with each of the four kinds of input in jsdom, which does not show that Chromium sends
+  them where the view listens. A page inside an element with `display: contents`, and a part that
+  a page hides with `display: none`, are tested only in `move.test.ts`.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`
