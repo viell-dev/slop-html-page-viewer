@@ -115,7 +115,8 @@ describe("Finding text in Obsidian", function () {
       "cvtable",
       "canvasfallback",
     ];
-    // Hidden words that have no box at all; the others are laid out but not painted.
+    // Hidden words asserted to have no layout box. Other hidden words may have none either; their
+    // paint check then compares an empty area, and find must still leave them out.
     const boxless = ["displayword", "progresschild", "videofallback", "audiofallback"];
     const hidden = [
       "switchskipped",
@@ -327,6 +328,8 @@ describe("Finding text in Obsidian", function () {
       await find(word);
       expect(await findCount()).toBe("No matches");
     }
+    // An empty query after a match removes the highlight stylesheet again.
+    await find("shadow phrase");
     await find("");
     expect(await structure()).toEqual(before);
     await find("shadow phrase");
