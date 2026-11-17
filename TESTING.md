@@ -231,8 +231,9 @@ of the reader's scrolling: the page showed paragraph 30 again in place of 41 or 
   Chrome 157 includes. The viewer gives such a link no tooltip, which would replace that name, so
   on those versions a link around HTML without a label of its own has neither (#117).
 - **Unreleased (#126):** After a tab moves, the view stops placing its page again once the reader
-  presses a key, a pointer, or a touch, or turns the wheel, in the page or elsewhere in the view.
-  `move.e2e.ts` scrolls with the mouse wheel; the other kinds of input are not tested.
+  presses a key or a pointer button, touches the screen, or turns the mouse wheel, in the page or
+  elsewhere in the view. `move.e2e.ts` scrolls with the mouse wheel; the other kinds of input are
+  not tested.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`
