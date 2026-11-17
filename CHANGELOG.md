@@ -8,6 +8,10 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
+Nothing that changes the plugin.
+
+## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
+
 - **Rendered**, **Source**, and **Split** form a labelled group, and the selected one says it is
   pressed, so that screen readers announce which view mode a tab shows.
 - A page that cannot be prepared for display shows an error, with Refresh and the source view still
