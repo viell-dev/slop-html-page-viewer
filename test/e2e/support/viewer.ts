@@ -147,10 +147,21 @@ export interface RecordedFrames {
  * The origins that Obsidian's main process records for the window's frames.
  * It serves vault files to a frame by this origin, not by the one that the
  * frame's page has (#83), so a frame with scripts on must be "null" here.
- * Given a toolbar button's label, it clicks that button first and reads the
- * record in the same task, before the page in the frame it renders commits.
  */
-export async function recordedFrames(clickFirst?: string): Promise<RecordedFrames> {
+export async function recordedFrames(): Promise<RecordedFrames> {
+  return readRecordedFrames(null);
+}
+
+/**
+ * Clicks the active tab's toolbar button labelled `label`, and reads
+ * {@link recordedFrames} in the same task: the record of the frame that the
+ * click renders, before its page commits.
+ */
+export async function recordedFramesAfterClick(label: string): Promise<RecordedFrames> {
+  return readRecordedFrames(label);
+}
+
+async function readRecordedFrames(clickFirst: string | null): Promise<RecordedFrames> {
   return browser.execute(
     (active, clickFirst) => {
       if (clickFirst !== null) {
@@ -176,7 +187,7 @@ export async function recordedFrames(clickFirst?: string): Promise<RecordedFrame
       };
     },
     ACTIVE,
-    clickFirst ?? null,
+    clickFirst,
   );
 }
 

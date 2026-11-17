@@ -9,6 +9,7 @@ import {
   framePixels,
   openInActiveTab,
   recordedFrames,
+  recordedFramesAfterClick,
   saveScreenshot,
   vaultFolder,
   waitForPage,
@@ -71,7 +72,7 @@ describe("A page's local files in Obsidian", function () {
     // records, which it updates only once it learns that the frame's page
     // committed. Read right after the click, the record shows the frame as it
     // was created, before its page loads.
-    const created = await recordedFrames("Scripts OFF");
+    const created = await recordedFramesAfterClick("Scripts OFF");
     await waitForPage();
     const loaded = await recordedFrames();
     // With scripts off again, the frame keeps Obsidian's origin, which the
