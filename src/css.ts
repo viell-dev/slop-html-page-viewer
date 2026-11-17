@@ -49,12 +49,18 @@ export interface CssToken {
   value: string;
 }
 
-/** A top-level import rule's span, its reference, and where its media list starts. */
+/** A top-level import rule's span, its reference, and what follows the reference. */
 export interface CssImport {
   start: number;
   end: number;
   reference: string;
   mediaStart: number;
+  /**
+   * What the import's conditions are: none, only spaces and comments; a media
+   * query list, which `@media` takes as it is; or anything else, such as a
+   * cascade layer, a scope, or support conditions.
+   */
+  conditions: "none" | "media" | "other";
 }
 
 const space = (c: string): boolean => {
@@ -294,6 +300,35 @@ function topLevelRule(tokens: readonly CssToken[], start: number): TopLevelRule 
 }
 
 /**
+ * Classifies an import's conditions by their tokens. `@media` takes only a
+ * media query list. A list starts with neither `layer` nor `scope`, which
+ * CSS Cascade 5 and 6 put before it, and has no function at its top level:
+ * the functions there are `layer()`, `scope()`, and `supports()`, or a query
+ * that never matches. Strings and comments name none of them.
+ */
+function importConditions(
+  tokens: readonly CssToken[],
+  from: number,
+  to: number,
+): CssImport["conditions"] {
+  const blocks: string[] = [];
+  let first = true;
+  for (let i = from; i < to; i++) {
+    const token = tokens[i];
+    if (token.kind === "space" || token.kind === "comment") continue;
+    if (token.kind === "name" && blocks.length === 0) {
+      if (first && (isKeyword(token.value, "layer") || isKeyword(token.value, "scope")))
+        return "other";
+      const next = tokens[i + 1];
+      if (next?.kind === "delim" && next.value === "(") return "other";
+    }
+    first = false;
+    nest(blocks, token);
+  }
+  return first ? "none" : "media";
+}
+
+/**
  * The import rules that CSS applies: only where a top-level rule starts, and
  * only before every rule but `@charset`, `@supports-condition`, other imports,
  * and `@layer` statements before the first import (CSS Cascade 5). Browsers
@@ -344,5 +379,6 @@ function importRule(tokens: readonly CssToken[], rule: TopLevelRule): CssImport 
     end: semicolon.end,
     reference: resource.value,
     mediaStart: resource.end,
+    conditions: importConditions(tokens, i + 1, rule.end - 1),
   };
 }

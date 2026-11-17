@@ -411,16 +411,15 @@ export async function inlineStylesheet(
       target === null
         ? rule
         : `@import url(${cssString(target)})${conditions ? ` ${conditions}` : ""};`;
-    // Cascade layers and support conditions have no plain block form to wrap
-    // the imported text in, so such imports stay imports.
-    const wrappable = !/\b(layer|supports)\s*\(|^layer\b/i.test(conditions);
+    // Only a media query list has a block form to put the imported text in:
+    // imports with cascade layers, scopes, or support conditions stay imports.
     const readable =
       path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
-    if (target !== null && path !== null && readable && wrappable) {
+    if (target !== null && path !== null && readable && match.conditions !== "other") {
       const imported = await readStylesheet(context, path);
       if (imported !== null) {
         const inner = await inlineStylesheet(imported, target, context, new Set([...seen, path]));
-        text = conditions === "" ? inner : `@media ${conditions} {\n${inner}\n}`;
+        text = match.conditions === "none" ? inner : `@media ${conditions} {\n${inner}\n}`;
       }
     }
     replacements.push({ start: match.start, end: match.end, text });

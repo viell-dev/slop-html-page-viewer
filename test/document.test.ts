@@ -443,6 +443,39 @@ describe("import placement (#136)", () => {
   });
 });
 
+describe("import conditions (#144)", () => {
+  it("keeps imports with cascade layers, scopes, or support conditions, found by their tokens", async () => {
+    for (const conditions of [
+      "/**/ layer",
+      String.raw`\6c ayer`,
+      "layer(base) supports(display: grid) screen",
+      "scope(.card)",
+      "supports(display: grid)",
+    ]) {
+      const ctx = context({ "real.css": "REAL{}" });
+      const css = await inlineStylesheet(
+        `@import "real.css" ${conditions};`,
+        `${VAULT}main.css`,
+        ctx,
+      );
+      assert.equal(css, `@import url("${VAULT}real.css") ${conditions};`);
+      assert.deepEqual(ctx.reads, [], conditions);
+    }
+  });
+
+  it("puts imports with only a media query list in @media, whatever its comments say", async () => {
+    const ctx = context({ "real.css": "REAL{}" });
+    for (const [source, result] of [
+      [
+        '@import "real.css" screen /* supports( layer */;',
+        "@media screen /* supports( layer */ {\nREAL{}\n}",
+      ],
+      ['@import "real.css" /* layer */;', "REAL{}"],
+    ])
+      assert.equal(await inlineStylesheet(source, `${VAULT}main.css`, ctx), result);
+  });
+});
+
 function context(
   files: Record<string, string>,
   page = "Saved/Example article.html",

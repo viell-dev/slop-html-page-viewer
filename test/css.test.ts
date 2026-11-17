@@ -165,3 +165,35 @@ describe("import placement (#136)", () => {
     ]);
   });
 });
+
+describe("import conditions (#144)", () => {
+  const conditions = (css: string) => cssImports(cssTokens(`@import "a.css"${css};`))[0].conditions;
+
+  it("tells a media query list from conditions that @media cannot take, by their tokens", () => {
+    for (const css of ["", " ", " /**/ ", "\n/* layer */"]) assert.equal(conditions(css), "none");
+    for (const css of [
+      " screen",
+      " print, screen and (min-width: calc(10px + 1em))",
+      " screen /* layer( supports( */",
+      ' "layer("',
+      " screen layer",
+      " (supports(x))",
+    ])
+      assert.equal(conditions(css), "media", JSON.stringify(css));
+    for (const css of [
+      " layer",
+      " /**/ layer",
+      " LAYER screen",
+      String.raw` \6c ayer`,
+      " layer/**/(x)",
+      " layer(base)",
+      " scope",
+      " scope(.card) screen",
+      " supports(display: grid)",
+      " layer(a) supports((display: grid) and (gap: 1px)) print",
+      // A function in a media query never matches, so keeping the import changes nothing.
+      " screen, unknown(x)",
+    ])
+      assert.equal(conditions(css), "other", JSON.stringify(css));
+  });
+});
