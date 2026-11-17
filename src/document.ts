@@ -451,7 +451,57 @@ export function styleElementText(css: string): string {
   return css.replace(/<\/(style)/gi, "<\\/$1");
 }
 
+/**
+ * The `<style>` elements whose text is a stylesheet: HTML ones, and SVG ones,
+ * which SVG processes as HTML's. MathML has no `<style>`, so one there is an
+ * unknown element, which Chromium applies nothing from.
+ */
+function styleElements(root: ParentNode): Element[] {
+  return [...root.querySelectorAll("style")].filter(
+    (style) => style.namespaceURI === HTML_NAMESPACE || style.namespaceURI === SVG_NAMESPACE,
+  );
+}
+
+/** A `<style>` element's own text nodes, in order. */
+function styleTextNodes(style: Element): Text[] {
+  return [...style.childNodes].filter((node): node is Text => node.nodeType === Node.TEXT_NODE);
+}
+
+/**
+ * A `<style>` element's stylesheet: its child text content, the text of its
+ * own text nodes, which is all that HTML applies. The text of an SVG
+ * `<style>`'s child elements is not part of it, but the text on either side
+ * of one is, joined, as if the element were not there.
+ */
+function styleText(style: Element): string {
+  return styleTextNodes(style)
+    .map((node) => node.data)
+    .join("");
+}
+
+/**
+ * Gives a `<style>` element a new stylesheet, escaped with `styleElementText`,
+ * keeping the child elements that an SVG one can have: the first of its own
+ * text nodes gets the whole text, and the others are removed. A rewritten URL
+ * or import can span a child element, as its text joins across it, so the
+ * text is not split again.
+ */
+function setStyleText(style: Element, css: string): void {
+  const [first, ...rest] = styleTextNodes(style);
+  const text = styleElementText(css);
+  if (first === undefined) style.prepend(text);
+  else first.data = text;
+  for (const node of rest) node.remove();
+}
+
+/**
+ * Whether an element is a stylesheet link. Only HTML has `<link>`: inside SVG
+ * or MathML, the HTML parser makes one an element of theirs, which loads
+ * nothing. An HTML `<style>` put in its place would be parsed as theirs when
+ * the copy is parsed again, with its text read as markup.
+ */
 function isStylesheetLink(element: Element): element is HTMLLinkElement {
+  if (element.namespaceURI !== HTML_NAMESPACE) return false;
   const rel = (element.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
   return rel.includes("stylesheet") && !rel.includes("alternate") && element.hasAttribute("href");
 }
@@ -469,7 +519,7 @@ async function inlineStylesheets(
   // The <style> elements that links become have their imports inlined
   // already. Preparing them again would read the files again, with the import
   // depth and cycle checks restarted.
-  const originalStyles = [...root.querySelectorAll("style")];
+  const originalStyles = styleElements(root);
   for (const link of [...root.querySelectorAll("link")].filter(isStylesheetLink)) {
     const href = link.getAttribute("href") ?? "";
     const resolved = resolve(href, baseUrl);
@@ -484,22 +534,20 @@ async function inlineStylesheets(
       const value = link.getAttribute(name);
       if (value !== null) style.setAttribute(name, value);
     }
-    style.textContent = styleElementText(
-      await inlineStylesheet(css, sheetUrl, context, new Set([path])),
-    );
+    setStyleText(style, await inlineStylesheet(css, sheetUrl, context, new Set([path])));
     link.replaceWith(style);
   }
 
   for (const style of originalStyles) {
-    const css = style.textContent ?? "";
+    const css = styleText(style);
     const tokens = cssTokens(css);
     const text = styleElementText(
       cssImports(tokens).length > 0
         ? await inlineStylesheet(css, baseUrl, context, new Set(), tokens)
         : locateCssUrls(css, baseUrl, context, tokens),
     );
-    // Assigning replaces the element's children, such as those of an SVG <style>.
-    if (text !== css) style.textContent = text;
+    // Escaped before comparing, so that a style whose text needs only the escape is written too.
+    if (text !== css) setStyleText(style, text);
   }
 }
 
@@ -765,10 +813,10 @@ async function visitFileReferences(
       if (replaced !== null) element.setAttribute(name, replaced);
     }
   }
-  for (const style of root.querySelectorAll("style")) {
-    const css = style.textContent ?? "";
+  for (const style of styleElements(root)) {
+    const css = styleText(style);
     const replaced = await visitCssUrls(css, baseUrl, visit, urls(css));
-    if (replaced !== css) style.textContent = replaced;
+    if (replaced !== css) setStyleText(style, replaced);
   }
   for (const element of root.querySelectorAll("[style]")) {
     const css = element.getAttribute("style") ?? "";
@@ -919,9 +967,7 @@ function openShadowRoots(found: readonly HTMLTemplateElement[]): void {
 
 /** Whether a page has a stylesheet of its own: a <style> or a stylesheet link. */
 function hasOwnStyles(doc: Document): boolean {
-  return (
-    doc.querySelector("style") !== null || [...doc.querySelectorAll("link")].some(isStylesheetLink)
-  );
+  return styleElements(doc).length > 0 || [...doc.querySelectorAll("link")].some(isStylesheetLink);
 }
 
 /** Prepares the copy of a page that the rendered view shows. */
