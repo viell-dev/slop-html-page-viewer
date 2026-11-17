@@ -133,7 +133,9 @@ describe("A page's local files in Obsidian", function () {
           elements: [...root.querySelectorAll("style, link")].map(
             (element) =>
               `${names[element.namespaceURI ?? ""] ?? element.namespaceURI} ${element.localName}` +
-              ("sheet" in element ? " with a stylesheet" : ""),
+              ((element as Element & { sheet?: StyleSheet | null }).sheet
+                ? " with a stylesheet"
+                : ""),
           ),
           kept: root.querySelectorAll("svg style > desc").length,
         });
