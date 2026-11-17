@@ -75,10 +75,11 @@ if (setting(process.env.PRINT_OBSIDIAN_CACHE_KEY) !== undefined) {
   if (generated.status !== 0) throw new Error("Generating the archive corpus failed.");
 }
 
+/** A host to run `files` on, with `plugin` installed, or with no plugin when it is null. */
 function capability(
   appVersion: string,
   installerVersion: string,
-  plugin: string,
+  plugin: string | null,
   vault: string,
   files: string[],
 ) {
@@ -87,7 +88,7 @@ function capability(
     browserName: "obsidian",
     browserVersion: appVersion,
     "wdio:specs": files,
-    "wdio:obsidianOptions": { installerVersion, plugins: [plugin], vault },
+    "wdio:obsidianOptions": { installerVersion, plugins: plugin === null ? [] : [plugin], vault },
     "goog:chromeOptions": { args: ["--disable-dev-shm-usage"] },
   };
 }
@@ -118,6 +119,14 @@ export const config: WebdriverIO.Config = {
         ],
       ),
       capability(appVersion, installerVersion, pluginDir, corpusDir, [specs("corpus.e2e.ts")]),
+      // Installs the packaged plugin itself, as a user does.
+      capability(
+        appVersion,
+        installerVersion,
+        null,
+        path.join(import.meta.dirname, "vaults", "pages"),
+        [specs("lifecycle.e2e.ts")],
+      ),
     ]),
     capability(latest[0], latest[1], prototypeDir, corpusDir, [specs("corpus.e2e.ts")]),
   ].filter((entry) => entry["wdio:specs"].length > 0),
