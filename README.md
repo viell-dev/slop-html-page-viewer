@@ -132,6 +132,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 
 Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-page-viewer/issues).
 
+Unreleased: CSS resource rewriting preserves quoted strings and comments; only URL tokens and
+stylesheet import rules name resources.
+
 ### Limits
 
 - **Stylesheets from the web do not apply**, apart from Google Fonts. Obsidian's own security policy

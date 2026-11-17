@@ -58,6 +58,9 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   page's own styles can lift that inertness, so there only the listeners protect it
   ([#127](https://github.com/viell-dev/slop-html-page-viewer/issues/127)). With scripts on, the view cannot
   reach the page, and a link navigates the frame, which keeps its sandbox.
+- **CSS resources (unreleased).** Resource-like text inside ordinary CSS strings and comments
+  does not cause file reads or copying. URL arguments and top-level stylesheet import sources,
+  including their quoted forms, name resources; the scan does not evaluate CSS.
 - **What the plugin does.** It reads vault files to prepare the copy: the page, the `.css` files
   that the page links or imports as stylesheets, and the files it copies into a page with scripts
   on. It never writes to vault files, makes no network requests, and does not read or write the

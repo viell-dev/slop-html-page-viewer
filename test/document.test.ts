@@ -18,6 +18,67 @@ import { READING_STYLE_ID } from "../src/reading";
 
 const VAULT = "app://vault-id/home/user/My%20Vault/";
 
+describe("CSS token boundaries (#91)", () => {
+  it("preserves strings and comments beside real and escaped URL tokens", () => {
+    const text = `a::after { content: 'url(ghost.png) @import "ghost.css";'; } /* url(ghost.png) */`;
+    assert.equal(absoluteUrls(text, VAULT + "css/site.css"), text);
+    assert.equal(
+      absoluteUrls(String.raw`a { background: u\72l(\41 b.png) }`, VAULT + "css/site.css"),
+      `a { background: url("${VAULT}css/Ab.png") }`,
+    );
+  });
+
+  it("respects escaped quotes, continuations, token boundaries and bad URL remnants", () => {
+    for (const text of [
+      String.raw`p { content: "quote\" url(ghost.png)" }`,
+      "p { content: 'continued\\\nurl(ghost.png)' }",
+      "#url(ghost.png) { --text: myurl(ghost.png) }",
+      "p { background: url(bad url(ghost.png)); }",
+      "/* unterminated url(ghost.png)",
+    ])
+      assert.equal(absoluteUrls(text, VAULT + "css/site.css"), text);
+  });
+
+  it("reads only real imports, keeping comments, strings and nested rules", async () => {
+    const ctx = context({ "Saved/real.css": "b { color: green }", "Saved/ghost.css": "BAD" });
+    const literal = `p::after { content: '@import "ghost.css"; url(ghost.png)'; } /* @import "ghost.css"; */ @media print { @import "ghost.css"; }`;
+    const result = await inlineStylesheet(
+      '@import/**/"real.css" screen;\n' + literal,
+      ctx.pageUrl,
+      ctx,
+    );
+    assert.deepEqual(ctx.reads, ["Saved/real.css"]);
+    assert.ok(result.includes(literal));
+    assert.ok(result.includes("@media screen"));
+  });
+
+  it("copies only URL tokens in style elements and inline styles", async () => {
+    const ctx = context({});
+    const reads: string[] = [];
+    const css = String.raw`content: 'url(ghost.png)'; /* url(ghost.png) */ background: u\72l(real.png)`;
+    const result = await preparePage(`<style>p { ${css} }</style><p style="${css}">Text</p>`, ctx, {
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          reads.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      },
+    });
+    assert.deepEqual(reads, ["Saved/real.png"]);
+    assert.equal(result.copiedFiles?.copied, 1);
+    const doc = parse(result.html);
+    for (const value of [
+      doc.querySelector("style")!.textContent,
+      doc.querySelector("p")!.getAttribute("style")!,
+    ]) {
+      assert.ok(value.includes("'url(ghost.png)'"));
+      assert.ok(value.includes("/* url(ghost.png) */"));
+      assert.ok(value.includes("data:image/png;base64,AQ=="));
+    }
+  });
+});
+
 function context(
   files: Record<string, string>,
   page = "Saved/Example article.html",

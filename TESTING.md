@@ -88,6 +88,10 @@ on. Costs that could matter were measured in Obsidian in their pull requests, su
 second for every 8 MB copied into a page with scripts on (#58), and about 1.5 s for a search of a
 page with 80,009 elements, three times as long as before find left out hidden text (#121).
 
+The CSS token boundary cases in `document.test.ts` cover strings, comments, escaped URL names,
+whitespace-terminated hex escapes, top-level imports, and the local-file copying pass.
+`resources.e2e.ts` checks generated content beside an applied local stylesheet in real Obsidian.
+
 ## Shown to fail
 
 On 2026-10-21, each of these deliberate breakages failed the check named:

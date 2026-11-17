@@ -13,6 +13,7 @@
 // vault files to. When the settings ask for it, the page's local images,
 // media, fonts, and scripts are then copied into it as data: URLs (#11).
 
+import { cssTokens, cssImports } from "./css";
 import { READING_STYLE_ID } from "./reading";
 
 /** What the view knows about the page and its vault. */
@@ -185,10 +186,20 @@ function unescapeCss(value: string): string {
   });
 }
 
-const URL_TOKEN =
-  /url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^)"'\s\\]|\\.)*))\s*\)/gi;
-const IMPORT_RULE =
-  /@import\s+(?:url\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|((?:[^)"'\s\\]|\\.)*))\s*\)|"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)')\s*([^;]*);/gi;
+function rewriteCssUrls(
+  css: string,
+  replace: (token: string, reference: string) => string,
+): string {
+  let result = "";
+  let cursor = 0;
+  for (const token of cssTokens(css, unescapeCss)) {
+    if (token.kind !== "url") continue;
+    result +=
+      css.slice(cursor, token.start) + replace(css.slice(token.start, token.end), token.value);
+    cursor = token.end;
+  }
+  return result + css.slice(cursor);
+}
 
 /**
  * Makes every `url()` in a stylesheet absolute, against the stylesheet's own
@@ -196,31 +207,23 @@ const IMPORT_RULE =
  * the context can (`locatedUrl`).
  */
 export function absoluteUrls(css: string, sheetUrl: string, context?: PageContext): string {
-  return css.replace(
-    URL_TOKEN,
-    (token: string, double?: string, single?: string, bare?: string) => {
-      const reference = unescapeCss(double ?? single ?? bare ?? "");
-      // An empty reference or a fragment refers to the document, as in SVG filters.
-      if (reference === "" || reference.startsWith("#")) return token;
-      const absolute = resolve(reference, sheetUrl);
-      if (absolute === null) return token;
-      return `url(${cssString((context && locatedUrl(reference, absolute, context)) ?? absolute)})`;
-    },
-  );
+  return rewriteCssUrls(css, (token, reference) => {
+    // An empty reference or a fragment refers to the document, as in SVG filters.
+    if (reference === "" || reference.startsWith("#")) return token;
+    const absolute = resolve(reference, sheetUrl);
+    if (absolute === null) return token;
+    return `url(${cssString((context && locatedUrl(reference, absolute, context)) ?? absolute)})`;
+  });
 }
 
 /** Replaces only the `url()`s in CSS that `locatedUrl` locates by name. */
 function locateCssUrls(css: string, baseUrl: string, context: PageContext): string {
-  return css.replace(
-    URL_TOKEN,
-    (token: string, double?: string, single?: string, bare?: string) => {
-      const reference = unescapeCss(double ?? single ?? bare ?? "");
-      const absolute =
-        reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
-      const located = absolute === null ? null : locatedUrl(reference, absolute, context);
-      return located === null ? token : `url(${cssString(located)})`;
-    },
-  );
+  return rewriteCssUrls(css, (token, reference) => {
+    const absolute =
+      reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
+    const located = absolute === null ? null : locatedUrl(reference, absolute, context);
+    return located === null ? token : `url(${cssString(located)})`;
+  });
 }
 
 /** Attributes holding a URL of a resource the page loads, by element. */
@@ -363,7 +366,7 @@ function locateReferences(root: ParentNode, baseUrl: string, context: PageContex
   }
   for (const element of root.querySelectorAll("[style]")) {
     const style = element.getAttribute("style") ?? "";
-    if (/url\(/i.test(style)) element.setAttribute("style", locateCssUrls(style, baseUrl, context));
+    element.setAttribute("style", locateCssUrls(style, baseUrl, context));
   }
 }
 
@@ -379,9 +382,10 @@ export async function inlineStylesheet(
   seen: ReadonlySet<string> = new Set(),
 ): Promise<string> {
   const imports: { start: number; end: number; text: string }[] = [];
-  for (const match of css.matchAll(IMPORT_RULE)) {
-    const [rule, a, b, c, d, e, media] = match;
-    const reference = unescapeCss(a ?? b ?? c ?? d ?? e ?? "");
+  for (const match of cssImports(cssTokens(css, unescapeCss))) {
+    const rule = css.slice(match.start, match.end);
+    const media = css.slice(match.mediaStart, match.end - 1);
+    const reference = match.reference;
     const absolute = resolve(reference, sheetUrl);
     const located = absolute === null ? null : locatedUrl(reference, absolute, context);
     const target = located ?? absolute;
@@ -403,7 +407,7 @@ export async function inlineStylesheet(
         text = conditions === "" ? inner : `@media ${conditions} {\n${inner}\n}`;
       }
     }
-    imports.push({ start: match.index, end: match.index + rule.length, text });
+    imports.push({ start: match.start, end: match.end, text });
   }
 
   let result = "";
@@ -461,9 +465,9 @@ async function inlineStylesheets(
 
   for (const style of root.querySelectorAll("style")) {
     const css = style.textContent ?? "";
-    if (/@import/i.test(css)) {
+    if (cssImports(cssTokens(css, unescapeCss)).length > 0) {
       style.textContent = styleElementText(await inlineStylesheet(css, baseUrl, context));
-    } else if (/url\(/i.test(css)) {
+    } else {
       style.textContent = styleElementText(locateCssUrls(css, baseUrl, context));
     }
   }
@@ -659,15 +663,15 @@ class FileCopier {
 async function visitCssUrls(css: string, baseUrl: string, visit: Visit): Promise<string> {
   let result = "";
   let cursor = 0;
-  for (const match of css.matchAll(URL_TOKEN)) {
-    const [token, double, single, bare] = match;
-    const reference = unescapeCss(double ?? single ?? bare ?? "");
+  for (const match of cssTokens(css, unescapeCss).filter((token) => token.kind === "url")) {
+    const token = css.slice(match.start, match.end);
+    const reference = match.value;
     const absolute =
       reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
     const replaced = absolute === null ? null : await visit(absolute);
     result +=
-      css.slice(cursor, match.index) + (replaced === null ? token : `url(${cssString(replaced)})`);
-    cursor = match.index + token.length;
+      css.slice(cursor, match.start) + (replaced === null ? token : `url(${cssString(replaced)})`);
+    cursor = match.end;
   }
   return result + css.slice(cursor);
 }
@@ -710,13 +714,11 @@ async function visitFileReferences(root: ParentNode, baseUrl: string, visit: Vis
   }
   for (const style of root.querySelectorAll("style")) {
     const css = style.textContent ?? "";
-    if (!/url\(/i.test(css)) continue;
     const replaced = await visitCssUrls(css, baseUrl, visit);
     if (replaced !== css) style.textContent = replaced;
   }
   for (const element of root.querySelectorAll("[style]")) {
     const css = element.getAttribute("style") ?? "";
-    if (!/url\(/i.test(css)) continue;
     const replaced = await visitCssUrls(css, baseUrl, visit);
     if (replaced !== css) element.setAttribute("style", replaced);
   }
