@@ -47,8 +47,8 @@ off instead keeps them. It never changes the pages it opens.
 
 In a test vault, create a `Saved` folder. Download the synthetic
 [Example article.html](test/e2e/vaults/pages/Saved/Example%20article.html) and its
-[figure.png](test/e2e/vaults/pages/Saved/2026-01-15/figure.png) (use GitHub's **Download raw file**),
-and arrange them like this:
+[figure.png](test/e2e/vaults/pages/Saved/2026-01-15/figure.png) (use GitHub's **Download raw
+file**), and arrange them like this:
 
 ```text
 Saved/

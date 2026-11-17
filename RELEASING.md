@@ -94,9 +94,9 @@ and pending human requests before preparing a version.
      `## [<version>](.github/release-notes/<version>.md) - <date>`.
    - Review README, SECURITY, and TESTING against the release candidate. Promote the applicable
      `**Unreleased (#N):**` notices into released guidance, remove their markers, and update the
-     README's documented version. Keep notices for changes
-     excluded from this release in **Unreleased**. State affected versions for compatibility and
-     security changes; check defaults and compatibility against manifests, settings, and tests.
+     README's documented version. Keep notices for changes excluded from this release in
+     **Unreleased**. State affected versions for compatibility and security changes; check defaults
+     and compatibility against manifests, settings, and tests.
 3. `npm test` checks that these files agree, and `node scripts/release.ts check <version>` checks
    the version as the workflow will.
 4. The pull request gets an in-depth independent review of everything since the previous release,

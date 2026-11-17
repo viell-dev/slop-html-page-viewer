@@ -11,8 +11,7 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 - **Consistency tests** (`test/consistency.test.ts`, part of `npm test`), **linting**
   (`npm run lint`), and **formatting** (`npm run format:check`) keep the versions, changelog,
   release notes, documented settings, unreleased notices and their changelog issue references,
-  labels, CI jobs, end-to-end suites, and documents' links in
-  agreement. They are required in CI.
+  labels, CI jobs, end-to-end suites, and documents' links in agreement. They are required in CI.
 - **Tests in Obsidian** (`test/e2e/`) use WebdriverIO 10 to run the built plugin in real Obsidian,
   1.5.3 and the latest release, on Linux. They are required for every pull request and also run
   weekly, so that a new Obsidian release is tested within a week. Their logs and screenshots, with

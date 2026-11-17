@@ -8,8 +8,7 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
-- Lead the README with installation and a synthetic first-use example (#100), and define how
-  documentation distinguishes the latest installable release from unreleased behavior (#101).
+Nothing that changes the plugin.
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 
