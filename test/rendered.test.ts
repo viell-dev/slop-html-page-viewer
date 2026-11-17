@@ -207,11 +207,13 @@ describe("rendered view", () => {
   it("turns scripts off when the view is cleared", async () => {
     const harness = await Harness.load();
     const view = harness.newView();
-    harness.open(view, "trusted.html", PAGE);
+    const file = harness.open(view, "trusted.html", PAGE);
     button(view, "Scripts OFF").click();
 
     view.clear();
-    view.setViewData(PAGE, false);
+    // Obsidian reloads the file when it changes on disk.
+    harness.app.vault.trigger("modify", file);
+    await settle();
     const iframe = frame(view);
     assert.ok(iframe);
     assert.deepEqual(sandboxTokens(iframe), ["allow-same-origin"]);
@@ -220,13 +222,17 @@ describe("rendered view", () => {
   it("keeps scripts on while the same file is reloaded", async () => {
     const harness = await Harness.load();
     const view = harness.newView();
-    harness.open(view, "page.html", PAGE);
+    const file = harness.open(view, "page.html", PAGE);
     button(view, "Scripts OFF").click();
+    const before = frame(view);
 
-    // Obsidian passes clear = false when the open file changes on disk.
-    view.setViewData("<p>Changed on disk</p>", false);
+    harness.app.files.set("page.html", "<p>Changed on disk</p>");
+    harness.app.vault.trigger("modify", file);
+    await settle();
     let iframe = frame(view);
     assert.ok(iframe);
+    assert.notEqual(iframe, before);
+    assert.match(iframe.srcdoc, /Changed on disk/);
     assert.deepEqual(sandboxTokens(iframe), ["allow-scripts"]);
 
     button(view, "Refresh preview").click();

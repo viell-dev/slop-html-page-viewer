@@ -124,20 +124,21 @@ describe("refreshing", () => {
     assert.equal(await shownText(view), "latest");
   });
 
-  it("yields to the contents that Obsidian gives the view meanwhile", async () => {
+  it("yields to Obsidian's reload of the file after it changed on disk meanwhile", async () => {
     const harness = await Harness.load();
     const view = harness.newView();
-    await harness.openFile(view, "page.html", FIRST);
+    const file = await harness.openFile(view, "page.html", FIRST);
     const read = holdNextRead(harness, "page.html");
     button(view, "Refresh preview").click();
 
-    // As when Obsidian sees the file change on disk and loads it again.
-    view.setViewData("<p>from Obsidian</p>", false);
+    harness.app.files.set("page.html", "<p>changed on disk</p>");
+    harness.app.vault.trigger("modify", file);
+    await settle();
     read.resolve("<p>from the refresh</p>");
     await settle();
 
-    assert.equal(view.getViewData(), "<p>from Obsidian</p>");
-    assert.equal(await shownText(view), "from Obsidian");
+    assert.equal(view.getViewData(), "<p>changed on disk</p>");
+    assert.equal(await shownText(view), "changed on disk");
   });
 
   it("changes nothing once the view has closed", async () => {
@@ -172,6 +173,80 @@ describe("refreshing", () => {
     await settle();
     assert.equal(message(view), "Unable to read HTML file: permission denied");
     assert.equal(frame(view), null);
+  });
+});
+
+// Obsidian's TextFileView loads the view's file again when the vault reports
+// that it changed, and gives the view what it read without checking that the
+// view still shows that file (support/obsidian.ts).
+describe("Obsidian's reload of a changed file (#115)", () => {
+  it("shows the file's new contents", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    const file = await harness.openFile(view, "page.html", FIRST);
+
+    harness.app.files.set("page.html", "<p>changed on disk</p>");
+    harness.app.vault.trigger("modify", file);
+    await settle();
+
+    assert.equal(view.getViewData(), "<p>changed on disk</p>");
+    assert.equal(await shownText(view), "changed on disk");
+  });
+
+  it("shows the file that the tab shows when the reload's read finishes after another opened", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    const first = await harness.openFile(view, "Review/first.html", FIRST);
+    const read = holdNextRead(harness, "Review/first.html");
+    harness.app.vault.trigger("modify", first);
+
+    await harness.openFile(view, "Review/second.html", SECOND);
+    read.resolve("<p>first, changed on disk</p>");
+    await settle();
+
+    assert.equal(view.file?.path, "Review/second.html");
+    assert.equal(view.getViewData(), SECOND);
+    assert.equal(shownFile(view), "second.html");
+    assert.equal(await shownText(view), "second original");
+    await view.onClose();
+    assert.deepEqual(harness.app.writes, []);
+  });
+
+  it("keeps showing the page until the view has read the file itself", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    const first = await harness.openFile(view, "Review/first.html", FIRST);
+    const reload = holdNextRead(harness, "Review/first.html");
+    harness.app.vault.trigger("modify", first);
+    await harness.openFile(view, "Review/second.html", SECOND);
+
+    // The view's own read of the file it shows, held while Obsidian's ends.
+    const own = holdNextRead(harness, "Review/second.html");
+    reload.resolve("<p>first, changed on disk</p>");
+    await settle();
+    assert.equal(view.getViewData(), SECOND);
+    button(view, "Source").click();
+    assert.match(view.contentEl.textContent ?? "", /second original/);
+    assert.doesNotMatch(view.contentEl.textContent ?? "", /first, changed on disk/);
+
+    own.resolve(SECOND);
+    await settle();
+    assert.equal(view.getViewData(), SECOND);
+  });
+
+  it("shows no error once the view has closed", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    const file = await harness.openFile(view, "page.html", FIRST);
+    const read = holdNextRead(harness, "page.html");
+    harness.app.vault.trigger("modify", file);
+
+    await view.onClose();
+    read.resolve("<p>changed on disk</p>");
+    await settle();
+
+    assert.equal(view.contentEl.childElementCount, 0);
+    assert.deepEqual(harness.app.writes, []);
   });
 });
 

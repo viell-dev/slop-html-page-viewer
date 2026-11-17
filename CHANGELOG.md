@@ -11,6 +11,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - Find leaves out unpainted fallback and SVG resource text, includes a closed select's chosen text,
   and searches and highlights text in shadow roots and slots. Opening an empty find bar avoids
   collecting the page's text (#122, #121, #124).
+- A tab no longer shows a page's earlier contents under another page's name when the first page
+  changes on disk just as the other opens in the tab (#115).
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 
