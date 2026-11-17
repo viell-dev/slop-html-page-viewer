@@ -13,6 +13,7 @@ import {
   syncPoints,
   topOfLine,
 } from "../src/split";
+import { preparePage, SHADOW_ROOT_MARK } from "../src/document";
 import { startTags } from "../src/main";
 import { button, Harness } from "./support/harness";
 
@@ -76,6 +77,210 @@ describe("pairing a page's elements with their source lines", () => {
         ["p", 21],
         ["template", 29],
         ["h2", 50],
+      ],
+    );
+  });
+
+  describe("in shadow roots (#124)", () => {
+    /**
+     * The page as the frame shows it with scripts off: the view's copy, parsed
+     * as Chromium parses it, which jsdom does not. A template that declares a
+     * shadow root gives its content to its parent, if that can host one and
+     * has none yet, and is left out. Chromium 150 reads only `shadowrootmode`;
+     * with `legacy`, as Chromium 114 does, `shadowroot` as well.
+     */
+    async function framed(source: string, legacy = false): Promise<Document> {
+      const context = {
+        pageUrl: "app://vault-id/vault/page.html",
+        vaultUrl: "app://vault-id/vault/",
+        read: () => Promise.resolve(null),
+      };
+      const { html } = await preparePage(source, context, { openShadowRoots: true });
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const attach = (root: ParentNode): void => {
+        for (const template of root.querySelectorAll("template")) {
+          if (!(template instanceof window.HTMLTemplateElement)) continue;
+          const host = template.parentElement;
+          const declares =
+            template.getAttribute("shadowrootmode") === "open" ||
+            (legacy && template.getAttribute("shadowroot") === "open");
+          if (!host || host.shadowRoot || !declares) continue;
+          try {
+            host.attachShadow({ mode: "open" }).append(template.content);
+          } catch {
+            continue; // An element that cannot host a shadow root.
+          }
+          template.remove();
+          attach(host.shadowRoot!);
+        }
+      };
+      attach(doc);
+      return doc;
+    }
+
+    async function pairedInFrame(lines: string[], legacy = false): Promise<[string, number][]> {
+      const source = lines.join("\n");
+      const doc = await framed(source, legacy);
+      return anchorElements(doc.body, startTags(source)).map(({ element, line }) => [
+        element.id || element.localName,
+        line,
+      ]);
+    }
+
+    it("pairs a shadow root's elements with the lines of the template that declared it", async () => {
+      assert.deepEqual(
+        await pairedInFrame([
+          "<body>",
+          "<p>before</p>",
+          `<article><template shadowrootmode="open">`,
+          "<h2>inside</h2>",
+          "<p>inside</p>",
+          "</template>",
+          "<p>light</p></article>",
+          "<p>after</p>",
+        ]),
+        [
+          ["p", 2],
+          ["article", 3],
+          ["h2", 4],
+          ["p", 5],
+          ["p", 7],
+          ["p", 8],
+        ],
+      );
+    });
+
+    it("pairs those of the body's own shadow root", async () => {
+      assert.deepEqual(
+        await pairedInFrame([
+          "<body>",
+          `<template shadowrootmode="open">`,
+          `<h1 id="heading">Head</h1>`,
+          `<p id="shadow">Shadow</p>`,
+          "</template>",
+          `<p id="light">Light</p>`,
+        ]),
+        [
+          ["heading", 3],
+          ["shadow", 4],
+          ["light", 6],
+        ],
+      );
+    });
+
+    it("pairs them where they were declared, after some of the host's own content", async () => {
+      assert.deepEqual(
+        await pairedInFrame([
+          "<body>",
+          "<article>",
+          `<p id="light-1">Light first</p>`,
+          `<p id="light-2">Light second</p>`,
+          `<template shadowrootmode="open">`,
+          `<p id="shadow-1">Shadow first</p>`,
+          `<p id="shadow-2">Shadow second</p>`,
+          `<span><template shadowrootmode="open"><p id="nested">Nested</p></template></span>`,
+          "</template>",
+          `<p id="light-3">Light third</p>`,
+          // The host's second declaration stays an ordinary template.
+          `<template shadowrootmode="open"><p id="ignored">Ignored</p></template>`,
+          `<p id="light-4">Light last</p>`,
+          "</article>",
+        ]),
+        [
+          ["article", 2],
+          ["light-1", 3],
+          ["light-2", 4],
+          ["shadow-1", 6],
+          ["shadow-2", 7],
+          ["span", 8],
+          ["light-3", 10],
+          ["template", 11],
+          ["light-4", 12],
+        ],
+      );
+    });
+
+    it("passes over a comment of the page's own with the mark's text", async () => {
+      assert.deepEqual(
+        await pairedInFrame([
+          "<body>",
+          "<article>",
+          `<!--${SHADOW_ROOT_MARK}-->`,
+          `<p id="light">Light</p>`,
+          `<template shadowrootmode="open">`,
+          `<p id="shadow">Shadow</p>`,
+          "</template>",
+          "</article>",
+        ]),
+        [
+          ["article", 2],
+          ["light", 4],
+          ["shadow", 6],
+        ],
+      );
+    });
+
+    it("passes over the mark of a declaration that stayed a template", async () => {
+      const lines = [
+        "<body>",
+        "<article>",
+        `<template shadowroot="open"><p id="legacy">Legacy</p></template>`,
+        `<p id="light">Light</p>`,
+        `<template shadowrootmode="open">`,
+        `<p id="shadow">Shadow</p>`,
+        "</template>",
+        "</article>",
+      ];
+      // Chromium 150 leaves the first declaration a template and attaches the second.
+      assert.deepEqual(await pairedInFrame(lines), [
+        ["article", 2],
+        ["template", 3],
+        ["light", 4],
+        ["shadow", 6],
+      ]);
+      // Chromium 114 attaches the first and leaves the second a template.
+      assert.deepEqual(await pairedInFrame(lines, true), [
+        ["article", 2],
+        ["legacy", 3],
+        ["light", 4],
+        ["template", 5],
+        ["shadow", 6],
+      ]);
+    });
+
+    it("takes a shadow root that the copy has not marked to come first", () => {
+      const source = [
+        "<body>",
+        `<article><template shadowrootmode="open">`,
+        "<h2>inside</h2>",
+        "</template>",
+        "<p>light</p></article>",
+      ].join("\n");
+      const doc = new DOMParser().parseFromString(
+        "<body><article><p>light</p></article>",
+        "text/html",
+      );
+      doc.querySelector("article")!.attachShadow({ mode: "open" }).innerHTML = "<h2>inside</h2>";
+      assert.deepEqual(
+        anchorElements(doc.body, startTags(source)).map(({ element, line }) => [
+          element.localName,
+          line,
+        ]),
+        [
+          ["article", 2],
+          ["h2", 3],
+          ["p", 5],
+        ],
+      );
+    });
+  });
+
+  it("passes over an SVG element named template, which has no content", () => {
+    assert.deepEqual(
+      paired(["<body>", "<svg><template><rect/></template></svg>", "<p>after</p>"]),
+      [
+        ["svg", 2],
+        ["p", 3],
       ],
     );
   });

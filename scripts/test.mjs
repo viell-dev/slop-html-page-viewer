@@ -8,11 +8,16 @@ import process from "node:process";
 // package only declares types, so each test file is bundled with esbuild, with
 // `obsidian` replaced by the stand-in in test/support/obsidian.ts, and the
 // bundles are run with Node.js's test runner.
+//
+// With --stress (`npm run test:stress`), it runs the test/*.stress.ts files
+// instead: tests on pages at the sizes that once broke the plugin, which take
+// seconds each. CI runs both.
 
+const suffix = process.argv.includes("--stress") ? ".stress.ts" : ".test.ts";
 const outdir = path.join("dist", "test");
 const tests = fs
   .readdirSync("test", { recursive: true })
-  .filter((file) => file.endsWith(".test.ts") && !file.split(path.sep).includes("node_modules"))
+  .filter((file) => file.endsWith(suffix) && !file.split(path.sep).includes("node_modules"))
   .map((file) => path.join("test", file))
   .sort();
 

@@ -52,6 +52,7 @@ npm run lint
 npm run format:check
 npm run build
 npm test
+npm run test:stress
 ```
 
 `npm run lint` runs ESLint with `typescript-eslint`'s type-checked rules and the rules of Obsidian's
@@ -66,6 +67,10 @@ reproduces a known defect and names its issue; remove the marker with the fix. N
 or focused with `.skip` or `.only`. `test/consistency.test.ts` checks that the versions, changelog,
 release notes, the README's settings, labels, CI jobs, end-to-end suites, and documents' links
 agree.
+
+`npm run test:stress` runs the `test/*.stress.ts` files the same way: tests on pages at the sizes
+that once broke the plugin, which take seconds each, so `npm test` leaves them out. Run it after
+changing how pages are prepared; CI runs it with `npm test`.
 
 [TESTING.md](TESTING.md) maps each promise of the README to the tests behind it and lists what no
 test covers. Update it with a change that adds a promise or changes its tests.

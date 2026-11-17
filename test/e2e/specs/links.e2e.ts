@@ -675,4 +675,72 @@ describe("Links in a page in Obsidian", function () {
       await clickToolbarButton("Scripts ON");
     }
   });
+
+  it("shows where links in shadow roots and SVG links lead on hover (#117, #124)", async function () {
+    const SVG_LINKS = ["shape", "legacy", "text", "own", "labelled", "icon", "own-label", "html"];
+    await openInActiveTab("Saved/Link titles.html");
+    await waitForPage();
+    const shown = await browser.execute(
+      (active, ids) => {
+        const doc = document.querySelector<HTMLIFrameElement>(
+          `${active} iframe.html-page-viewer__frame`,
+        )!.contentDocument!;
+        // The copy declares the page's closed shadow root open.
+        const shadow = doc.getElementById("shadow")!.shadowRoot!;
+        return {
+          shadow: [
+            shadow.querySelector("a")?.getAttribute("title"),
+            shadow.querySelector("img")?.getAttribute("title"),
+          ],
+          // Chromium shows an SVG link's xlink:title, or else its <title> child, never a title attribute.
+          svg: ids.map((id) => {
+            const link = doc.getElementById(id)!;
+            return [id, link.getAttributeNS("http://www.w3.org/1999/xlink", "title")];
+          }),
+          titleAttributes: doc.querySelectorAll("svg [title]").length,
+        };
+      },
+      ACTIVE,
+      SVG_LINKS,
+    );
+    // Chromium also reads an SVG link's tooltip as its name, before the name
+    // its content gives it, so a link whose text, labelled shape, icon, or
+    // HTML content names it gets no tooltip. A link's own label comes before
+    // the tooltip. Obsidian 1.5.3 and 1.15.1 name an SVG link from nothing in
+    // a <foreignObject>, so the link around HTML has no name there, but Chrome
+    // 157 names it by its shadow root's text; either way, not by the tooltip.
+    await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+    const names: string[] = [];
+    try {
+      names.push(await browser.$("#shadow").shadow$("a").getComputedLabel());
+      for (const id of SVG_LINKS) names.push(await browser.$(`#${id}`).getComputedLabel());
+    } finally {
+      await browser.switchFrame(null);
+    }
+    expect({ ...shown, names }).toEqual({
+      shadow: ["Saved/Other page.html", "A green square, in a shadow root"],
+      svg: [
+        ["shape", "https://example.com/shape"],
+        ["legacy", "Saved/Other page.html"],
+        ["text", null],
+        ["own", null],
+        ["labelled", null],
+        ["icon", null],
+        ["own-label", "https://example.com/own-label"],
+        ["html", null],
+      ],
+      titleAttributes: 0,
+      names: [
+        "Another saved page, from a shadow root",
+        "https://example.com/shape",
+        "Saved/Other page.html",
+        "An SVG link with text",
+        "The page's own title",
+        "A shape with a label",
+        "An icon with its own title",
+        "A link with its own label",
+        expect.not.stringContaining("example.com"),
+      ],
+    });
+  });
 });

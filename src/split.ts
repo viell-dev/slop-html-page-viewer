@@ -3,6 +3,8 @@
 // page's elements is paired with the source line of its start tag, and a
 // position between two such elements maps to the lines between theirs.
 
+import { declaresShadowRoot, SHADOW_ROOT_MARK } from "./document";
+
 /** A start tag in the source: its element's name, lowercased, and its line, from 1. */
 export interface StartTag {
   readonly name: string;
@@ -36,6 +38,21 @@ const HEAD_ONLY = new Set([
  */
 const MAX_DIFFERENCES = 1000;
 const LOOKAHEAD = 16;
+
+const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+
+/**
+ * Whether a node is the comment that marks where its parent's shadow root was
+ * declared. The copy marks every declaration, but one that the host did not
+ * attach, such as a second one or one by an attribute name that this
+ * Chromium no longer reads, stays a template just after its mark.
+ */
+function marksAttachedRoot(node: Node): boolean {
+  if (node.nodeType !== Node.COMMENT_NODE || (node as Comment).data !== SHADOW_ROOT_MARK)
+    return false;
+  const next = node.nextSibling;
+  return !(next?.nodeType === Node.ELEMENT_NODE && declaresShadowRoot(next as Element));
+}
 
 /** An element's name as the parser gives it for a tag, which reads `image` as `img`. */
 function nameKey(name: string): string {
@@ -135,15 +152,35 @@ export function anchorElements(body: Element, tags: readonly StartTag[]): Anchor
   }
   const content = tags.slice(start);
   const elements: Element[] = [];
-  const collect = (parent: ParentNode): void => {
-    for (const child of parent.children) {
-      elements.push(child);
+  // A shadow root's elements come from the template that declared it, whose
+  // tags are in the source where the template is among its host's own
+  // content. Parsing leaves the template out, and the copy marks its place.
+  // The view follows only a page with scripts off, whose copy declares every
+  // shadow root open, and marks it; one without a mark is taken to come
+  // first, where pages usually declare it.
+  const collect = (parent: ParentNode, shadow: ShadowRoot | null): void => {
+    let pending = shadow;
+    if (pending !== null && ![...parent.childNodes].some(marksAttachedRoot)) {
+      collect(pending, null);
+      pending = null;
+    }
+    for (const node of pending === null ? parent.children : parent.childNodes) {
+      if (pending !== null && marksAttachedRoot(node)) {
+        collect(pending, null);
+        pending = null;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) continue;
+      const element = node as Element;
+      elements.push(element);
       // A template's elements are in its content, not among its children;
-      // they show nowhere, but their tags are in the source.
-      collect(child.localName === "template" ? (child as HTMLTemplateElement).content : child);
+      // they show nowhere, but their tags are in the source. An SVG or
+      // MathML element of that name has no content.
+      if (element.localName === "template" && element.namespaceURI === HTML_NAMESPACE)
+        collect((element as HTMLTemplateElement).content, null);
+      else collect(element, element.shadowRoot);
     }
   };
-  collect(body);
+  collect(body, body.shadowRoot);
 
   const elementKeys = elements.map((element) => nameKey(element.localName));
   const tagKeys = content.map((tag) => nameKey(tag.name));

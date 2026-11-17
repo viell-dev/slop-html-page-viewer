@@ -2,7 +2,7 @@
 // and opens their targets in Obsidian, the browser, or the page itself,
 // instead of navigating the frame away from the copy it shows.
 
-import { isPageFragment, vaultPath, withoutQuery } from "./document";
+import { isPageFragment, linkReference, vaultPath, withoutQuery } from "./document";
 
 export type LinkTarget =
   /** A part of the page itself, by its id or name. */
@@ -85,16 +85,6 @@ function scrollToFragment(doc: Document, id: string, rawId: string): void {
         indicated(id) ??
         (id.toLowerCase() === "top" ? doc.documentElement : null));
   target?.scrollIntoView();
-}
-
-/** href wins over legacy xlink:href, which is a reference only on SVG elements. */
-function linkReference(link: Element): string | null {
-  return (
-    link.getAttribute("href") ??
-    (link.namespaceURI === "http://www.w3.org/2000/svg"
-      ? link.getAttributeNS("http://www.w3.org/1999/xlink", "href")
-      : null)
-  );
 }
 
 /**

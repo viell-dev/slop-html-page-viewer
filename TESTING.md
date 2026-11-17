@@ -7,7 +7,8 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 
 - **Unit tests** (`npm test`) run the plugin's code in a jsdom window, with a stand-in for the parts
   of Obsidian's API that it uses. They are required in CI on Linux and Windows. They prove logic,
-  not Obsidian's behavior.
+  not Obsidian's behavior. **Stress tests** (`npm run test:stress`) run the same way on pages at
+  the sizes that once broke the plugin, and are required in CI with them.
 - **Consistency tests** (`test/consistency.test.ts`, part of `npm test`), **linting**
   (`npm run lint`), and **formatting** (`npm run format:check`) keep the versions, changelog,
   release notes, documented settings, unreleased notices and their changelog issue references,
@@ -51,18 +52,19 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | A page whose copy cannot be prepared shows an error, never the file; an unreadable stylesheet is left out                                                                          | `rendered.test.ts`; `document.test.ts`: CSS escapes, unreadable files                                                                                                     | `resources.e2e.ts`: nothing from outside the vault on such pages either                                                          |
 | The plugin never writes to vault files, makes no network requests, and does not use the clipboard                                                                                  | `policy.test.ts` reads the built bundle; `refresh.test.ts`: Obsidian's saving, which the bundle lacks                                                                     | `read-only.e2e.ts`: files are unchanged once they leave the view, also after refreshes                                           |
 | A tab shows only its own file's contents, also when a read of a file ends after another file opened in the tab                                                                     | `refresh.test.ts`: a refresh; **Unreleased (#115):** Obsidian's reload of a changed file                                                                                  | `read-only.e2e.ts`: a refresh; **Unreleased (#115):** Obsidian's reload, after a switch, and of a change on disk                 |
-| A page shows its local images, stylesheets, and fonts; references resolve by path or by name                                                                                       | `document.test.ts`                                                                                                                                                        | `resources.e2e.ts`, `corpus.e2e.ts`                                                                                              |
+| A page shows its local images, stylesheets, and fonts; references resolve by path or by name, also in shadow DOM                                                                   | `document.test.ts`, also the content of templates and shadow roots                                                                                                        | `resources.e2e.ts`, also in shadow DOM and copied with scripts on; `corpus.e2e.ts`                                               |
 | HTML and SVG links, also nested and in shadow roots, stay in the copy, which no other navigation leaves and which acts only once watched; fragments follow id/name/top precedence  | `links.test.ts`; `document.test.ts`: shadow roots, inert copy; `rendered.test.ts`: only with scripts off                                                                  | `links.e2e.ts`, also after the tab moves to another tab group or window                                                          |
+| Hovering a link shows where it leads, and an image its alt text, also in shadow DOM; an SVG link only when nothing inside it names it, which keeps that name                       | `document.test.ts`: tooltips                                                                                                                                              | `links.e2e.ts`: the titles that Chromium shows, and the names that it gives the links                                            |
 | Pages without styles follow Obsidian's theme and Readable line length                                                                                                              | `reading.test.ts`                                                                                                                                                         | `theme.e2e.ts`                                                                                                                   |
 | Settings, their defaults, and their immediate effect                                                                                                                               | `settings.test.ts`, `extensions.test.ts`, `plugin.test.ts`; the README's defaults: `consistency.test.ts`                                                                  | `settings.e2e.ts`, in Obsidian's own settings window                                                                             |
 | The source view shows every character of the file, highlighted as HTML reads it                                                                                                    | `source.test.ts`, including random markup                                                                                                                                 | `viewer.e2e.ts`                                                                                                                  |
 | The find bar finds in the source and the page, and moves with Enter, Shift+Enter, and Escape                                                                                       | `find.test.ts`: close paths, no-`checkVisibility` fallback, `content-visibility`                                                                                          | `find.e2e.ts`: Ctrl+F; finds exactly the words that the page paints                                                              |
-| The split view keeps its two sides in step                                                                                                                                         | `split.test.ts`                                                                                                                                                           | `split.e2e.ts`, in both directions, and on a page that scrolls smoothly                                                          |
+| The split view keeps its two sides in step                                                                                                                                         | `split.test.ts`, also with shadow roots                                                                                                                                   | `split.e2e.ts`, both ways, on a smoothly scrolling page, and with shadow roots on an article, on the body, and declared late     |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                  |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                        |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                    |
 | Installing the release's zip, turning the plugin off and on, updating it, and restarting Obsidian keep its settings, extensions, and view                                          | `release.test.ts`: the zip holds the plugin's folder; `extensions.test.ts`: the viewer gives up only its own extensions; `settings.test.ts`: missing and damaged settings | `lifecycle.e2e.ts`                                                                                                               |
-| Large pages stay usable                                                                                                                                                            | `find.test.ts`: at most 10,000 matches; `split.test.ts`: alignment past its limit; `settings.test.ts`: copy limits                                                        | `corpus.e2e.ts`: every page, the 600 KB page with 500 images too, opens and passes its checks within 15 s                        |
+| Large pages stay usable                                                                                                                                                            | `find.test.ts`: at most 10,000 matches; `split.test.ts`: alignment past its limit; `settings.test.ts`: copy limits; `document.stress.ts`: 130,000 templates               | `corpus.e2e.ts`: every page, the 600 KB page with 500 images too, opens and passes its checks within 15 s                        |
 
 `release.test.ts` also invokes the packaging command in disposable synthetic checkouts: protected
 paths, unowned contents and links are refused without deleting their targets; fresh, empty and
@@ -149,8 +151,8 @@ On 2026-11-17, these failed `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1:
   shadow root that the page did not declare, and one on a link copied by SVG `<use>`, each started
   a navigation that nothing canceled.
 
-Collecting a page's templates by passing them all to one call failed `document.test.ts` on a page
-with more of them than a call can take.
+Collecting a page's templates by passing them all to one call failed the test now in
+`document.stress.ts` on a page with more of them than a call can take.
 
 **Unreleased (#115):** On 2026-11-17, with the view as 0.5.2 has it, Obsidian's reload of a changed
 file that finished after another file opened in the tab showed the first file's contents under the
@@ -159,6 +161,35 @@ Obsidian 1.5.3 and 1.15.1 do, and in `read-only.e2e.ts` in Obsidian 1.5.3 and 1.
 was written. Leaving out the view's own read of its file failed both of `read-only.e2e.ts`'s tests
 of Obsidian's reload in 1.5.3 and 1.15.1: neither a change on disk nor the late reload showed the
 page again.
+
+**Unreleased (#124):** on 2026-11-17, the earlier preparation of a page, which left the content of
+its templates, and so of its declared shadow roots, as written, failed the new shadow DOM and SVG
+link tests in `document.test.ts`, and in Obsidian 1.5.3 and 1.15.1 those in `resources.e2e.ts` and
+`links.e2e.ts`: the shadow DOM's image found by name, linked stylesheet, and import did not show,
+with scripts off or with them on and copying files; its link and image had no title; and SVG links
+had no `xlink:title`. The split view's earlier pairing, which left out shadow roots, failed
+`split.test.ts`, and `split.e2e.ts` in both versions, where scrolling the source to paragraph 30's
+line moved the page to paragraph 88.
+
+**Unreleased (#124):** on 2026-11-17, after the independent review, these failed against the
+earlier version of this change. Giving every SVG link without text a tooltip failed the new tooltip
+test in `document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around a
+labelled shape and one around a `<use>` icon with a title were named by their URLs instead (#117).
+The split view's pairing, which left out the body's own shadow root and took every shadow root to
+come before its host's own content, failed `split.test.ts`, and `split.e2e.ts` in both versions:
+scrolling the source to paragraph 30's line moved a page whose body has a shadow root to paragraph
+89, and scrolling it to paragraph 15's line left a page that declares its shadow root after 30
+paragraphs at paragraph 1.
+
+**Unreleased (#124):** on 2026-11-17, after the follow-up review, these failed against the version
+before it. Giving a tooltip to an SVG link around HTML in a `<foreignObject>` failed the new tooltip
+test in `document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around
+text in a shadow root declared there was named by its URL instead (#117). The split view's pairing,
+which took any comment with its mark's text for the mark, and also the mark of a declaration that
+stayed a template, failed `split.test.ts` and `document.test.ts`, and `split.e2e.ts` in both
+versions: with a comment of the page's own with that text before its first paragraph, scrolling the
+source to paragraph 15's line left a page that declares its shadow root after 30 paragraphs at
+paragraph 1.
 
 ## Limits
 
@@ -181,6 +212,13 @@ page again.
   Removing the plugin, and installing or updating it through Obsidian's community plugin browser,
   where the fork is not listed, are not tested.
 - Screen readers are not tested; the tests check the labels and attributes that they read.
+- No test sees a tooltip appear: Chromium draws it outside the page, where WebDriver's screenshots
+  do not reach. The tests check the attributes that Chromium shows as tooltips. On 2026-11-17,
+  moving the display's own pointer over the links and capturing the whole screen showed them in
+  Obsidian 1.5.3 and 1.15.1.
+- Obsidian 1.5.3 and 1.15.1 name an SVG link from nothing inside a `<foreignObject>`, which
+  Chrome 157 includes. The viewer gives such a link no tooltip, which would replace that name, so
+  on those versions a link around HTML without a label of its own has neither (#117).
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`

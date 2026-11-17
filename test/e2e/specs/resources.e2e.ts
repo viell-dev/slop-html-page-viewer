@@ -8,6 +8,7 @@ import {
   expectNoPixels,
   framePixels,
   openInActiveTab,
+  PLUGIN_ID,
   recordedFrames,
   recordedFramesAfterClick,
   saveScreenshot,
@@ -19,6 +20,7 @@ import {
 const GREEN: Color = [46, 125, 50];
 const BLUE: Color = [21, 101, 192];
 const RED: Color = [198, 40, 40];
+const ORANGE: Color = [239, 108, 0];
 const IMAGE_PIXELS = 64 * 64;
 
 describe("A page's local files in Obsidian", function () {
@@ -46,6 +48,39 @@ describe("A page's local files in Obsidian", function () {
     await openInActiveTab("Saved/By name.html");
     await waitForPage();
     expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(IMAGE_PIXELS * 0.9);
+  });
+
+  describe("in shadow DOM (#124)", function () {
+    /** Whether the page shows its image, found by name, and a square from each of its stylesheets. */
+    async function shadowContent(): Promise<Record<string, boolean>> {
+      const shows = async (color: Color) => (await framePixels(color)) >= IMAGE_PIXELS * 0.9;
+      return {
+        image: await shows(GREEN),
+        linked: await shows(BLUE),
+        imported: await shows(ORANGE),
+      };
+    }
+
+    it("shows the files that it names, also by name, and applies its stylesheets", async function () {
+      await openInActiveTab("Saved/Shadow resources.html");
+      await waitForPage();
+      await saveScreenshot("shadow-resources");
+      expect(await shadowContent()).toEqual({ image: true, linked: true, imported: true });
+    });
+
+    it("copies the files that it names into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Shadow resources.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("shadow-resources-scripts-on");
+        expect(await shadowContent()).toEqual({ image: true, linked: true, imported: true });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
   });
 
   it("shows nothing from outside the vault", async function () {
@@ -192,6 +227,22 @@ async function writeVaultFile(filePath: string, text: string): Promise<void> {
     },
     filePath,
     text,
+  );
+}
+
+/**
+ * Turns the **Local files with scripts on** setting on or off for the pages
+ * that render next, without saving it, which settings.e2e.ts tests.
+ */
+async function copyLocalFiles(on: boolean): Promise<void> {
+  await browser.executeObsidian(
+    ({ app }, id, on) => {
+      const plugins = (app as unknown as { plugins: { plugins: Record<string, unknown> } }).plugins;
+      (plugins.plugins[id] as { settings: { copyLocalFiles: boolean } }).settings.copyLocalFiles =
+        on;
+    },
+    PLUGIN_ID,
+    on,
   );
 }
 
