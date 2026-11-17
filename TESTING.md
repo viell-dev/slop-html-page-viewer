@@ -173,6 +173,6 @@ with more of them than a call can take.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request
   records.
-- The end-to-end test tools retain moderate advisories (#21). Both dependency packages have a
+- The end-to-end test tools retain moderate advisories (#85). Both dependency packages have a
   required CI audit at the high-severity threshold. The tools run only in CI and in disposable
   containers, against the repository's own fixtures.
