@@ -663,6 +663,15 @@ export interface PageOptions {
    * scripts that could tell the difference.
    */
   readonly openShadowRoots?: boolean;
+  /**
+   * Makes the page inert until the view, having added its link listeners,
+   * removes the attribute from its root, for a page with scripts off. Each
+   * document that the frame shows starts from the copy, and the frame loads
+   * the copy again whenever Obsidian moves the tab to another tab group or
+   * window; until the view finds the new document, an inert page cannot be
+   * clicked, focused, or reached with keys.
+   */
+  readonly inertUntilWatched?: boolean;
 }
 
 export interface PreparedPage {
@@ -672,6 +681,11 @@ export interface PreparedPage {
   readonly ownStyles: boolean;
   /** What copying the page's local files did, when the options asked for it. */
   readonly copiedFiles?: CopiedFiles;
+  /**
+   * Whether preparing made the copy's root inert, which the view then removes.
+   * A page whose root is inert itself stays as it is.
+   */
+  readonly madeInert: boolean;
 }
 
 const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
@@ -771,6 +785,9 @@ export async function preparePage(
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
   if (options.openShadowRoots) openShadowRoots(doc);
+  const root = doc.documentElement;
+  const madeInert = options.inertUntilWatched === true && !root.hasAttribute("inert");
+  if (madeInert) root.setAttribute("inert", "");
 
   // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const policy = doc.createElement("meta");
@@ -790,5 +807,5 @@ export async function preparePage(
   }
 
   const doctype = doc.doctype ? `${new XMLSerializer().serializeToString(doc.doctype)}\n` : "";
-  return { html: doctype + doc.documentElement.outerHTML, ownStyles, copiedFiles };
+  return { html: doctype + root.outerHTML, ownStyles, copiedFiles, madeInert };
 }

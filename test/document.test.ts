@@ -411,6 +411,22 @@ describe("preparePage", () => {
     assert.doesNotMatch(output, /closed/);
   });
 
+  it("makes the copy's root inert only when asked, and leaves a page's own inert root", async () => {
+    const asked = await preparePage("<p>x</p>", context({}), { inertUntilWatched: true });
+    assert.equal(asked.madeInert, true);
+    assert.equal(parse(asked.html).documentElement.getAttribute("inert"), "");
+
+    const own = await preparePage(`<html inert><p>x</p>`, context({}), {
+      inertUntilWatched: true,
+    });
+    assert.equal(own.madeInert, false, "the view must not make the page act");
+    assert.equal(parse(own.html).documentElement.hasAttribute("inert"), true);
+
+    const unasked = await preparePage("<p>x</p>", context({}));
+    assert.equal(unasked.madeInert, false);
+    assert.equal(parse(unasked.html).documentElement.hasAttribute("inert"), false);
+  });
+
   it("keeps the doctype, or its absence", async () => {
     assert.match(await prepare("<!DOCTYPE html><p>x</p>", context({})), /^<!DOCTYPE html>\n<html>/);
     assert.match(await prepare("<p>quirks</p>", context({})), /^<html>/);

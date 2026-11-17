@@ -50,8 +50,11 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   inside shadow DOM, so the frame never leaves the copy: web links are handed to Obsidian to open
   outside it, vault files open in Obsidian, and links to other local files are refused. The copy
   declares the page's shadow roots open, so that none of its links is hidden from the view, and the
-  view cancels every other navigation of the frame. With scripts on, the view cannot reach the
-  page, and a link navigates the frame, which keeps its sandbox.
+  view cancels every other navigation of the frame. The copy is also inert, so that nothing in it
+  can be clicked, focused, or reached with keys, until the view has added its listeners to the
+  document that shows it. That holds for every document the frame shows: when Obsidian moves a tab
+  to another tab group or window, the frame loads the copy again. With scripts on, the view cannot
+  reach the page, and a link navigates the frame, which keeps its sandbox.
 - **What the plugin does.** It reads vault files to prepare the copy: the page, the `.css` files
   that the page links or imports as stylesheets, and the files it copies into a page with scripts
   on. It never writes to vault files, makes no network requests, and does not read or write the
