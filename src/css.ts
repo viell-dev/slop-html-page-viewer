@@ -123,6 +123,17 @@ const badUrlCode = (n: number): boolean =>
   n === 127;
 const validEscape = (css: string, i: number): boolean =>
   css[i] === "\\" && !newline(css[i + 1] ?? "");
+/**
+ * Whether an identifier starts at `i`, as CSS checks before it reads "@" as
+ * the start of an at-keyword: "@1" and "@-1" are a delimiter and a number,
+ * which start a qualified rule, not an at-rule.
+ */
+const identifierStart = (css: string, i: number): boolean => {
+  const start = (c: string): boolean => name(c) && c !== "-" && !(c >= "0" && c <= "9");
+  if (css[i] === "-")
+    return start(css[i + 1] ?? "") || css[i + 1] === "-" || validEscape(css, i + 1);
+  return start(css[i] ?? "") || validEscape(css, i);
+};
 
 /**
  * Whether `text` is `keyword`, given in lowercase, compared ASCII
@@ -243,7 +254,8 @@ export function cssTokens(css: string): CssToken[] {
     } else if (
       name(css[i]) ||
       validEscape(css, i) ||
-      ((css[i] === "#" || css[i] === "@") && (name(css[i + 1] ?? "") || validEscape(css, i + 1)))
+      (css[i] === "#" && (name(css[i + 1] ?? "") || validEscape(css, i + 1))) ||
+      (css[i] === "@" && identifierStart(css, i + 1))
     ) {
       const prefix = css[i] === "#" || css[i] === "@" ? css[i++] : "";
       while (i < css.length && (name(css[i]) || validEscape(css, i))) {
@@ -338,8 +350,9 @@ function topLevelRule(tokens: readonly CssToken[], start: number): TopLevelRule 
  * Classifies an import's conditions by their tokens. `@media` takes only a
  * media query list. A list starts with neither `layer` nor `scope`, which
  * CSS Cascade 5 and 6 put before it, and has no function at its top level:
- * the functions there are `layer()`, `scope()`, and `supports()`, or a query
- * that never matches. Strings and comments name none of them.
+ * the functions there are `layer()`, `scope()`, and `supports()`, or part of
+ * a media query that the plugin does not read, which keeps the import as an
+ * import for the browser to decide. Strings and comments name none of them.
  */
 function importConditions(
   tokens: readonly CssToken[],
@@ -447,7 +460,7 @@ export function cssEnd(css: string, tokens: readonly CssToken[]): CssEnd {
   else if (last?.open) closers = (escape ? REPLACEMENT_CHARACTER : "") + ")";
   else if (escape) closers = REPLACEMENT_CHARACTER;
   if (pending !== null) {
-    closers += pending.blocks.reverse().join("");
+    closers += [...pending.blocks].reverse().join("");
     if (!pending.block) closers += tokens[pending.start].kind === "at-keyword" ? ";" : "{}";
   }
   return { closers, strayCloser };

@@ -506,6 +506,8 @@ describe("the end of an imported stylesheet (#139)", () => {
       ["a", "a{}"],
       ["@media print", "@media print;"],
       ["a:is(b", "a:is(b){}"],
+      // "@1" starts a qualified rule, which a block ends, not a ";".
+      ["@1;", "@1;{}"],
     ]) {
       for (const { place, copies, text } of await everyPlace(css, { "Saved/a.css": imported })) {
         const url = place.endsWith("copying")

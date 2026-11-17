@@ -193,7 +193,7 @@ describe("import conditions (#144)", () => {
       " scope(.card) screen",
       " supports(display: grid)",
       " layer(a) supports((display: grid) and (gap: 1px)) print",
-      // A function in a media query never matches, so keeping the import changes nothing.
+      // A function in a media query is not read, so the import stays one for the browser.
       " screen, unknown(x)",
     ])
       assert.equal(conditions(css), "other", JSON.stringify(css));
@@ -226,8 +226,22 @@ describe("the end of a stylesheet (#139)", () => {
       ["a { b: c\\\\", "}"],
       ["a{}-", "{}"],
       ["a{}<!-", "{}"],
+      // "@" starts an at-rule only before an identifier; "@1" starts a qualified rule.
+      ["@1", "{}"],
+      ["a{} @1;", "{}"],
+      ["@-", "{}"],
+      ["@-x", ";"],
+      ["@--", ";"],
     ])
       assert.equal(cssEnd(css, cssTokens(css)).closers, closers, JSON.stringify(css));
+  });
+
+  it("reads '@' as an at-keyword only before an identifier", () => {
+    const kinds = (css: string) => cssTokens(css).map((token) => token.kind);
+    assert.deepEqual(kinds("@1"), ["delim", "name"]);
+    assert.deepEqual(kinds("@-1"), ["delim", "name"]);
+    for (const css of ["@-x", "@--x", "@\\31", "@x"])
+      assert.deepEqual(kinds(css), ["at-keyword"], css);
   });
 
   it("leaves nothing open once closed", () => {

@@ -88,8 +88,8 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   viewer does not yet check a `<style>` or `<link>` element's `type`, or a link's `disabled`
   attribute (#147).
 
-  **Unreleased (#136):** as in browsers, only the imports at the start of a stylesheet count,
-  before any rule other than `@charset`, `@layer` statements, and other imports.
+  **Unreleased (#136):** as in browsers, only the imports at the start of a stylesheet count, after
+  nothing but `@charset`, other imports, and `@layer` statements before the first import.
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
@@ -168,6 +168,10 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   **Unreleased (#136):** neither do imports after a rule that browsers drop as invalid, such as an
   unknown at-rule, which browsers still apply: telling which rules are valid would take a CSS
   parser.
+
+  **Unreleased (#139):** nor does an import with media conditions of a stylesheet that has a `}`
+  outside any block: the viewer keeps it as an import rather than wrap the stylesheet in `@media`,
+  where that `}` would end the wrapper early.
 
 - **With scripts on, local files load only when they are copied into the page.** Scripts run
   without access to Obsidian, and Obsidian does not serve vault files to such a page. Copied

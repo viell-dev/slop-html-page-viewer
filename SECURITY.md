@@ -60,15 +60,19 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   reach the page, and a link navigates the frame, which keeps its sandbox.
 - **Unreleased (#91):** CSS resources. Resource-like text inside CSS strings and comments, in the
   page's stylesheets and in its shadow DOM's alike, causes no stylesheet reads, and no copying
-  either. URL arguments and top-level stylesheet import sources, including their quoted forms, name
-  resources; the scan does not evaluate CSS.
+  either, except in an SVG `<style>` with child elements, whose text the plugin joins with theirs
+  ([#143](https://github.com/viell-dev/slop-html-page-viewer/issues/143)). URL arguments and
+  top-level stylesheet import sources, including their quoted forms, name resources; the scan does
+  not evaluate CSS.
 
   **Unreleased (#136):** only imports that browsers apply name stylesheets: those at the start of a
-  stylesheet, before any rule other than `@charset`, `@layer` statements, and other imports.
+  stylesheet, after nothing but `@charset`, other imports, and `@layer` statements before the first
+  import.
 
   **Unreleased (#139):** an imported stylesheet ends in the copy where CSS ends it, with what it
-  leaves open closed, so that the text after its import keeps its meaning: string text there names
-  no file.
+  leaves open closed, so that string and comment text after its import stays text and names no
+  file. Inlining can still change which of the importing sheet's rules apply
+  ([#152](https://github.com/viell-dev/slop-html-page-viewer/issues/152)).
 
 - **What the plugin does.** It reads vault files to prepare the copy: the page, the `.css` files
   that the page links or imports as stylesheets, and the files it copies into a page with scripts
