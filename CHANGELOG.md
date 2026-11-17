@@ -30,6 +30,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   blocks are no longer inlined, as browsers ignore them there, while imports written with comments
   or escapes, such as `@import /**/ url(…)` or `@\69mport`, now are. Unquoted URLs with an escaped
   `)` or `"` now resolve, and a linked stylesheet that imports itself no longer repeats its rules.
+- A link in a page opens in the page's own tab, and with Ctrl or a middle click in a new tab beside
+  it, also while a tab in another tab group or window is the active one, instead of in that tab
+  (#141).
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 

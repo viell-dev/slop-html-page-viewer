@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { JSDOM } from "jsdom";
 import HtmlPageViewerPlugin from "../../src/main";
 import { App, Plugin, TFile, WorkspaceLeaf } from "./obsidian";
 
@@ -82,6 +83,24 @@ export class Harness {
 
 export function frame(view: HtmlView): HTMLIFrameElement | null {
   return view.contentEl.querySelector("iframe.html-page-viewer__frame");
+}
+
+/**
+ * Loads the copy that the view's frame shows, as Chromium loads a frame's
+ * `srcdoc` and jsdom does not: once the copy is prepared, the frame's
+ * `contentDocument` is a document at about:srcdoc parsed from it, and the
+ * frame fires `load`. Only a page with scripts off has Obsidian's origin, so
+ * that the view can reach it.
+ */
+export async function loadFrame(view: HtmlView): Promise<Document> {
+  await settle();
+  const iframe = frame(view);
+  assert.ok(iframe?.srcdoc, "the view shows a frame with its copy");
+  const page = new JSDOM(iframe.srcdoc, { url: "about:srcdoc" }).window.document;
+  Object.defineProperty(iframe, "contentDocument", { configurable: true, get: () => page });
+  iframe.dispatchEvent(new window.Event("load"));
+  await settle();
+  return page;
 }
 
 export function sandboxTokens(iframe: HTMLIFrameElement): string[] {

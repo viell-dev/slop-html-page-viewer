@@ -99,6 +99,11 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   assistive technology, in place of the name that its content gives it, so the viewer leaves that
   name.
 
+  **Unreleased (#141):** a link opens in the page's own tab, and with Ctrl or a middle click in a
+  new tab beside it, also while a tab in another tab group or window is the active one. Before, it
+  opened in that tab, in place of what that tab showed. A link in a pinned tab opens where one in a
+  pinned note does.
+
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
