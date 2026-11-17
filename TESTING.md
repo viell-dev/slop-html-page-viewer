@@ -88,11 +88,21 @@ on. Costs that could matter were measured in Obsidian in their pull requests, su
 second for every 8 MB copied into a page with scripts on (#58), and about 1.5 s for a search of a
 page with 80,009 elements, three times as long as before find left out hidden text (#121).
 
-The CSS token boundary cases in `document.test.ts` cover strings, comments, escaped URL names,
+**Unreleased (#91):** The CSS token boundary cases in `document.test.ts` cover strings, comments,
+escaped URL names,
 whitespace-terminated hex escapes, top-level imports, and the local-file copying pass.
 `resources.e2e.ts` checks generated content beside an applied local stylesheet in real Obsidian.
 
+Direct `css.test.ts` checks token kinds, spans, bad strings, and malformed URL recovery.
+`document.test.ts` checks that 20,000 malformed URL openers preserve their text within 2 s,
+and that linked stylesheet imports retain their cycle and eight-file depth limits.
+
 ## Shown to fail
+
+On 2026-11-17, independent review verified that all four original #91 integration tests
+fail against the integration baseline (`9fc4be9` document.ts). The malformed-function read/copy
+regression and linked-import depth regression also fail when bundled against reviewed head
+`0194ecb`, and pass with the fixes.
 
 On 2026-10-21, each of these deliberate breakages failed the check named:
 

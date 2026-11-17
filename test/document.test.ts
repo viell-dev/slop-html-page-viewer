@@ -79,6 +79,58 @@ describe("CSS token boundaries (#91)", () => {
   });
 });
 
+it("does not read or copy literal resources after malformed quoted functions", async () => {
+  for (const css of [
+    `a { b: url("x" ")"); } p::after { content: "url(ghost.png)" }`,
+    `a { b: url("x" /* ) " */ ); } p::after { content: "url(ghost.png)" }`,
+    `@import url("x" ")"); p::after { content: "@import 'ghost.css';" }`,
+    '@import "ghost.css?\\"\nscreen;',
+    'a { b: url("ghost.png?\\"\n ) }',
+    'a { b: url(} x); @import "ghost.css"; }',
+    '} a { @import "ghost.css"; }',
+  ]) {
+    const ctx = context({ "Saved/ghost.css": "GHOST{}" });
+    const reads: string[] = [];
+    await preparePage(`<style>${css}</style>`, ctx, {
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          reads.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      },
+    });
+    assert.deepEqual(ctx.reads, []);
+    assert.deepEqual(reads, []);
+  }
+});
+
+it("processes linked stylesheet imports once, retaining the eight-file depth limit", async () => {
+  const files = Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => [
+      `Saved/${i}.css`,
+      `@import "${i + 1}.css"; .n${i} { color: red }`,
+    ]),
+  );
+  const ctx = context(files);
+  await preparePage('<link rel="stylesheet" href="0.css">', ctx);
+  assert.deepEqual(
+    ctx.reads,
+    Array.from({ length: 8 }, (_, i) => `Saved/${i}.css`),
+  );
+  const self = context({ "Saved/self.css": '@import "self.css"; .self { color: red }' });
+  const result = await preparePage('<link rel="stylesheet" href="self.css">', self);
+  assert.deepEqual(self.reads, ["Saved/self.css"]);
+  assert.equal(result.html.split(".self").length - 1, 1);
+});
+
+it("handles repeated malformed URL openers without quadratic work", () => {
+  const css = "url(".repeat(20_000);
+  const start = performance.now();
+  assert.equal(absoluteUrls(css, VAULT + "site.css"), css);
+  assert.ok(performance.now() - start < 2_000, "80 KB of malformed CSS must finish within 2 s");
+});
+
 function context(
   files: Record<string, string>,
   page = "Saved/Example article.html",
