@@ -60,6 +60,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | The source view shows every character of the file, highlighted as HTML reads it                                                                                                    | `source.test.ts`, including random markup                                                                                                                                 | `viewer.e2e.ts`                                                                                                                  |
 | The find bar finds in the source and the page, and moves with Enter, Shift+Enter, and Escape                                                                                       | `find.test.ts`: close paths, no-`checkVisibility` fallback, `content-visibility`                                                                                          | `find.e2e.ts`: Ctrl+F; finds exactly the words that the page paints                                                              |
 | The split view keeps its two sides in step                                                                                                                                         | `split.test.ts`, also with shadow roots                                                                                                                                   | `split.e2e.ts`, both ways, on a smoothly scrolling page, and with shadow roots on an article, on the body, and declared late     |
+| **Unreleased (#126):** A tab moved to another tab group or window keeps its page's place and reading style, and the split view follows only its page                               | `move.test.ts`: the place, by the element at the window's top                                                                                                             | `move.e2e.ts`: to a narrower tab group and a new window, with a theme changed in place, and in the split view                    |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                  |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                        |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                    |
@@ -190,6 +191,14 @@ stayed a template, failed `split.test.ts` and `document.test.ts`, and `split.e2e
 versions: with a comment of the page's own with that text before its first paragraph, scrolling the
 source to paragraph 15's line left a page that declares its shadow root after 30 paragraphs at
 paragraph 1.
+
+**Unreleased (#126):** On 2026-11-17, `move.e2e.ts` failed in Obsidian 1.5.3 and 1.15.1 with the
+view as 0.5.2 has it: after the tab moved, the page was back at its top in a new tab group and in a
+new window, a theme changed in place was undone, and the split view's sides were apart. Keeping the
+page's place as the height it was scrolled to failed only the move to a narrower tab group, where
+the page showed paragraph 19 or 21 in place of 30. Keeping the split view's following of the
+document that the frame dropped failed only the split view's test, which counted six measurements
+of that document after the move.
 
 ## Limits
 
