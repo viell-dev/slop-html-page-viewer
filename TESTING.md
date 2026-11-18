@@ -368,9 +368,8 @@ the check named in `document.test.ts`:
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request
   records.
-- The lint and end-to-end test tools retain moderate advisories (#85), and a high one in picomatch
-  that no release fixes yet and that only an attacker's glob pattern can trigger (#145). Both
-  dependency packages have a required CI audit that fails on any other advisory above moderate
-  severity, `audit.test.ts` checks its decisions, and CONTRIBUTING.md says when an exception is
-  acceptable. The tools run against the repository's own files, and only its configuration
+- The lint and end-to-end test tools retain moderate advisories (#85). Both dependency packages
+  have a required CI audit that fails on any advisory above moderate severity that
+  `.github/audit-exceptions.json` does not accept, and on an exception that is no longer needed.
+  `audit.test.ts` checks its decisions, and CONTRIBUTING.md says when an exception is acceptable. The tools run against the repository's own files, and only its configuration
   supplies their glob patterns.
