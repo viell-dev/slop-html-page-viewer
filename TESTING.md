@@ -296,7 +296,7 @@ showed, in both versions: the find bar's search again scrolled the source to its
 led, and both sides went to paragraph 26 and line 33 or 34. It failed the test scrolled on by 200
 pixels in 1.5.3, where the page followed the source from its top to paragraph 2 and line 10.
 The version that the follow-up review read, `73fce54`, failed the five tests of a scroll to the
-source's start in both versions, where the view put the source back to line 20: in the first task
+source's start in both versions, where the view put the source back where it was: in the first task
 after a move to a new window, and with no move, when a layout change or a resize came before
 Chromium reported the scroll, in the split view and in the source view, which 0.6.0 has done since
 #135. Each of these deliberate breakages failed a unit test:
@@ -444,6 +444,10 @@ preparation's measurements in Obsidian, with up to five imports a stylesheet.
   an input still being dispatched when the frame drops the page, as a hotkey that moves the tab, is
   not the reader's. For one frame after the reader's input in a source, the view does not take the
   source at its start for one that lost its place; the tests give that input as a dispatched event.
+  On 1.5.3, that frame can keep a place that a tab's move lost, when a key comes in the same frame
+  as a hotkey that moves the tab, as a macro sends them. A scroll of the source to its start by the
+  find bar itself, not by the reader, can still be undone on 1.5.3 by a layout change or a resize
+  in the frame after it: in the source view, as 0.6.0 does, and in the split view (#167).
   In a new window on Obsidian 1.5.3, the split view's sides can end a line or two out of step after
   a move, also without the reader, as before this change, which the tests' tolerance of a line
   allows (#165).

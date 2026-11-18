@@ -20,8 +20,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   instead of sending it back to where the page was. On Obsidian 1.5.3, the source is back in its
   place as soon as the tab has moved, so the scrolling goes on from there. After such a move, the
   find bar shows its matches again without scrolling to the current one. In the split view and the
-  **Source** view, a scroll of the source to its start is no longer undone by a layout change or a
-  resize that comes before Chromium reports it (#157).
+  **Source** view, the reader's scroll of the source to its start is no longer undone by a layout
+  change or a resize that comes before Chromium reports it (#157).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

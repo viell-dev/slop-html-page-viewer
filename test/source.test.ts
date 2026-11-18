@@ -378,6 +378,7 @@ describe("the source view's place after its tab moves (#135)", () => {
     harness.app.workspace.trigger("layout-change");
     assert.deepEqual(scrolledTo, []);
   });
+
   /**
    * Animation frames for the view's window, which jsdom does not have, that
    * run only when `frame` says, until `end`. Chromium reports a frame's
@@ -399,30 +400,42 @@ describe("the source view's place after its tab moves (#135)", () => {
     };
   }
 
+  // Each kind of the reader's input that the view listens for. Of real input,
+  // a key that scrolls the source in one step, such as Home on Obsidian 1.5.3,
+  // gives the late report of its scroll that these stand in for.
+  const readerInput: Record<string, () => Event> = {
+    keydown: () => new window.KeyboardEvent("keydown", { bubbles: true, key: "Home" }),
+    pointerdown: () => new window.Event("pointerdown", { bubbles: true }),
+    touchstart: () => new window.Event("touchstart", { bubbles: true }),
+    wheel: () => new window.WheelEvent("wheel", { bubbles: true, deltaY: -600 }),
+  };
+
   for (const mode of ["Source", "Split"]) {
     for (const trigger of ["layout-change", "resize"] as const) {
-      it(`leaves the ${mode === "Split" ? "split" : "source"} view's source at its start where the reader scrolls it, when a ${trigger === "resize" ? "resize" : "layout change"} comes before Chromium reports it (#157)`, async () => {
-        const { harness, view, scroll, drop, scrolledTo } = await movedSource(mode);
-        const frames = animationFrames();
-        try {
-          scroll(571);
-          const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
-          // The reader turns the wheel up to the start, in one step; Chromium
-          // reports the scroll only in its next frame.
-          source.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: -600 }));
-          drop();
-          if (trigger === "resize") view.onResize();
-          else harness.app.workspace.trigger("layout-change");
-          assert.deepEqual(scrolledTo, [], "not sent back while the scroll is unreported");
-          scroll(0);
-          frames.frame();
-          harness.app.workspace.trigger("layout-change");
-          view.onResize();
-          assert.deepEqual(scrolledTo, [], "and it is at its start once reported");
-        } finally {
-          frames.end();
-        }
-      });
+      for (const [input, event] of Object.entries(readerInput)) {
+        it(`leaves the ${mode === "Split" ? "split" : "source"} view's source at its start where the reader scrolls it with ${input}, when a ${trigger === "resize" ? "resize" : "layout change"} comes before Chromium reports it (#157)`, async () => {
+          const { harness, view, scroll, drop, scrolledTo } = await movedSource(mode);
+          const frames = animationFrames();
+          try {
+            scroll(571);
+            const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+            // The reader's input scrolls the source to its start in one step;
+            // Chromium reports the scroll only in its next frame.
+            source.dispatchEvent(event());
+            drop();
+            if (trigger === "resize") view.onResize();
+            else harness.app.workspace.trigger("layout-change");
+            assert.deepEqual(scrolledTo, [], "not sent back while the scroll is unreported");
+            scroll(0);
+            frames.frame();
+            harness.app.workspace.trigger("layout-change");
+            view.onResize();
+            assert.deepEqual(scrolledTo, [], "and it is at its start once reported");
+          } finally {
+            frames.end();
+          }
+        });
+      }
     }
   }
 
