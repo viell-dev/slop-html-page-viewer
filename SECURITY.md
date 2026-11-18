@@ -60,10 +60,8 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   reach the page, and a link navigates the frame, which keeps its sandbox.
 - **Unreleased (#91):** CSS resources. Resource-like text inside CSS strings and comments, in the
   page's stylesheets and in its shadow DOM's alike, causes no stylesheet reads, and no copying
-  either, except in an SVG `<style>` with child elements, whose text the plugin joins with theirs
-  ([#143](https://github.com/viell-dev/slop-html-page-viewer/issues/143)). URL arguments and
-  top-level stylesheet import sources, including their quoted forms, name resources; the scan does
-  not evaluate CSS.
+  either. URL arguments and top-level stylesheet import sources, including their quoted forms, name
+  resources; the scan does not evaluate CSS.
 
   **Unreleased (#136):** only imports that browsers apply name stylesheets: those at the start of a
   stylesheet, after nothing but `@charset`, other imports, and `@layer` statements before the first

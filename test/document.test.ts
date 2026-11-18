@@ -214,6 +214,8 @@ describe("<style> text that Chromium applies (#143)", () => {
     for (const html of [
       '<svg><style><desc>@import "ghost.css";</desc>circle { fill: red }<desc>a { b: url(ghost.png) }</desc></style></svg>',
       '<math><style>@import "ghost.css"; a { b: url(ghost.png) }</style></math>',
+      // The child element's quote is not the <style>'s text, so the string stays a string (#91).
+      '<svg><style>a{}<desc>"</desc> b::after { content: "url(ghost.png)" } c { d: "</style></svg>',
     ]) {
       for (const place of places) {
         for (const { copying, reads, copies, html: copy } of await prepared(place(html))) {
