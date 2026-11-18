@@ -76,13 +76,13 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   by a partial path.
 
   The viewer finds a page's files only where browsers read them. Its stylesheets are an HTML or SVG
-  `<style>` element's own text and a stylesheet `<link>` in HTML; the elements inside an SVG `<style>`, a
-  MathML `<style>`, and a `<link>` inside SVG or MathML stay as the page has them. A stylesheet
-  names files only with its `url()`s and its imports, and only the imports at its start count,
-  after nothing but `@charset`, other imports, and `@layer` statements before the first import.
-  Text inside CSS strings and comments, such as `content: "url(icon.png)"`, stays as the page has
-  it. The viewer does not yet check a `<style>` or `<link>` element's `type`, or a link's `disabled`
-  attribute ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
+  `<style>` element's own text and a stylesheet `<link>` in HTML; the elements inside an SVG
+  `<style>`, a MathML `<style>`, and a `<link>` inside SVG or MathML stay as the page has them. A
+  stylesheet names files only with its `url()`s and its imports, and only the imports at its start
+  count, after nothing but `@charset`, other imports, and `@layer` statements before the first
+  import. Text inside CSS strings and comments, such as `content: "url(icon.png)"`, stays as the
+  page has it. The viewer does not yet check a `<style>` or `<link>` element's `type`, or a link's
+  `disabled` attribute ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
