@@ -85,7 +85,9 @@ separate dependency audit
 
 Update every `@wdio/*` package together; the service and reporter must support that major. Follow
 the [v10 migration guide](https://webdriver.io/docs/v10-migration), including strict selectors
-and namespaced capability spec lists. The Docker image installs `unzip` for driver downloads, and
+and namespaced capability spec lists. Keep `mocha` at the version that `@wdio/mocha-framework`
+installs: `test/e2e/support/late-requests.ts` wraps its `Runnable#run`, and every test fails when
+the run's Mocha is another copy. The Docker image installs `unzip` for driver downloads, and
 `lifecycle.e2e.ts` uses it to unzip the packaged plugin as a user does.
 
 With Docker, on any system, Windows included:

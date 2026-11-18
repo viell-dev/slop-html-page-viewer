@@ -23,6 +23,16 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 - **The archive corpus** (`test/e2e/corpus/`) opens every page of a synthetic vault of archived web
   pages in Obsidian, and compares the result with the frozen prototype build.
 
+A test in Obsidian that runs past its timeout fails, but WebdriverIO cannot stop its code. Each
+test's and hook's code therefore runs in a scope of its own (`test/e2e/support/late-requests.ts`),
+and once Mocha has the result, the run refuses that code's WebDriver requests, so that it cannot
+drive Obsidian during the tests after it (#170). Mocha goes on only once the requests that the code
+had already sent have their answers, for at most 30 s, and the failure's message names them and the
+requests refused meanwhile; a request refused later is printed to the log. `harness.e2e.ts` checks
+that a request from code that goes on after its test passed is refused and never reaches Obsidian.
+A test that runs outside its scope, as under a copy of Mocha other than the one that
+`@wdio/mocha-framework` runs, makes every request fail.
+
 `test/pixels.test.ts` checks that the tests' reader of WebDriver's PNG screenshots decodes RGB and
 RGBA rows with each of PNG's five row filters, and refuses an undefined one.
 
@@ -514,6 +524,14 @@ On 2026-11-18, find that matched text at zero opacity, find that left out text i
 paint test in Obsidian 1.5.3 and 1.15.1 (#160). Decoding a PNG row's average or sub filter wrongly
 failed `pixels.test.ts`.
 
+On 2026-11-18, in Obsidian 1.5.3 and 1.15.1, a test of `move.e2e.ts` cut short by a 0.5 s timeout
+went on to scroll and move the tab of the test after it, which then failed, and a test of
+`find.e2e.ts` cut short at 1.5 s left the test after it with no highlight painted (#170). With the
+run's refusal of late requests, and without the paint test's own stop, those two tests and the paint
+test cut short at 10 s each failed alone, and each failure named the requests that its code still
+sent. Not refusing late requests failed `harness.e2e.ts`, and running tests outside their scopes
+failed every request in it.
+
 ## Limits
 
 - Which tab a link opens in (#141) is tested in Obsidian for plain and Ctrl clicks in the main area,
@@ -603,10 +621,11 @@ failed `pixels.test.ts`.
   attributes are not searched. Shadow matches stay within one tree; SVG `<use>` copies live in
   inaccessible browser shadow trees and are not searched (#122, #124).
 - The 15 s limit for a corpus page is a ceiling against a page that hangs, not a measure of speed.
-- A test in Obsidian that runs past its timeout fails, but its code goes on running. The paint test
-  in `find.e2e.ts` stops at its next step, and the next test waits until it has (#160). Any other
-  test that times out can still change what the tests after it see, so start from a spec's first
-  failure (#170).
+- The code of a test in Obsidian that runs past its timeout stops at its next WebDriver request,
+  which the run refuses (#170). Until then it goes on, and what it does without WebDriver, such as
+  writing the vault's files on disk as `read-only.e2e.ts` does, can still change what the tests
+  after it see. A request refused once the failure has been reported is printed to the log, not
+  added to the failure.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request
   records.
