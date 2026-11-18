@@ -164,11 +164,14 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 
   **Unreleased (#154):** for each page, also its shadow DOM, the viewer follows at most 1,000 links
   and imports of vault stylesheets, and copies at most 16 million characters of the stylesheets'
-  text, before it makes their URLs absolute. Each link and import that it follows counts, also when
-  its stylesheet is missing, too large, or then left as an import. Only a repeat of a link in the
-  page, or of an import in one of its own `<style>` elements, of a stylesheet that the viewer has
-  already copied whole counts just its text, so that a page of components that each link the same
-  stylesheet shows whole. The links and imports past either limit stay links and imports, which
+  text, counting a stylesheet's own text when it follows a link or import of it. Each link and
+  import that it follows counts, also when its stylesheet is missing, too large, or then left as an
+  import. A repeat of a link in the page, or of an import in one of its own `<style>` elements,
+  gets what the first one got, once the limits have left that whole, and is not followed again: a
+  repeat of a stylesheet copied whole counts only the text that it adds to the copy, with its
+  imports in it and its URLs made absolute, and a repeat of one that is missing or cannot be read
+  counts nothing. So a page of components that each link the same stylesheet shows whole. The
+  links and imports past either limit stay links and imports, which
   Obsidian's policy keeps from loading, so such a page shows only some of its styles, without
   keeping the viewer preparing it. A smaller stylesheet after one too large for what remains is
   still copied. Obsidian still does not respond while the viewer prepares a page, about a third to

@@ -422,9 +422,10 @@ describe("stylesheet limits (#154)", () => {
 
   it("shows whole a page of components that each link or import the same stylesheet", async () => {
     // Shadow roots that share a stylesheet each link it, as declarative shadow
-    // DOM has them do: 600 of them, with an import each, follow more links and
-    // imports than the limit allows, but the page's links and imports of a
-    // stylesheet that it has prepared whole count once.
+    // DOM has them do. 550 link it and 550 import it, each stylesheet with an
+    // import of its own: each kind alone follows more links and imports than
+    // the limit allows, but the page's repeats of a stylesheet that it has
+    // prepared whole take nothing from the count.
     const ctx = context({
       "Saved/item.css": `@import "tokens.css";\n.item { color: red }`,
       "Saved/tokens.css": ":host { --gap: 4px }",
@@ -432,14 +433,14 @@ describe("stylesheet limits (#154)", () => {
     const component = (sheet: string) =>
       `<x-item><template shadowrootmode="open">${sheet}<p class="item">x</p></template></x-item>`;
     const html = [
-      ...Array<string>(300).fill(component('<link rel="stylesheet" href="item.css">')),
-      ...Array<string>(300).fill(component('<style>@import "item.css";</style>')),
+      ...Array<string>(550).fill(component('<link rel="stylesheet" href="item.css">')),
+      ...Array<string>(550).fill(component('<style>@import "item.css";</style>')),
     ].join("");
     const copy = parse(await prepare(html, ctx));
     const sheets = [...copy.querySelectorAll("template")].map(({ content }) =>
       [...content.querySelectorAll("link, style")].map((e) => e.textContent),
     );
-    assert.equal(sheets.length, 600);
+    assert.equal(sheets.length, 1_100);
     assert.deepEqual(
       new Set(sheets.map((sheet) => JSON.stringify(sheet))),
       new Set([JSON.stringify([":host { --gap: 4px }\n.item { color: red }"])]),
@@ -447,22 +448,81 @@ describe("stylesheet limits (#154)", () => {
     assert.deepEqual(ctx.reads, ["Saved/item.css", "Saved/tokens.css"]);
   });
 
-  it("gives a repeated link or import the text that it was first prepared with, within the text limit", async () => {
-    const half = `/*${"x".repeat(STYLESHEET_TEXT_LIMIT / 2)}*/`;
-    const ctx = context({ "Saved/half.css": half, "Saved/small.css": ".small {}" });
-    // The second link's copy of the stylesheet would take the page past the
-    // text limit, as a second file of the same size would; a smaller one fits.
-    const links = ["half", "half", "small", "small"].map(
+  it("counts a repeated link or import of a stylesheet that cannot be read once", async () => {
+    const ctx = context({ "Saved/footer.css": ".footer {}", "Saved/end.css": ".end {}" });
+    const read = ctx.read.bind(ctx);
+    ctx.read = async (path) => {
+      if (path !== "Saved/broken.css") return read(path);
+      ctx.reads.push(path);
+      throw new Error("unreadable");
+    };
+    const component = (sheet: string) =>
+      `<x-item><template shadowrootmode="open">${sheet}</template></x-item>`;
+    const html = [
+      // More components than the limit, each linking a stylesheet that is
+      // missing, then one whose stylesheet is there.
+      ...Array<string>(STYLESHEET_COUNT_LIMIT).fill(
+        component('<link rel="stylesheet" href="missing.css">'),
+      ),
+      component('<link rel="stylesheet" href="footer.css">'),
+      // As many imports of a stylesheet whose read fails, then one that is there.
+      importing([...Array<string>(STYLESHEET_COUNT_LIMIT).fill("broken.css"), "end.css"]),
+    ].join("");
+    const copy = parse(await prepare(html, ctx));
+    const last = [...copy.querySelectorAll("template")].at(-1)!.content;
+    assert.equal(last.querySelector("style")?.textContent, ".footer {}");
+    assert.ok(copy.querySelector("body > style")!.textContent.endsWith("\n.end {}"));
+    // The document's <style> is prepared before the templates' content.
+    assert.deepEqual(ctx.reads, [
+      "Saved/broken.css",
+      "Saved/end.css",
+      "Saved/missing.css",
+      "Saved/footer.css",
+    ]);
+  });
+
+  it("keeps a link and an import of the same stylesheet apart", async () => {
+    // An imported stylesheet is closed at its end, so that the rules after its
+    // import stay outside its block; a linked one ends with its <style>.
+    const ctx = context({ "Saved/open.css": ".open { color: blue" });
+    const html =
+      '<link rel="stylesheet" href="open.css">' +
+      '<style>@import "open.css";\n.after { color: red }</style>';
+    const copy = parse(await prepare(html, ctx));
+    assert.deepEqual(
+      [...copy.querySelectorAll("style")].map((style) => style.textContent),
+      [".open { color: blue", ".open { color: blue}\n.after { color: red }"],
+    );
+  });
+
+  it("leaves a repeated import of a stylesheet with a stray } in media conditions an import", async () => {
+    // In an @media block, the "}" would end the block early, so each import
+    // of the stylesheet stays an import, the repeat as the first.
+    const ctx = context({ "Saved/stray.css": "} .stray { color: blue }" });
+    const imports = '@import "stray.css" screen;\n'.repeat(2);
+    const copy = parse(await prepare(`<style>${imports}</style>`, ctx));
+    assert.equal(
+      copy.querySelector("style")!.textContent,
+      `@import url("${VAULT}Saved/stray.css") screen;\n`.repeat(2),
+    );
+  });
+
+  it("takes a repeated link or import's text from the text limit each time", async () => {
+    // Three copies of this stylesheet would take the page past the text
+    // limit, as three files of the same size would; a smaller one still fits.
+    const third = `/*${"x".repeat(STYLESHEET_TEXT_LIMIT / 3 - 3)}*/`;
+    const ctx = context({ "Saved/third.css": third, "Saved/small.css": ".small {}" });
+    const links = [...Array<string>(6).fill("third"), "small", "small"].map(
       (name) => `<link rel="stylesheet" href="${name}.css">`,
     );
     const copy = await prepare(links.join(""), ctx);
-    assert.equal(copy.split(`<style>${half}</style>`).length - 1, 1);
-    assert.equal(copy.split('<link rel="stylesheet" href="half.css">').length - 1, 1);
+    assert.equal(copy.split(`<style>${third}</style>`).length - 1, 2);
+    assert.equal(copy.split('<link rel="stylesheet" href="third.css">').length - 1, 4);
     assert.equal(copy.split("<style>.small {}</style>").length - 1, 2);
-    assert.deepEqual(ctx.reads, ["Saved/half.css", "Saved/small.css"]);
+    assert.deepEqual(ctx.reads, ["Saved/third.css", "Saved/small.css"]);
   });
 
-  it("prepares again a repeated link or import whose stylesheets the limits cut short", async () => {
+  it("prepares again a repeated link or import whose stylesheets the count cut short", async () => {
     // all.css imports more stylesheets than the limit allows. Kept as it was
     // first prepared, a repeat of it would hold what the limit has left out
     // since, so the repeat is prepared again, which the limit refuses.
@@ -477,6 +537,22 @@ describe("stylesheet limits (#154)", () => {
     assert.equal(styles.length, 1);
     assert.equal(styles[0].split(" {}").length - 1, STYLESHEET_COUNT_LIMIT - 1);
     assert.equal(copy.querySelectorAll("link").length, 1);
+  });
+
+  it("prepares again a repeated link or import whose stylesheets the text limit cut short", async () => {
+    // wrap.css imports big.css twice, which fits once. Prepared again, the
+    // repeat keeps its own rules, with both imports left as imports.
+    const big = `/*${"x".repeat(STYLESHEET_TEXT_LIMIT / 2)}*/`;
+    const ctx = context({
+      "Saved/wrap.css": '@import "big.css";\n@import "big.css";\n.wrap {}',
+      "Saved/big.css": big,
+    });
+    const link = '<link rel="stylesheet" href="wrap.css">';
+    const copy = await prepare(link + link, ctx);
+    const left = `@import url("${VAULT}Saved/big.css");`;
+    assert.equal(copy.split(`<style>${big}\n${left}\n.wrap {}</style>`).length - 1, 1);
+    assert.equal(copy.split(`<style>${left}\n${left}\n.wrap {}</style>`).length - 1, 1);
+    assert.ok(!copy.includes("<link"));
   });
 
   it("copies a repeated stylesheet's files once for each place, within the copy limits", async () => {

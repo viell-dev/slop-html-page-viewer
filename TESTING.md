@@ -108,10 +108,15 @@ stylesheets' text, shared by the page's links and imports in the document and in
 Every link and import followed counts, also of a missing, too large, or left-out stylesheet, so
 that one past the limit stays a link or an import and is not read. A smaller stylesheet after one
 too large still fits, one of exactly the limit fits alone, and each file is read once. A repeat of
-the page's own link or `<style>` import of a stylesheet copied whole gets that copy and counts only
-its text, so that 600 components that each link or import the same stylesheet show whole. One that
-the limits cut short is prepared again, and with **Local files with scripts on** the copy limits
-count the files of each place. `document.stress.ts` prepares eight stylesheets that each import the
+the page's own link or `<style>` import of a stylesheet copied whole gets that copy and counts
+only its text, each time, so that 550 components that link a stylesheet and 550 that import it,
+each kind more than the count allows, show whole. A repeat of one that cannot be read counts
+nothing, so that a stylesheet after 1,000 links and 1,000 imports of a missing or unreadable one
+is still copied. A link and an import of the same stylesheet stay apart, as only the import is
+closed at its end, and a repeated import of a stylesheet with a stray `}` stays an import in media
+conditions. One that the count or the text limit cut short is prepared again, and with **Local
+files with scripts on** the copy limits count the files of each place. `document.stress.ts`
+prepares eight stylesheets that each import the
 next ten times, eleven million stylesheets without the limits, with small and with 20 KB
 stylesheets, and a page of 4,000 such components. Its context fails the preparation once it has
 looked at twice as many imports as the limits allow, so that a missing limit fails the test within
@@ -343,15 +348,20 @@ the check named in `document.test.ts`:
 - No limit on how many links and imports a page follows: `document.stress.ts`'s test of small
   stylesheets, within a second, with its context's error, and four tests in `document.test.ts`.
 - No limit on the stylesheets' text: the stress test of 20 KB stylesheets, which took in 1,000
-  rather than 792, and two tests in `document.test.ts`.
+  rather than 792, and three tests in `document.test.ts`.
 - Counting only the links and imports whose stylesheet the copy takes in: the counting test in
   `document.test.ts`.
-- No reuse of a page's repeated links and imports: the components test in `document.test.ts`. A
-  count limit of 10,000 without reuse passed it, but kept Obsidian from responding for 3 to 8 s on
-  eight stylesheets that each import the next ten times.
-- Reusing a stylesheet that the limits cut short: the test of preparing it again. Reusing one
-  without counting its text: the test of repeats within the text limit. Reusing stylesheets at
-  every depth: the counting test and both fan-out stress tests.
+- No reuse of a page's repeated links and imports, reuse of links only or of imports only, or a
+  repeat that takes one from the count: the components test in `document.test.ts`, and the stress
+  test of 4,000 components. A count limit of 10,000 without reuse passed the components test of the
+  time, with 600, but kept Obsidian from responding for 3 to 8 s on eight stylesheets that each
+  import the next ten times.
+- Keeping no result for a stylesheet that cannot be read: the test of repeats of such a stylesheet.
+- One kept text for a link and an import of the same URL, a repeat that loses the stray `}` of its
+  stylesheet, and a repeat checked against the text limit but not added to it: the test of each.
+- Reusing a stylesheet that the count, or the text limit, cut short: the test of preparing it
+  again after each. Reusing stylesheets at every depth: the counting test, the test of preparing
+  again after the text limit, and both fan-out stress tests.
 
 The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
 keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that

@@ -45,8 +45,10 @@ const MAX_IMPORT_DEPTH = 8;
 
 /**
  * A page's limits on its vault stylesheets (`StylesheetBudget`): how many
- * links and imports of them preparation follows, and how much of their files'
- * text, in UTF-16 code units, the copy takes in. The depth limit bounds an
+ * links and imports of them preparation follows, and how much of their text,
+ * in UTF-16 code units, the copy takes in: a stylesheet's file text when it
+ * is followed, and its prepared text, as copied, for each repeat of the page's
+ * own link or import of it that gets that text again. The depth limit bounds an
  * import chain, not how many imports each stylesheet has, so without these
  * the work and the copy would grow with that number raised to the depth
  * (#154). Web pages load a median of 7 stylesheets with 68 KB of CSS, and 22
@@ -99,10 +101,10 @@ interface PreparedSheet {
 class StylesheetBudget {
   private taken = 0;
   private text = 0;
-  /** How often the limits have kept a stylesheet out. */
+  /** How often `take` has kept a stylesheet out for the limits. */
   private refused = 0;
   private readonly reads = new Map<string, Promise<string | null>>();
-  private readonly kept = new Map<string, PreparedSheet>();
+  private readonly kept = new Map<string, PreparedSheet | null>();
 
   constructor(private readonly context: PageContext) {}
 
@@ -113,7 +115,8 @@ class StylesheetBudget {
    * be read, or its text would take the page past its limit. A smaller one
    * after it can still fit, as with the copy limits. Every call counts, the
    * ones that return null too, and so does a stylesheet whose text the caller
-   * then leaves out, so that the count bounds the work, not only the copy.
+   * then leaves out, so that the count bounds the work, not only the copy. A
+   * repeat that `sheet` answers without preparing makes no call.
    */
   async take(path: string): Promise<string | null> {
     if (this.taken >= STYLESHEET_COUNT_LIMIT) {
@@ -142,29 +145,33 @@ class StylesheetBudget {
    * leave the link or import as it is. Such a stylesheet is always prepared
    * the same way, against its own URL and with its own file as its only
    * ancestor for the depth and cycle checks, so the result depends only on
-   * `key`, unless the limits kept something out of it. A result that they did
-   * not touch is kept, and the same key again gets it without preparing it
-   * again: it takes nothing from the count, as the page's own links and
-   * imports grow only with the page, and its text's length from the text
-   * limit, as its copy does. A page of components that each link the same
-   * stylesheet from a shadow root then counts it once (#154). Only these are
-   * kept: the imports inside stylesheets are what multiplies.
+   * `key`, unless the limits kept something out of it. The key holds the kind,
+   * a link or an import, with the URL: an imported stylesheet is closed at its
+   * end and a linked one is not, so their texts can differ.
+   *
+   * A result that the limits did not touch is kept: a prepared stylesheet, or
+   * null for one that cannot be read, which the read cache gives every repeat
+   * too. The same key again gets it without preparing it again. It takes
+   * nothing from the count, as the page's own links and imports grow only
+   * with the page; a prepared stylesheet takes the length of its prepared
+   * text, as copied, from the text limit. A page of components that each link
+   * the same stylesheet from a shadow root then counts it once (#154). Only
+   * these are kept: the imports inside stylesheets are what multiplies.
    */
   async sheet(
     key: string,
     prepare: () => Promise<PreparedSheet | null>,
   ): Promise<PreparedSheet | null> {
-    const kept = this.kept.get(key);
-    if (kept === undefined) {
+    if (!this.kept.has(key)) {
       const refused = this.refused;
       const sheet = await prepare();
-      if (sheet !== null && this.refused === refused) this.kept.set(key, sheet);
+      // `prepare` uses only `take` of the budget, so the same count of
+      // refusals means that the limits left its result whole.
+      if (this.refused === refused) this.kept.set(key, sheet);
       return sheet;
     }
-    if (this.text + kept.text.length > STYLESHEET_TEXT_LIMIT) {
-      this.refused++;
-      return null;
-    }
+    const kept = this.kept.get(key) ?? null;
+    if (kept === null || this.text + kept.text.length > STYLESHEET_TEXT_LIMIT) return null;
     this.text += kept.text.length;
     return kept;
   }
@@ -489,7 +496,10 @@ function locateReferences(root: ParentNode, baseUrl: string, context: PageContex
  * Returns a stylesheet's text with its imports of vault stylesheets replaced by
  * their text, within the limits of a page of its own (`StylesheetBudget`), and
  * every reference made absolute. Imports from elsewhere stay as they are, for
- * the browser to load or refuse, as do those past the limits.
+ * the browser to load or refuse, as do those past the limits. The plugin
+ * prepares stylesheets only through `preparePage`; the tests and
+ * `scripts/css-benchmark.mjs` use this to check and time a stylesheet's
+ * preparation without a page around it.
  */
 export async function inlineStylesheet(
   css: string,
@@ -574,6 +584,8 @@ async function inlineImports(
     if (target !== null && path !== null && readable && match.conditions !== "other") {
       const prepare = () => importedSheet(path, target, context, seen, budget);
       // An import in a page's own <style> is prepared the same way each time.
+      // Its key keeps it apart from a link of the same URL, as an import's
+      // text is closed at its end and a link's is not.
       const sheet =
         seen.size === 0 ? await budget.sheet(`@import ${target}`, prepare) : await prepare();
       if (sheet !== null) {
@@ -695,6 +707,7 @@ async function inlineStylesheets(
     const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
     const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
     if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
+    // Kept apart from an import of the same URL, whose text is closed at its end.
     const sheet = await budget.sheet(`link ${sheetUrl}`, async () => {
       const css = await budget.take(path);
       return css === null
