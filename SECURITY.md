@@ -116,11 +116,12 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   **Unreleased (#147):** it reads and copies only for the elements that Chromium also applies by
   their `type` and a link's `disabled` attribute: a `<style>` with no `type`, an empty one, or
   `text/css` in any case, without parameters or spaces, and a link without `disabled` whose `type`
-  is absent, or whose part before any `;` is empty or `text/css`. The others cause no reads or
-  copying, and the copy keeps them as the page has them; before, such a link became a `<style>`
-  that applied. On Obsidian 1.5.3, whose Chromium applies an SVG `<style>` only with a lowercase
-  `text/css`, an SVG `<style>` with that type in other case is still prepared, though it applies
-  nothing ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
+  is absent, or whose part before any `;`, trimmed of whitespace, is empty or `text/css` in any
+  case. The others cause no reads or copying, and the copy keeps them as the page has them;
+  before, such a link became a `<style>` that applied. On Obsidian 1.5.3, whose Chromium applies an
+  SVG `<style>` only with a lowercase `text/css`, an SVG `<style>` with that type in other case is
+  still prepared, though it applies nothing
+  ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with

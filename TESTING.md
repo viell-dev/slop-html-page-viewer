@@ -189,11 +189,17 @@ files.
 without copying files, that the plugin prepares a `<style>`, HTML or SVG, only with no `type`, an
 empty one, or `text/css` in any ASCII case, and one with a `disabled` attribute as any other. A link
 becomes a `<style>` only without a `disabled` attribute, whatever its value, and with no `type` or
-one whose part before a `;`, trimmed of the whitespace that Chromium trims, is empty or `text/css`.
-The other elements stay exactly as written, and nothing is read or copied for them; a page whose
-only stylesheets are such elements gets the reading style. `resources.e2e.ts` builds a page with 17
-types on a `<style>` and a link, disabled links, and four types on an SVG `<style>`, in the document
-and in a shadow root. It serves the page over HTTP to a frame of Obsidian's window without a
+one whose part before a `;`, trimmed of the whitespace that Chromium trims, is empty or `text/css`
+in any case. Of 35 code points on both sides of `text/css`, it trims the 21 that headless Chrome 158
+trims: U+0009 to U+000D, U+0020, U+1680, U+2000 to U+200A, U+2028, U+205F, and U+3000, and not
+U+001C to U+001F, U+0085, U+00A0, U+180E, U+200B, U+200C, U+200E, U+2029, U+202F, U+2060, or
+U+FEFF. `document.stress.ts` checks that a link's type with runs of 50,000 spaces is trimmed in
+well under a second. The other elements stay exactly as written, and nothing is read or copied for
+them; a page whose only stylesheets are such elements gets the reading style. `resources.e2e.ts`
+builds a page with 23 types on a `<style>` and a link, disabled links, and four types on an SVG
+`<style>`, in the document and in a shadow root. Its link types measure in Obsidian that U+000B,
+U+1680, U+2003, U+2028, and U+3000 are trimmed, and U+00A0, U+180E, U+2029, and U+202F are not.
+It serves the page over HTTP to a frame of Obsidian's window without a
 sandbox and checks that what Chromium applies there matches #147's measurements. In the viewer, in
 Obsidian 1.5.3 and the latest, with scripts off and with them on and files copied, the page shows
 exactly what Chromium applied, the viewer reads only the stylesheets of the elements that apply,
@@ -446,6 +452,9 @@ of these breakages failed the check named in `document.test.ts`:
   of #147.
 - Trimming nothing from a link type's essence, or JavaScript's whitespace, which includes U+00A0:
   the link test.
+- Trimming only ASCII whitespace and U+2003: the test of the whitespace that Chromium trims.
+- Trimming with a regular expression that tries each run of whitespace from each of its positions:
+  `document.stress.ts`'s test of long types, which took 12.7 s against its bound of 1 s.
 - Counting any `<style>` or stylesheet link as the page's own styles: the reading style tests of
   #143 and #147.
 
@@ -481,8 +490,19 @@ one kept text describes a breakage of that time, not of the current checkout.
   download; 1.5.3 is the oldest version tested. The versions between 1.5.3 and the latest are not
   tested.
 - **Unreleased (#147):** which `<style>` and `<link>` elements Chromium applies was measured by
-  their `type` and a link's `disabled` attribute. A link's `rel` values beyond `stylesheet` and
-  `alternate`, its `media` and `title`, and a `type` that a script changes are not measured.
+  their `type` and a link's `disabled` attribute. A link's `rel` values other than `stylesheet`,
+  `alternate stylesheet` among them, its `media` and `title`, and a `type` that a script changes are
+  not measured in Obsidian. The viewer leaves `alternate stylesheet` links as they are, which
+  headless Chrome 158 does not apply either, with or without a `title`. It reads a link whose
+  `title` is not the page's first, which Chrome 158 does not apply
+  ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
+- **Unreleased (#155):** closing a page's own stylesheet at its end can change what Chromium
+  computes from a custom property whose value the stylesheet leaves open: Chromium keeps the value
+  as text, with the closers, and puts it where the property is used. With
+  `<style>p { margin-left: calc(var(--x) * 2) }</style><style>p { --x: (1px + 2px</style>`, headless
+  Chrome 158 computes `margin-left` as 5px from the text as written and as 6px from the copy's
+  closed text. A page's scripts see the closers too, in such a value, and as an empty rule for a
+  selector left without its block. This was not measured in Obsidian.
 - The bundle check in `policy.test.ts` sees only the plugin's own code. Obsidian's TextFileView,
   which the view extends, saves a view's data to its file from Obsidian's own code. The unit tests
   model that saving as Obsidian 1.5.3 and 1.15.1 implement it, and `read-only.e2e.ts` checks in

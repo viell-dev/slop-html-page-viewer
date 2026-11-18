@@ -239,6 +239,16 @@ describe("A page's local files in Obsidian", function () {
       { type: "\vtext/css", style: false, link: true },
       { type: `${String.fromCodePoint(0x2003)}text/css`, style: false, link: true },
       { type: `${String.fromCodePoint(0xa0)}text/css`, style: false, link: false },
+      // Of Unicode's whitespace, the characters of the whitespace bidirectional
+      // class are trimmed around a link type's essence, and others are not.
+      ...[0x1680, 0x2028, 0x3000].map((code) => {
+        const space = String.fromCodePoint(code);
+        return { type: `${space}text/css${space}`, style: false, link: true };
+      }),
+      ...[0x180e, 0x2029, 0x202f].map((code) => {
+        const space = String.fromCodePoint(code);
+        return { type: `${space}text/css${space}`, style: false, link: false };
+      }),
       { type: "text/x-scss", style: false, link: false },
       { type: "text/plain", style: false, link: false },
       { type: "text/css2", style: false, link: false },

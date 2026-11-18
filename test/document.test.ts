@@ -466,6 +466,32 @@ describe("<style> and <link> elements that Chromium applies, by type and disable
       }
     }
   });
+
+  it("trims exactly the whitespace that Chromium trims from around a link type's essence", async () => {
+    // As headless Chrome 158 loads a link with each on both sides of text/css;
+    // TESTING.md names the ones measured in Obsidian.
+    const trimmed = [
+      ...[0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0x1680],
+      ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
+      ...[0x2028, 0x205f, 0x3000],
+    ];
+    const kept = [
+      ...[0x1c, 0x1d, 0x1e, 0x1f, 0x85, 0xa0, 0x180e],
+      ...[0x200b, 0x200c, 0x200e, 0x2029, 0x202f, 0x2060, 0xfeff],
+    ];
+    for (const code of [...trimmed, ...kept]) {
+      const space = String.fromCodePoint(code);
+      const name = `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
+      const link = `<link rel="stylesheet" type="${space}text/css${space}" href="real.css">`;
+      for (const { what, reads } of await prepared(link)) {
+        assert.deepEqual(
+          reads,
+          trimmed.includes(code) ? ["Saved/real.css"] : [],
+          `${name}: ${what}`,
+        );
+      }
+    }
+  });
 });
 
 it("leaves a style element that needs no change as it is", async () => {

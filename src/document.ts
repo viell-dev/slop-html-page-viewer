@@ -500,7 +500,11 @@ function locateReferences(root: ParentNode, baseUrl: string, context: PageContex
  * them there: an unquoted URL at its end is a URL, and its last import counts.
  * Put in an importing stylesheet, it ends where a rule may start, so it leaves
  * the text after its import as the page has it. In a `<style>` of its own,
- * the closers apply nothing that CSS would not close there anyway.
+ * CSS parses the same rules from it, apart from an empty one for a selector
+ * left without its block. A custom property left open at the end is the
+ * exception: Chromium keeps its value as text, closers and all, and puts that
+ * text where the property is used, so a use with more text after it can
+ * compute differently, as with `--x: (1px + 2px` in `calc(var(--x) * 2)`.
  */
 function closedSheet(css: string): { text: string; tokens: CssToken[]; strayCloser: boolean } {
   const tokens = cssTokens(css);
@@ -708,25 +712,46 @@ function setStyleText(style: Element, css: string): void {
 }
 
 /**
- * The whitespace around a link type's essence that Chromium trims: ASCII
- * whitespace with U+000B, and the characters of Unicode's whitespace
- * bidirectional class. In Obsidian 1.5.3 and 1.15.1, a link loads with
- * U+000B or U+2003 EM SPACE before `text/css`, but not with U+00A0 (#147).
+ * Whether a UTF-16 code unit is whitespace that Chromium trims around a link
+ * type's essence: ASCII whitespace with U+000B, and the characters of
+ * Unicode's whitespace bidirectional class, U+1680, U+2000 to U+200A, U+2028,
+ * U+205F, and U+3000, as headless Chrome 158 trims them; U+0085, U+00A0,
+ * U+180E, U+200B, U+2029, U+202F, and U+FEFF are not. In Obsidian 1.5.3 and
+ * 1.15.1, a link loads with each of U+000B, U+1680, U+2003, U+2028, and
+ * U+3000 around `text/css`, but not with U+00A0, U+180E, U+2029, or U+202F
+ * (#147).
  */
-const LINK_TYPE_SPACE =
-  /^[\t\n\v\f\r \u1680\u2000-\u200a\u2028\u205f\u3000]+|[\t\n\v\f\r \u1680\u2000-\u200a\u2028\u205f\u3000]+$/g;
+function isLinkTypeSpace(code: number): boolean {
+  return (
+    (code >= 0x09 && code <= 0x0d) ||
+    code === 0x20 ||
+    code === 0x1680 ||
+    (code >= 0x2000 && code <= 0x200a) ||
+    code === 0x2028 ||
+    code === 0x205f ||
+    code === 0x3000
+  );
+}
 
 /**
  * Whether a link's `type` names CSS, which Chromium loads a stylesheet link
  * for: absent, or a MIME type whose essence, the text before its first `;`
- * with the whitespace around it trimmed, is empty or ASCII case-insensitively
- * `text/css`. Parameters and spaces count, unlike on a `<style>`.
+ * with the whitespace around it trimmed (`isLinkTypeSpace`), is empty or
+ * ASCII case-insensitively `text/css`. Parameters and spaces count, unlike on
+ * a `<style>`. The type is the page's, of any length, so the trim scans each
+ * end once: a regular expression that tried a run of spaces from each of its
+ * positions would take quadratic time on a long run inside the essence.
  */
 function isCssLink(link: Element): boolean {
   const type = link.getAttribute("type");
   if (type === null) return true;
-  const essence = asciiLowercase(type.split(";", 1)[0].replace(LINK_TYPE_SPACE, ""));
-  return essence === "" || essence === "text/css";
+  const semicolon = type.indexOf(";");
+  let end = semicolon === -1 ? type.length : semicolon;
+  let start = 0;
+  while (start < end && isLinkTypeSpace(type.charCodeAt(start))) start++;
+  while (end > start && isLinkTypeSpace(type.charCodeAt(end - 1))) end--;
+  const essence = type.slice(start, end);
+  return essence === "" || asciiLowercase(essence) === "text/css";
 }
 
 /**

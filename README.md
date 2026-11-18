@@ -88,11 +88,11 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   applies, and leaves the others as the page has them, reading and copying nothing for them. A
   `<style>` applies with no `type`, an empty one, or `text/css` in any case, without parameters or
   spaces. A link applies unless it has a `disabled` attribute, with no `type`, or one whose part
-  before any `;` is empty or `text/css`, such as `text/css; charset=utf-8`. Other types, such as
-  `text/x-scss`, keep another stylesheet language in the page for its scripts. A page whose only
-  stylesheets are such elements shows as a page without styles of its own. A disabled link that
-  the page's scripts enable later stays without its stylesheet, as the viewer's frame loads no
-  linked stylesheets but Google Fonts
+  before any `;`, trimmed of spaces, is empty or `text/css` in any case, such as
+  `TEXT/CSS ; charset=utf-8`. Other types, such as `text/x-scss`, keep another stylesheet language
+  in the page for its scripts. A page whose only stylesheets are such elements shows as a page
+  without styles of its own. A disabled link that the page's scripts enable later stays without its
+  stylesheet, as the viewer's frame loads no linked stylesheets but Google Fonts
   ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
   **Unreleased (#155):** each of the page's own stylesheets ends where CSS ends it, as an imported
