@@ -51,18 +51,18 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | Only the vault's files load; a stylesheet comes only from a `.css` file; notes are never copied                                                                                    | `document.test.ts`: `vaultPath`, `pagePolicy`, stylesheets, locating by name                                                                                              | `resources.e2e.ts`: nothing from outside the vault                                                                                     |
 | A page whose copy cannot be prepared shows an error, never the file; an unreadable stylesheet is left out                                                                          | `rendered.test.ts`; `document.test.ts`: CSS escapes, unreadable files                                                                                                     | `resources.e2e.ts`: nothing from outside the vault on such pages either                                                                |
 | The plugin never writes to vault files, makes no network requests, and does not use the clipboard                                                                                  | `policy.test.ts` reads the built bundle; `refresh.test.ts`: Obsidian's saving, which the bundle lacks                                                                     | `read-only.e2e.ts`: files are unchanged once they leave the view, also after refreshes                                                 |
-| A tab shows only its own file's contents, also when a read of a file ends after another file opened in the tab                                                                     | `refresh.test.ts`: a refresh; **Unreleased (#115):** Obsidian's reload of a changed file                                                                                  | `read-only.e2e.ts`: a refresh; **Unreleased (#115):** Obsidian's reload, after a switch, and of a change on disk                       |
+| A tab shows only its own file's contents, also when a read of a file ends after another file opened in the tab                                                                     | `refresh.test.ts`: a refresh, and Obsidian's reload of a changed file (#115)                                                                                              | `read-only.e2e.ts`: a refresh, and Obsidian's reload, after a switch, and of a change on disk (#115)                                   |
 | A page shows its local images, stylesheets, and fonts; references resolve by path or by name, also in shadow DOM                                                                   | `document.test.ts`, also the content of templates and shadow roots                                                                                                        | `resources.e2e.ts`, also in shadow DOM and copied with scripts on; `corpus.e2e.ts`                                                     |
 | HTML and SVG links, also nested and in shadow roots, stay in the copy, which no other navigation leaves and which acts only once watched; fragments follow id/name/top precedence  | `links.test.ts`; `document.test.ts`: shadow roots, inert copy; `rendered.test.ts`: only with scripts off                                                                  | `links.e2e.ts`, also after the tab moves to another tab group or window                                                                |
-| **Unreleased (#141):** A vault link opens in its page's tab, or with a modifier beside it, as a link in a note in that tab does, also while another tab is active                  | `links.test.ts`: the view's own tab, a pinned one, and each modifier                                                                                                      | `links.e2e.ts`: real clicks while another tab group's tab is active, and in a pinned tab; a click dispatched in a page in a new window |
+| A vault link opens in its page's tab, or with a modifier beside it, as a link in a note in that tab does, also while another tab is active (#141)                                  | `links.test.ts`: the view's own tab, a pinned one, and each modifier                                                                                                      | `links.e2e.ts`: real clicks while another tab group's tab is active, and in a pinned tab; a click dispatched in a page in a new window |
 | Hovering a link shows where it leads, and an image its alt text, also in shadow DOM; an SVG link only when nothing inside it names it, which keeps that name                       | `document.test.ts`: tooltips                                                                                                                                              | `links.e2e.ts`: the titles that Chromium shows, and the names that it gives the links                                                  |
-| Pages without styles follow Obsidian's theme and Readable line length                                                                                                              | `reading.test.ts`; **Unreleased (#143):** `document.test.ts`, for pages whose only styles do not apply                                                                    | `theme.e2e.ts`                                                                                                                         |
+| Pages without styles follow Obsidian's theme and Readable line length                                                                                                              | `reading.test.ts`; `document.test.ts`, for pages whose only styles do not apply (#143)                                                                                    | `theme.e2e.ts`                                                                                                                         |
 | Settings, their defaults, and their immediate effect                                                                                                                               | `settings.test.ts`, `extensions.test.ts`, `plugin.test.ts`; the README's defaults: `consistency.test.ts`                                                                  | `settings.e2e.ts`, in Obsidian's own settings window                                                                                   |
 | The source view shows every character of the file, highlighted as HTML reads it                                                                                                    | `source.test.ts`, including random markup                                                                                                                                 | `viewer.e2e.ts`                                                                                                                        |
 | The find bar finds in the source and the page, and moves with Enter, Shift+Enter, and Escape                                                                                       | `find.test.ts`: close paths, no-`checkVisibility` fallback, `content-visibility`                                                                                          | `find.e2e.ts`: Ctrl+F; finds exactly the words that the page paints                                                                    |
 | The split view keeps its two sides in step                                                                                                                                         | `split.test.ts`, also with shadow roots                                                                                                                                   | `split.e2e.ts`, both ways, on a smoothly scrolling page, and with shadow roots on an article, on the body, and declared late           |
-| **Unreleased (#126):** A tab moved to another tab group or window keeps its reading style, and the place of a page that scrolls as a whole; the split view follows only its page   | `move.test.ts`: the place, by the element at the window's top, through `display: contents` and in parts closed again; placing again at `load` until the reader's input    | `move.e2e.ts`: a narrower tab group, a new window, a theme changed in place, the split view, scrolling before load, closed parts       |
-| **Unreleased (#135):** The source view stays scrolled as far as it was when its tab moves to another tab group or window                                                           | `source.test.ts`: back after a layout change or a resize, not after the reader's scrolling                                                                                | `move.e2e.ts`: another tab group and a new window                                                                                      |
+| A tab moved to another tab group or window keeps its reading style, and the place of a page that scrolls as a whole; the split view follows only its page (#126)                   | `move.test.ts`: the place, by the element at the window's top, through `display: contents` and in parts closed again; placing again at `load` until the reader's input    | `move.e2e.ts`: a narrower tab group, a new window, a theme changed in place, the split view, scrolling before load, closed parts       |
+| The source view stays scrolled as far as it was when its tab moves to another tab group or window (#135)                                                                           | `source.test.ts`: back after a layout change or a resize, not after the reader's scrolling                                                                                | `move.e2e.ts`: another tab group and a new window                                                                                      |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                        |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                              |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                          |
@@ -90,56 +90,58 @@ on. Costs that could matter were measured in Obsidian in their pull requests, su
 second for every 8 MB copied into a page with scripts on (#58), and about 1.5 s for a search of a
 page with 80,009 elements, three times as long as before find left out hidden text (#121).
 
-**Unreleased (#91):** `css.test.ts` checks the scanner's token kinds and spans, bad strings, escapes
-(only 0-9, A-F, and a-f are hex digits) and line continuations, malformed URL recovery, and nesting
-in import preludes. The CSS token boundary cases in `document.test.ts` cover strings, comments,
-escaped URL names, whitespace-terminated hex escapes, U+0000 in linked stylesheets, top-level
-imports and the end of their media lists, and the local-file copying pass, in `<style>` elements
-and linked stylesheets, the document's and a shadow root's alike (#124). They also check that
-20,000 malformed URL openers preserve their text within 2 s, and that linked stylesheet imports keep
-their cycle and eight-file depth limits, also in a shadow root. `resources.e2e.ts` checks generated
-content beside an applied local stylesheet in real Obsidian, in the document and in a shadow root.
-`scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300 KB and 4 MB
-stylesheets, as observations rather than a check.
+CSS resource coverage (#91): `css.test.ts` checks the scanner's token kinds and spans, bad strings,
+escapes (only 0-9, A-F, and a-f are hex digits) and line continuations, malformed URL recovery, and
+nesting in import preludes. The CSS token boundary cases in `document.test.ts` cover strings,
+comments, escaped URL names, whitespace-terminated hex escapes, U+0000 in linked stylesheets,
+top-level imports and the end of their media lists, and the local-file copying pass, in `<style>`
+elements and linked stylesheets, the document's and a shadow root's alike (#124). They also check
+that 20,000 malformed URL openers preserve their text within 2 s, and that linked stylesheet imports
+keep their cycle and eight-file depth limits, also in a shadow root. `resources.e2e.ts` checks
+generated content beside an applied local stylesheet in real Obsidian, in the document and in a
+shadow root. `scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300
+KB and 4 MB stylesheets, as observations rather than a check.
 
-**Unreleased (#136):** `css.test.ts` checks where imports count: only where a top-level rule
-starts, before every rule but `@charset`, `@supports-condition`, other imports, and `@layer`
+Import position coverage (#136): `css.test.ts` checks where imports count: only where a top-level
+rule starts, before every rule but `@charset`, `@supports-condition`, other imports, and `@layer`
 statements before the first import, with `<!--` and `-->` left out between rules. The cases in
 `document.test.ts` read no import after a style rule, in a rule's selector, or after a stray `)`,
-`}`, or `;`, or an `@layer` statement after an import, in `<style>` elements and linked
-stylesheets, the document's and a shadow root's alike, with and without copying files.
-`resources.e2e.ts` checks in Obsidian that such an import does not apply, that one after
-`@charset`, an `@layer` statement, and `<!--` does, and that a linked stylesheet that starts with
-a byte order mark keeps its import, as Obsidian's reads leave the mark out.
+`}`, or `;`, or an `@layer` statement after an import, in `<style>` elements and linked stylesheets,
+the document's and a shadow root's alike, with and without copying files. `resources.e2e.ts` checks
+in Obsidian that such an import does not apply, that one after `@charset`, an `@layer` statement,
+and `<!--` does, and that a linked stylesheet that starts with a byte order mark keeps its import,
+as Obsidian's reads leave the mark out.
 
-**Unreleased (#144):** `css.test.ts` classifies an import's conditions by their tokens: none, a
-media query list, or conditions that start with `layer` or `scope`, or have a function at their top
-level, such as `layer()`, `scope()`, and `supports()`, written with comments and escapes too.
-`document.test.ts` checks that only a media query list becomes `@media`, and that the others stay
-imports and read nothing. `resources.e2e.ts` checks in Obsidian that an import into a layer with a
-comment before `layer` stays an import in the copy, which Obsidian does not load (#151).
+Import condition coverage (#144): `css.test.ts` classifies an import's conditions by their tokens:
+none, a media query list, or conditions that start with `layer` or `scope`, or have a function at
+their top level, such as `layer()`, `scope()`, and `supports()`, written with comments and escapes
+too. `document.test.ts` checks that only a media query list becomes `@media`, and that the others
+stay imports and read nothing. `resources.e2e.ts` checks in Obsidian that an import into a layer
+with a comment before `layer` stays an import in the copy, which Obsidian does not load (#151).
 
-**Unreleased (#139):** `css.test.ts` checks what closes a stylesheet that ends inside a comment, a
-string, an unquoted URL, an escape, blocks, or a rule that has not ended, that nothing is open once
-it is closed, and which `}` are outside any block. The cases in `document.test.ts` copy no file
-that only the importing stylesheet's strings name, keep the rules after the import, and resolve an
-unquoted URL at the end of an imported stylesheet against that stylesheet, in every place a page
-has a stylesheet. An import with media conditions of a stylesheet with a `}` outside any block,
-also one in a stylesheet that it imports, stays an import. `resources.e2e.ts` checks in Obsidian
-that the rules after imports whose stylesheets end inside a string, a comment, an unquoted `url(`,
-and a block apply, and that their strings stay strings with scripts on and files copied.
+Imported stylesheet end coverage (#139): `css.test.ts` checks what closes a stylesheet that ends
+inside a comment, a string, an unquoted URL, an escape, blocks, or a rule that has not ended, that
+nothing is open once it is closed, and which `}` are outside any block. The cases in
+`document.test.ts` copy no file that only the importing stylesheet's strings name, keep the rules
+after the import, and resolve an unquoted URL at the end of an imported stylesheet against that
+stylesheet, in every place a page has a stylesheet. An import with media conditions of a stylesheet
+with a `}` outside any block, also one in a stylesheet that it imports, stays an import.
+`resources.e2e.ts` checks in Obsidian that the rules after imports whose stylesheets end inside a
+string, a comment, an unquoted `url(`, and a block apply, and that their strings stay strings with
+scripts on and files copied.
 
-**Unreleased (#143):** `document.test.ts` checks, in the document and in a shadow root, with and
-without copying files, that the plugin reads and copies only for an HTML or SVG `<style>`'s own text
-nodes, joined, and for HTML stylesheet links, also inside SVG's `<foreignObject>`. Rewriting an SVG
-`<style>` keeps its child elements, and text put into it stays text when the copy is parsed again.
-Nothing that a MathML `<style>`, an SVG `<style>`'s child elements, or a `<link>` inside SVG or
-MathML names is read or copied, and a MathML `<style>` or such a `<link>` does not keep the reading
-style out. `resources.e2e.ts` shows in Obsidian 1.5.3 and the latest release what Chromium applies,
-in the document and in a shadow root, with scripts off and with them on and copying files: an SVG
-`<style>`'s own text, joined across a child element, and nothing inside that element, in a MathML
-`<style>`, or from a `<link>` inside SVG, to which Chromium gives no stylesheet. It also checks that
-the copy holds neither those stylesheets' text nor their files.
+`<style>` and `<link>` coverage (#143): `document.test.ts` checks, in the document and in a shadow
+root, with and without copying files, that the plugin reads and copies only for an HTML or SVG
+`<style>`'s own text nodes, joined, and for HTML stylesheet links, also inside SVG's
+`<foreignObject>`. Rewriting an SVG `<style>` keeps its child elements, and text put into it stays
+text when the copy is parsed again. Nothing that a MathML `<style>`, an SVG `<style>`'s child
+elements, or a `<link>` inside SVG or MathML names is read or copied, and a MathML `<style>` or such
+a `<link>` does not keep the reading style out. `resources.e2e.ts` shows in Obsidian 1.5.3 and the
+latest release what Chromium applies, in the document and in a shadow root, with scripts off and
+with them on and copying files: an SVG `<style>`'s own text, joined across a child element, and
+nothing inside that element, in a MathML `<style>`, or from a `<link>` inside SVG, to which Chromium
+gives no stylesheet. It also checks that the copy holds neither those stylesheets' text nor their
+files.
 
 ## Shown to fail
 
@@ -208,58 +210,57 @@ On 2026-11-17, these failed `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1:
 Collecting a page's templates by passing them all to one call failed the test now in
 `document.stress.ts` on a page with more of them than a call can take.
 
-**Unreleased (#115):** On 2026-11-17, with the view as 0.5.2 has it, Obsidian's reload of a changed
-file that finished after another file opened in the tab showed the first file's contents under the
-second file's name: in `refresh.test.ts`, whose stand-in for Obsidian now reloads a changed file as
+On 2026-11-17 (#115), with the view as 0.5.2 has it, Obsidian's reload of a changed file that
+finished after another file opened in the tab showed the first file's contents under the second
+file's name: in `refresh.test.ts`, whose stand-in for Obsidian now reloads a changed file as
 Obsidian 1.5.3 and 1.15.1 do, and in `read-only.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where nothing
 was written. Leaving out the view's own read of its file failed both of `read-only.e2e.ts`'s tests
 of Obsidian's reload in 1.5.3 and 1.15.1: neither a change on disk nor the late reload showed the
 page again.
 
-**Unreleased (#124):** on 2026-11-17, the earlier preparation of a page, which left the content of
-its templates, and so of its declared shadow roots, as written, failed the new shadow DOM and SVG
-link tests in `document.test.ts`, and in Obsidian 1.5.3 and 1.15.1 those in `resources.e2e.ts` and
-`links.e2e.ts`: the shadow DOM's image found by name, linked stylesheet, and import did not show,
-with scripts off or with them on and copying files; its link and image had no title; and SVG links
-had no `xlink:title`. The split view's earlier pairing, which left out shadow roots, failed
+On 2026-11-17 (#124), the earlier preparation of a page, which left the content of its templates,
+and so of its declared shadow roots, as written, failed the new shadow DOM and SVG link tests in
+`document.test.ts`, and in Obsidian 1.5.3 and 1.15.1 those in `resources.e2e.ts` and `links.e2e.ts`:
+the shadow DOM's image found by name, linked stylesheet, and import did not show, with scripts off
+or with them on and copying files; its link and image had no title; and SVG links had no
+`xlink:title`. The split view's earlier pairing, which left out shadow roots, failed
 `split.test.ts`, and `split.e2e.ts` in both versions, where scrolling the source to paragraph 30's
 line moved the page to paragraph 88.
 
-**Unreleased (#124):** on 2026-11-17, after the independent review, these failed against the
-earlier version of this change. Giving every SVG link without text a tooltip failed the new tooltip
-test in `document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around a
-labelled shape and one around a `<use>` icon with a title were named by their URLs instead (#117).
-The split view's pairing, which left out the body's own shadow root and took every shadow root to
-come before its host's own content, failed `split.test.ts`, and `split.e2e.ts` in both versions:
-scrolling the source to paragraph 30's line moved a page whose body has a shadow root to paragraph
-89, and scrolling it to paragraph 15's line left a page that declares its shadow root after 30
-paragraphs at paragraph 1.
-
-**Unreleased (#124):** on 2026-11-17, after the follow-up review, these failed against the version
-before it. Giving a tooltip to an SVG link around HTML in a `<foreignObject>` failed the new tooltip
-test in `document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around
-text in a shadow root declared there was named by its URL instead (#117). The split view's pairing,
-which took any comment with its mark's text for the mark, and also the mark of a declaration that
-stayed a template, failed `split.test.ts` and `document.test.ts`, and `split.e2e.ts` in both
-versions: with a comment of the page's own with that text before its first paragraph, scrolling the
-source to paragraph 15's line left a page that declares its shadow root after 30 paragraphs at
+On 2026-11-17 (#124), after the independent review, these failed against the earlier version of that
+change. Giving every SVG link without text a tooltip failed the new tooltip test in
+`document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around a labelled
+shape and one around a `<use>` icon with a title were named by their URLs instead (#117). The split
+view's pairing, which left out the body's own shadow root and took every shadow root to come before
+its host's own content, failed `split.test.ts`, and `split.e2e.ts` in both versions: scrolling the
+source to paragraph 30's line moved a page whose body has a shadow root to paragraph 89, and
+scrolling it to paragraph 15's line left a page that declares its shadow root after 30 paragraphs at
 paragraph 1.
 
-**Unreleased (#126):** On 2026-11-17, `move.e2e.ts` failed in Obsidian 1.5.3 and 1.15.1 with the
-view as 0.5.2 has it: after the tab moved, the page was back at its top in a new tab group and in a
-new window, a theme changed in place was undone, and the split view's sides were apart. Keeping the
-page's place as the height it was scrolled to failed only the move to a narrower tab group, where
-the page showed paragraph 19 or 21 in place of 30. Keeping the split view's following of the
-document that the frame dropped failed only the split view's test, which counted six measurements
-of that document after the move. Placing the page again when it had loaded, even after the reader
-had scrolled it with the mouse wheel, in the page or in the split view's source, failed both tests
-of the reader's scrolling: the page showed paragraph 30 again in place of 41 or 42. Treating only a
-part without a box as closed failed both tests of a part closed again, in both versions: the page
-showed a closed `<details>` element 418 pixels, and a closed accordion's panel 429 pixels, above the
-window's top. It also failed `move.test.ts`'s tests of those parts and of a page inside an element
-with `display: contents`, which kept its place only as a share of the body's height.
+On 2026-11-17 (#124), after the follow-up review, these failed against the version before it. Giving
+a tooltip to an SVG link around HTML in a `<foreignObject>` failed the new tooltip test in
+`document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around text in a
+shadow root declared there was named by its URL instead (#117). The split view's pairing, which took
+any comment with its mark's text for the mark, and also the mark of a declaration that stayed a
+template, failed `split.test.ts` and `document.test.ts`, and `split.e2e.ts` in both versions: with a
+comment of the page's own with that text before its first paragraph, scrolling the source to
+paragraph 15's line left a page that declares its shadow root after 30 paragraphs at paragraph 1.
 
-**Unreleased (#91):** On 2026-11-17, each of these deliberate breakages failed the check named:
+On 2026-11-17 (#126), `move.e2e.ts` failed in Obsidian 1.5.3 and 1.15.1 with the view as 0.5.2 has
+it: after the tab moved, the page was back at its top in a new tab group and in a new window, a
+theme changed in place was undone, and the split view's sides were apart. Keeping the page's place
+as the height it was scrolled to failed only the move to a narrower tab group, where the page showed
+paragraph 19 or 21 in place of 30. Keeping the split view's following of the document that the frame
+dropped failed only the split view's test, which counted six measurements of that document after the
+move. Placing the page again when it had loaded, even after the reader had scrolled it with the
+mouse wheel, in the page or in the split view's source, failed both tests of the reader's scrolling:
+the page showed paragraph 30 again in place of 41 or 42. Treating only a part without a box as
+closed failed both tests of a part closed again, in both versions: the page showed a closed
+`<details>` element 418 pixels, and a closed accordion's panel 429 pixels, above the window's top.
+It also failed `move.test.ts`'s tests of those parts and of a page inside an element with
+`display: contents`, which kept its place only as a share of the body's height.
+
+On 2026-11-17, each of these deliberate breakages failed the check named (#91):
 
 - The regular expressions used before #91, which read URLs and imports inside CSS strings and
   comments: `document.test.ts`, also with only a shadow root's `<style>` elements and linked
@@ -282,32 +283,32 @@ with `display: contents`, which kept its place only as a share of the body's hei
 - Assigning every `<style>` element's text, even unchanged, which removed an SVG `<style>`
   element's children: `document.test.ts`.
 
-**Unreleased (#136):** On 2026-11-17, the stylesheet preparation before this change, after #91,
-failed both new tests of imports in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where an
-import after a style rule applied. Finding imports anywhere outside blocks, as it does, or at the
-start of any top-level rule, or allowing `@layer` statements after an import, failed `css.test.ts`
-and `document.test.ts`. So did reading `<!--` and `-->` as other text.
+On 2026-11-17 (#136), the stylesheet preparation before that change, after #91, failed both new
+tests of imports in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where an import after a style
+rule applied. Finding imports anywhere outside blocks, as it does, or at the start of any top-level
+rule, or allowing `@layer` statements after an import, failed `css.test.ts` and `document.test.ts`.
+So did reading `<!--` and `-->` as other text.
 
-**Unreleased (#144):** On 2026-11-17, in the same `resources.e2e.ts` run, an import into a layer
-with a comment before `layer` became `@media /**/ layer`. The regular expression that classified
-an import's conditions before this change failed `document.test.ts`.
+On 2026-11-17 (#144), in the same `resources.e2e.ts` run, an import into a layer with a comment
+before `layer` became `@media /**/ layer`. The regular expression that classified an import's
+conditions before that change failed `document.test.ts`.
 
-**Unreleased (#139):** On 2026-11-17, in the same `resources.e2e.ts` run, the rules after imports
-whose stylesheets end inside a string, a comment, an unquoted `url(`, or a block did not apply.
-These failed `document.test.ts`:
+On 2026-11-17 (#139), in the same `resources.e2e.ts` run, the rules after imports whose stylesheets
+end inside a string, a comment, an unquoted `url(`, or a block did not apply. These failed
+`document.test.ts`:
 
 - Inlining an imported stylesheet without closing it.
 - Closing it after resolving its own URLs, which left its unquoted URL at the end unresolved.
 - Putting a stylesheet with a `}` outside any block in `@media`, or checking only its own text and
   not that of the stylesheets it imports.
 
-**Unreleased (#143):** On 2026-11-17, the preparation of `<style>` elements and links as `main` had
-it at `f329f7f` failed four tests in `document.test.ts`, and both tests of `<style>` text in
-`resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1. There, a rule inside an SVG `<style>`'s `<desc>`
-applied once the copy rewrote the `<style>`, which lost its `<desc>`. A `<link>` inside SVG applied,
-as an SVG `<style>` that the copy put in its place. The copy held the text of both stylesheets that
-nothing applies and, with scripts on, six copied images where the applied CSS names two. Each of
-these breakages failed the check named in `document.test.ts`:
+On 2026-11-17 (#143), the preparation of `<style>` elements and links as `main` had it at `f329f7f`
+failed four tests in `document.test.ts`, and both tests of `<style>` text in `resources.e2e.ts` in
+Obsidian 1.5.3 and 1.15.1. There, a rule inside an SVG `<style>`'s `<desc>` applied once the copy
+rewrote the `<style>`, which lost its `<desc>`. A `<link>` inside SVG applied, as an SVG `<style>`
+that the copy put in its place. The copy held the text of both stylesheets that nothing applies and,
+with scripts on, six copied images where the applied CSS names two. Each of these breakages failed
+the check named in `document.test.ts`:
 
 - Processing a MathML `<style>`: the reads and copies test, and the reading style test.
 - Reading an SVG `<style>`'s `textContent`: the reads and copies test, and the rewriting test.
@@ -319,11 +320,10 @@ these breakages failed the check named in `document.test.ts`:
 
 ## Limits
 
-- **Unreleased (#141):** which tab a link opens in is tested in Obsidian for plain and Ctrl clicks
-  in the main area, a pinned tab, and a new window. Ctrl+Alt (a split) and Ctrl+Alt+Shift (a new
-  window) are checked only against the unit tests' stand-in, and a page in a sidebar is not tested.
-  WebDriver cannot click inside a page in a second window, so that test dispatches the click in the
-  page.
+- Which tab a link opens in (#141) is tested in Obsidian for plain and Ctrl clicks in the main area,
+  a pinned tab, and a new window. Ctrl+Alt (a split) and Ctrl+Alt+Shift (a new window) are checked
+  only against the unit tests' stand-in, and a page in a sidebar is not tested. WebDriver cannot
+  click inside a page in a second window, so that test dispatches the click in the page.
 - On Chromium 135 to 141, which some Obsidian versions between the tested ones use, a page's own
   styles can lift the copy's inertness before the view watches it (#127). Neither tested host is
   affected; there the view's listeners, added as soon as each document exists, still protect it.
@@ -350,12 +350,12 @@ these breakages failed the check named in `document.test.ts`:
 - Obsidian 1.5.3 and 1.15.1 name an SVG link from nothing inside a `<foreignObject>`, which
   Chrome 157 includes. The viewer gives such a link no tooltip, which would replace that name, so
   on those versions a link around HTML without a label of its own has neither (#117).
-- **Unreleased (#126):** After a tab moves, the view stops placing its page again once the reader
-  presses a key or a pointer button, touches the screen, or turns the mouse wheel, in the page or
-  elsewhere in the view. `move.e2e.ts` scrolls with the mouse wheel. `move.test.ts` stops the
-  placement with each of the four kinds of input in jsdom, which does not show that Chromium sends
-  them where the view listens. A page inside an element with `display: contents`, and a part that
-  a page hides with `display: none`, are tested only in `move.test.ts`.
+- After a tab moves (#126), the view stops placing its page again once the reader presses a key or a
+  pointer button, touches the screen, or turns the mouse wheel, in the page or elsewhere in the
+  view. `move.e2e.ts` scrolls with the mouse wheel. `move.test.ts` stops the placement with each of
+  the four kinds of input in jsdom, which does not show that Chromium sends them where the view
+  listens. A page inside an element with `display: contents`, and a part that a page hides with
+  `display: none`, are tested only in `move.test.ts`.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`

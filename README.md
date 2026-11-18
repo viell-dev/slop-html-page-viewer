@@ -11,7 +11,7 @@ The fork is not in Obsidian's community plugin directory. It is built for its ow
 [releases](https://github.com/viell-dev/slop-html-page-viewer/releases) are for installing by hand,
 and anyone may use it under the license.
 
-This guide describes **0.5.2**, the latest installable release, on **Linux desktop**.
+This guide describes **0.6.0**, the latest installable release, on **Linux desktop**.
 See [troubleshooting](#troubleshooting) for help and [the security model](#security-model) for
 what a page can access.
 
@@ -71,81 +71,68 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 - Opens `.html` and `.htm` files in their own Obsidian view, as a rendered preview by default, and
   the files of any other extension that its settings list, which it shows as HTML too.
 - Shows a page with its local files: images and stylesheets in the vault load as they would next to
-  the file on disk. A reference that does not resolve as a path finds its file as Obsidian's own
-  links do, by name or by a partial path.
+  the file on disk, also inside shadow DOM, which pages saved with their web components can contain.
+  A reference that does not resolve as a path finds its file as Obsidian's own links do, by name or
+  by a partial path.
 
-  **Unreleased (#124):** this holds inside shadow DOM too, which pages saved with their web
-  components can contain: its images, stylesheets, and imports load as the rest of the page's do,
-  and with **Local files with scripts on** its files are copied into the page as well.
-
-  **Unreleased (#91):** a stylesheet names files only with its `url()`s and top-level `@import`
-  rules, in shadow DOM too. Text inside CSS strings and comments, such as
-  `content: "url(icon.png)"`, stays as the page has it.
-
-  **Unreleased (#143):** only an HTML or SVG `<style>` element's own text, and a stylesheet `<link>`
-  in HTML, name files, as browsers read them. The elements inside an SVG `<style>`, a MathML
-  `<style>`, and a `<link>` inside SVG or MathML name none, and stay as the page has them. The
-  viewer does not yet check a `<style>` or `<link>` element's `type`, or a link's `disabled`
-  attribute (#147).
-
-  **Unreleased (#136):** as in browsers, only the imports at the start of a stylesheet count, after
-  nothing but `@charset`, other imports, and `@layer` statements before the first import.
+  The viewer finds a page's files only where browsers read them. Its stylesheets are an HTML or SVG
+  `<style>` element's own text and a stylesheet `<link>` in HTML; the elements inside an SVG `<style>`, a
+  MathML `<style>`, and a `<link>` inside SVG or MathML stay as the page has them. A stylesheet
+  names files only with its `url()`s and its imports, and only the imports at its start count,
+  after nothing but `@charset`, other imports, and `@layer` statements before the first import.
+  Text inside CSS strings and comments, such as `content: "url(icon.png)"`, stays as the page has
+  it. The viewer does not yet check a `<style>` or `<link>` element's `type`, or a link's `disabled`
+  attribute ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
   browser would instead.
 - Follows links as Obsidian does: web links open outside Obsidian, in the default browser, links to
   other HTML pages open them in the viewer, links to notes and other vault files open them as
-  Obsidian opens a file, and links within the page scroll to their target. Ctrl-click or a middle
-  click opens a new tab. Following HTML and SVG links (including legacy `xlink:href`) is supported,
-  also in shadow DOM, which pages saved with their web components can contain.
-  Hovering an HTML link shows where it leads, and hovering an image shows its alt text, unless the
-  page gives them titles of its own.
+  Obsidian opens a file, and links within the page scroll to their target. Following HTML and SVG
+  links (including legacy `xlink:href`) is supported, also in shadow DOM, which pages saved with
+  their web components can contain.
 
-  **Unreleased (#117):** so do links and images inside shadow DOM, and SVG links that nothing inside
-  names. An SVG link with text, a labelled or titled shape, a `<use>` icon, or HTML content in a
-  `<foreignObject>` inside shows none: Chromium reads an SVG link's tooltip as its name for
-  assistive technology, in place of the name that its content gives it, so the viewer leaves that
-  name.
+  A link to a vault file opens as a link in a note in the page's tab does: in that tab, or with
+  Ctrl-click or a middle click in a new tab beside it, also while a tab in another tab group or
+  window is the active one. A link in a pinned tab opens where one in a pinned note does. In a
+  sidebar, a link opens in the sidebar's tab, and Ctrl-click or a middle click opens a new tab in
+  the main area.
 
-  **Unreleased (#141):** a link opens in the page's own tab, and with Ctrl or a middle click in a
-  new tab beside it, also while a tab in another tab group or window is the active one. Before, it
-  opened from that tab: in its place, or with Ctrl in a new tab beside it. A link in a pinned tab
-  opens where one in a pinned note does. In a sidebar, a link opens in the sidebar's tab, as one in
-  a note there does; Ctrl or a middle click opens a new tab in the main area.
+  Hovering an HTML link shows where it leads, and hovering an image shows its alt text, also inside
+  shadow DOM, unless the page gives them titles of its own. So does hovering an SVG link that
+  nothing inside names. An SVG link with text, a labelled or titled shape, a `<use>` icon, or HTML
+  content in a `<foreignObject>` inside shows none: Chromium reads an SVG link's tooltip as its name
+  for assistive technology, in place of the name that its content gives it, so the viewer leaves
+  that name.
 
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Shows the source and the page side by side in its **Split** view, one above the other in a narrow
-  pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole.
-
-  **Unreleased (#124):** also where the page's content is inside shadow DOM.
-
+  pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole, also
+  where the page's content is inside shadow DOM.
 - Finds text in the source and, with scripts off, in the rendered page: the toolbar's search button,
   Ctrl+F while the viewer has focus, or the **Find in page** command opens a find bar, which
   highlights every match, up to 10,000, and moves between them with Enter and Shift+Enter; Escape
-  closes it, and closing keeps the query. In the page, a match stays within a paragraph or another
-  block, and leaves out text that the page hides, such as with `display: none`,
-  `visibility: hidden`, or zero opacity. In the split view, it finds in the source, which the page
+  closes it, and closing keeps the query. In the split view, it finds in the source, which the page
   follows.
 
-  **Unreleased (#122):** in the page, find also leaves out fallback content and SVG resources that
-  Obsidian never paints, still finds painted SVG text, also directly in `foreignObject`, and finds a
-  closed select's chosen option, which it cannot highlight; multiple selects, list boxes, and
-  option `label` attributes are not searched. It also searches the page's shadow roots and slots,
-  with matches ending at their boundaries (#124).
+  In the page, find searches the text that Obsidian paints, also in the page's shadow roots and
+  slots. A match stays within a paragraph or another block, and within one shadow root. Find leaves
+  out text that the page hides, such as with `display: none`, `visibility: hidden`, or zero opacity,
+  and fallback content and SVG resources that Obsidian never paints. It finds painted SVG text, also
+  directly in `foreignObject`, and a closed select's chosen option, which it cannot highlight;
+  multiple selects, list boxes, and option `label` attributes are not searched.
 
 - Keeps a tab's **Theme** and **Rendered**, **Source**, or **Split** choice for the next page it
   shows, also after a note in between. A new tab starts rendered.
-- **Unreleased (#126):** When its tab moves to another tab group or window, a page keeps the theme
-  and line width that it shows and, for a page that scrolls as a whole, its place, and the split
-  view's two sides stay in step there. The place is the part of the page at the window's top, so it
-  holds where the page wraps differently in its new pane.
-- **Unreleased (#135):** The **Source** view stays scrolled as far as it was when its tab moves to
-  another tab group or window; on Obsidian 1.5.3 it started again from its top. Where long lines
-  wrap differently in its new pane, that can show other lines.
+- When its tab moves to another tab group or window, a page keeps the theme and line width that it
+  shows and, for a page that scrolls as a whole, its place, and the split view's two sides stay in
+  step there. The place is the part of the page at the window's top, so it holds where the page
+  wraps differently in its new pane. The **Source** view stays scrolled as far as it was; where long
+  lines wrap differently in its new pane, that can show other lines.
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
   on by default; and **File extensions**, `html, htm` by default.
@@ -160,42 +147,37 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   allows a page only inline styles, so the viewer copies each linked stylesheet from the vault into
   the page it shows; it does not download stylesheets from the web. A local stylesheet applies only
   from a file whose name ends in `.css`.
-- **Imports into cascade layers or with support conditions do not apply** when they name a
-  stylesheet in the vault, such as `@import "base.css" layer;`. The viewer does not copy them into
-  the page as it copies other imports, and Obsidian's policy keeps the page from loading them
-  ([#151](https://github.com/viell-dev/slop-html-page-viewer/issues/151)).
-
-  **Unreleased (#136):** neither do imports after a rule that browsers drop as invalid, such as an
-  unknown at-rule, which browsers still apply: telling which rules are valid would take a CSS
-  parser.
-
-  **Unreleased (#139):** nor does an import with media conditions of a stylesheet that has a `}`
-  outside any block: the viewer keeps it as an import rather than wrap the stylesheet in `@media`,
-  where that `}` would end the wrapper early.
-
-- **With scripts on, local files load only when they are copied into the page.** Scripts run
-  without access to Obsidian, and Obsidian does not serve vault files to such a page. Copied
-  stylesheets still apply, and the **Local files with scripts on** setting copies the page's images,
-  media, text tracks, fonts, and scripts into it as well: up to 32 MB for a page, scripts and fonts
-  first, counting a file again for each place that uses it, and no file over 8 MB. Such a page takes
-  about a second longer to open for every 8 MB. Files that a script loads itself, such as with
-  `fetch`, modules that a module script imports, and pages in frames still do not load.
+- **Some imports of vault stylesheets do not apply.** The viewer copies a page's imports of
+  stylesheets in the vault into the page, but leaves these as imports, which Obsidian's policy keeps
+  the page from loading:
+  - imports into cascade layers or with support conditions, such as `@import "base.css" layer;`
+    ([#151](https://github.com/viell-dev/slop-html-page-viewer/issues/151));
+  - imports after a rule that browsers drop as invalid, such as an unknown at-rule, which browsers
+    still apply: telling which rules are valid would take a CSS parser;
+  - an import with media conditions of a stylesheet that has a `}` outside any block: wrapped in
+    `@media`, as the viewer copies other such imports, that `}` would end the wrapper early.
+- **With scripts on, local files load only when they are copied into the page.** Scripts run without
+  access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets
+  still apply, and the **Local files with scripts on** setting copies the page's images, media, text
+  tracks, fonts, and scripts into it as well, also those of its shadow DOM: up to 32 MB for a page,
+  scripts and fonts first, counting a file again for each place that uses it, and no file over 8 MB.
+  Such a page takes about a second longer to open for every 8 MB. Files that a script loads itself,
+  such as with `fetch`, modules that a module script imports, and pages in frames still do not load.
 - **With scripts on, links work as in a browser frame:** the viewer cannot reach the page to follow
   them, so a link opens in the frame itself. For the same reason, the find bar then finds only in
   the source view, and the split view's sides scroll apart.
-- **Unreleased (#126):** **A page with scripts on starts again from its top** when its tab moves to
-  another tab group or window, and its scripts run again: the viewer cannot reach the page to keep
-  its place.
-- **Unreleased (#126):** **Parts of a page that scroll by themselves start again from their
-  beginning** when its tab moves to another tab group or window, as does a page that scrolls only
-  inside such a part, such as a main column beside a sidebar, or a wide table or code block in a box
-  of its own. Only the place of the page as a whole is kept. A part that the page opens, such as a
-  `<details>` element or a section that a checkbox shows, is closed again. A page whose place was
-  inside it shows the closed part at the window's top: a `<details>` element with its summary, and a
-  section that the page's styles close by its height from where its content would begin, so that a
-  heading just before it is just above the window's top, or in view when an element around the
-  section clips it too. For a section that they hide so that it
-  takes no space, the page shows the element around it from that element's top.
+- **A page with scripts on starts again from its top** when its tab moves to another tab group or
+  window, and its scripts run again: the viewer cannot reach the page to keep its place.
+- **Parts of a page that scroll by themselves start again from their beginning** when its tab
+  moves to another tab group or window, as does a page that scrolls only inside such a part, such as
+  a main column beside a sidebar, or a wide table or code block in a box of its own. Only the place
+  of the page as a whole is kept. A part that the page opens, such as a `<details>` element or a
+  section that a checkbox shows, is closed again. A page whose place was inside it shows the closed
+  part at the window's top: a `<details>` element with its summary, and a section that the page's
+  styles close by its height from where its content would begin, so that a heading just before it
+  is just above the window's top, or in view when an element around the section clips it too. For a
+  section that they hide so that it takes no space, the page shows the element around it from that
+  element's top.
 - **A link to a part of another page** opens that page at its top.
 - **A link that SVG `<use>` copies** from elsewhere in the page does nothing when clicked: the
   viewer cannot tell which copied link it is, and the page stays in its frame.
@@ -242,7 +224,7 @@ hotkey of its own; one can be set in **Settings → Hotkeys**.
   reference that resolves to no vault file, by path or by name, shows nothing.
 - **A page shows without its styles**: stylesheets from the web do not apply, apart from Google
   Fonts, and a local stylesheet applies only from a `.css` file. A stylesheet that cannot be read is
-  left out, as a missing one is.
+  left out, as a missing one is, and some imports do not apply; see [Limits](#limits).
 - **The view says it is unable to prepare a page**: the viewer could not make the copy of the page
   that it shows, and says why rather than show the file without the copy's protections. The source
   view still shows the file, and **Refresh preview** tries again. Report a defect with the message.

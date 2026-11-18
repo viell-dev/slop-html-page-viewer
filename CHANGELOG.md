@@ -8,11 +8,10 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
-- Find leaves out unpainted fallback and SVG resource text, includes a closed select's chosen text,
-  and searches and highlights text in shadow roots and slots. Opening an empty find bar avoids
-  collecting the page's text (#122, #121, #124).
-- A tab no longer shows a page's earlier contents under another page's name when the first page
-  changes on disk just as the other opens in the tab (#115).
+Nothing that changes the plugin.
+
+## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
+
 - Content inside a page's shadow DOM, which pages saved with their web components can contain, is
   shown as the rest of the page: its images load, also those that it names by file name only, its
   stylesheets and imports apply, and with **Local files with scripts on** its files are copied into
@@ -20,16 +19,28 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - Hovering a link or an image inside shadow DOM shows where the link leads and the image's alt
   text, and hovering an SVG link without text, labels, icons, or HTML content inside shows where it
   leads (#117, #124).
+- A link from a page to a vault file opens in the page's own tab, and with Ctrl or a middle click in
+  a new tab beside it, also while a tab in another tab group or window is the active one, instead of
+  from that tab. In a sidebar, a plain click now opens the link in the sidebar's tab, as one in a
+  note there does (#141).
 - When its tab moves to another tab group or window, a page keeps the theme and line width that it
   shows and, if it scrolls as a whole, its place, and the split view's two sides stay in step there
   (#126).
+- On Obsidian 1.5.3, the **Source** view stays scrolled as far as it was when its tab moves to
+  another tab group or window, instead of starting again from its top (#135).
 - A page follows a change of Obsidian's theme or of **Readable line length** made while the viewer
   was still preparing it (#140).
-- Preserve CSS strings and comments when resolving resources and copying local files, and avoid
-  stalls on repeated malformed `url(` text (#91). Stylesheet imports inside `@media` or style
-  blocks are no longer inlined, as browsers ignore them there, while imports written with comments
-  or escapes, such as `@import /**/ url(…)` or `@\69mport`, now are. Unquoted URLs with an escaped
-  `)` or `"` now resolve, and a linked stylesheet that imports itself no longer repeats its rules.
+- A tab no longer shows a page's earlier contents under another page's name when the first page
+  changes on disk just as the other opens in the tab (#115).
+- Find leaves out unpainted fallback and SVG resource text, includes a closed select's chosen text,
+  and searches and highlights text in shadow roots and slots. Opening an empty find bar avoids
+  collecting the page's text (#122, #121, #124).
+- CSS strings and comments stay as the page has them when the viewer resolves resources and copies
+  local files, and repeated malformed `url(` text no longer stalls it (#91). Stylesheet imports
+  inside `@media` or style blocks are no longer inlined, as browsers ignore them there, while
+  imports written with comments or escapes, such as `@import /**/ url(…)` or `@\69mport`, now are.
+  Unquoted URLs with an escaped `)` or `"` now resolve, and a linked stylesheet that imports itself
+  no longer repeats its rules.
 - Stylesheet imports count only where browsers apply them. An `@import` after a style rule, inside
   a rule's selector, or after a stray `;`, `)`, or `}` is no longer read into the page, while one
   after `@charset`, an `@layer` statement, or `<!--` still is (#136). An imported stylesheet that
@@ -44,12 +55,6 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   those elements. A MathML `<style>` no longer reads stylesheets or copies files, and a stylesheet
   `<link>` inside SVG or MathML no longer applies or adds its text to the page as markup. A page
   whose only styles are such a `<style>` or `<link>` now shows in Obsidian's theme (#143).
-- On Obsidian 1.5.3, the **Source** view stays scrolled as far as it was when its tab moves to
-  another tab group or window, instead of starting again from its top (#135).
-- A link in a page opens in the page's own tab, and with Ctrl or a middle click in a new tab beside
-  it, also while a tab in another tab group or window is the active one, instead of from that tab.
-  In a sidebar, a plain click now opens the link in the sidebar's tab, as one in a note there does
-  (#141).
 
 ## [0.5.2](.github/release-notes/0.5.2.md) - 2026-11-17
 

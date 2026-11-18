@@ -58,19 +58,27 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   page's own styles can lift that inertness, so there only the listeners protect it
   ([#127](https://github.com/viell-dev/slop-html-page-viewer/issues/127)). With scripts on, the view cannot
   reach the page, and a link navigates the frame, which keeps its sandbox.
-- **Unreleased (#91):** CSS resources. Resource-like text inside CSS strings and comments, in the
-  page's stylesheets and in its shadow DOM's alike, causes no stylesheet reads, and no copying
-  either. URL arguments and top-level stylesheet import sources, including their quoted forms, name
-  resources; the scan does not evaluate CSS.
-
-  **Unreleased (#136):** only imports that browsers apply name stylesheets: those at the start of a
+- **CSS resources.** A stylesheet names resources only with its URL arguments and the sources of
+  the imports that browsers apply, including their quoted forms: imports at the start of a
   stylesheet, after nothing but `@charset`, other imports, and `@layer` statements before the first
-  import.
-
-  **Unreleased (#139):** an imported stylesheet ends in the copy where CSS ends it, with what it
-  leaves open closed, so that string and comment text after its import stays text and names no
-  file. Inlining can still change which of the importing sheet's rules apply
+  import. Resource-like text inside CSS strings and comments, in the page's stylesheets and in its
+  shadow DOM's alike, causes no stylesheet reads, and no copying either. An imported stylesheet ends
+  in the copy where CSS ends it, with what it leaves open closed, so that string and comment text
+  after its import stays text and names no file. The scan does not evaluate CSS, and inlining can
+  still change which of the importing sheet's rules apply
   ([#152](https://github.com/viell-dev/slop-html-page-viewer/issues/152)).
+
+  Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
+  files, that only CSS strings or comments named, or that imports named which never apply: one
+  after a style rule, and one into a cascade layer written with a comment or an escape before
+  `layer`. An imported stylesheet that ended inside a string or a comment could make text after its
+  import name files.
+  Each such read and copy still passed the vault-path, `.css`, file-type, and copy-limit checks, so
+  none gave a page a file that it could not name in CSS that applies. Fixed in 0.6.0
+  ([#91](https://github.com/viell-dev/slop-html-page-viewer/issues/91),
+  [#136](https://github.com/viell-dev/slop-html-page-viewer/issues/136),
+  [#139](https://github.com/viell-dev/slop-html-page-viewer/issues/139),
+  [#144](https://github.com/viell-dev/slop-html-page-viewer/issues/144)).
 
 - **What the plugin does.** It reads vault files to prepare the copy: the page, the `.css` files
   that the page links or imports as stylesheets, and the files it copies into a page with scripts
@@ -79,19 +87,23 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   folder. Obsidian saves an open file's view to the file when the file leaves it; the viewer turns
   that saving off, so Obsidian does not write the files it shows either.
 
-  **Unreleased (#124):** these include the `.css` files that the page's shadow DOM links or
-  imports, and the files that it names there, read and copied by the same file types, limits, and
-  vault-only paths as the rest of the page's.
+  Since 0.6.0, these include the `.css` files that the page's shadow DOM links or imports, and the
+  files that it names there, read and copied by the same file types, limits, and vault-only paths
+  as the rest of the page's ([#124](https://github.com/viell-dev/slop-html-page-viewer/issues/124)).
 
-  **Unreleased (#143):** of the page's `<style>` and `<link>` elements, it reads and copies only
-  for an HTML or SVG `<style>` element's own text and for HTML stylesheet `<link>` elements, the
-  ones whose namespace Chromium applies. The elements inside an SVG `<style>`, a MathML `<style>`,
-  and a `<link>` inside SVG or MathML cause no reads or copying, and the copy keeps them as the page
-  has them. Such a `<link>` loads nothing; a `<style>` in its place would be parsed as SVG's or
-  MathML's in the frame, which reads its text as markup. It does not yet check their `type` or a
-  link's `disabled` attribute (#147). It also prepares the stylesheets in every `<template>`, whose
-  content a page with scripts on can use, and in `<noscript>`, which such a page never shows
-  (#148).
+  Of the page's `<style>` and `<link>` elements, it reads and copies only for an HTML or SVG
+  `<style>` element's own text and for HTML stylesheet `<link>` elements, the ones whose namespace
+  Chromium applies. The elements inside an SVG `<style>`, a MathML `<style>`, and a `<link>` inside
+  SVG or MathML cause no reads or copying, and the copy keeps them as the page has them. Such a
+  `<link>` loads nothing; a `<style>` in its place would be parsed as SVG's or MathML's in the
+  frame, which reads its text as markup. Before 0.6.0, the viewer read and copied for all of these,
+  and replaced a `<link>` inside SVG or MathML with such a `<style>`; fixed in 0.6.0
+  ([#143](https://github.com/viell-dev/slop-html-page-viewer/issues/143)). It does not yet check
+  their `type` or a link's `disabled` attribute
+  ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)). It also prepares the
+  stylesheets in every `<template>`, whose content a page with scripts on can use, and in
+  `<noscript>`, which such a page never shows
+  ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with
