@@ -102,6 +102,31 @@ generated content beside an applied local stylesheet in real Obsidian, in the do
 shadow root. `scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300
 KB and 4 MB stylesheets, as observations rather than a check.
 
+**Unreleased (#154):** beside the eight-file depth limit, `document.test.ts` checks the page's
+stylesheet limits: at most 1,000 links and imports followed, and 16 million characters of the
+stylesheets' text, shared by the page's links and imports in the document and in shadow roots.
+Every link and import followed counts, also of a missing, too large, or left-out stylesheet, so
+that one past the limit stays a link or an import and is not read. A smaller stylesheet after one
+too large still fits, one of exactly the limit fits alone, and each file is read once. A repeat of
+the page's own link or `<style>` import of a stylesheet copied whole gets that copy and counts
+only its text, each time, so that 550 components that link a stylesheet and 550 that import it,
+each kind more than the count allows, show whole. A repeat of one that cannot be read counts
+nothing, so that a stylesheet after 1,000 links and 1,000 imports of a missing or unreadable one
+is still copied. A link and an import of the same stylesheet stay apart, as only the import is
+closed at its end, and a repeated import of a stylesheet with a stray `}` stays an import in media
+conditions. One that the count or the text limit cut short is prepared again, and with **Local
+files with scripts on** the copy limits count the files of each place. `document.stress.ts`
+prepares eight stylesheets that each import the
+next ten times, eleven million stylesheets without the limits, with small and with 20 KB
+stylesheets, and a page of 4,000 such components. Its context fails the preparation once it has
+looked at twice as many imports as the limits allow, so that a missing limit fails the test within
+a second; by extrapolation from #154's measurements, the copy would otherwise pass V8's longest
+string within a minute or two. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that such
+a page shows the stylesheets up to the limit, that an import past it does not apply, and that the
+window's timers never stop for 2 s while it opens. They stopped for at most 0.3 s when measured
+(#154), against 3 to 5 s with five imports a stylesheet before the limits, and, by extrapolation,
+6 to 10 minutes for this page.
+
 Import position coverage (#136): `css.test.ts` checks where imports count: only where a top-level
 rule starts, before every rule but `@charset`, `@supports-condition`, other imports, and `@layer`
 statements before the first import, with `<!--` and `-->` left out between rules. The cases in
@@ -317,6 +342,30 @@ the check named in `document.test.ts`:
 - Turning a `<link>` inside SVG or MathML into a `<style>`: the links test, and the reading style
   test.
 - Counting any `<style>` as the page's own styles: the reading style test.
+
+**Unreleased (#154):** On 2026-11-18, each of these breakages failed the check named:
+
+- No limit on how many links and imports a page follows: `document.stress.ts`'s test of small
+  stylesheets, within a second, with its context's error, and four tests in `document.test.ts`.
+- No limit on the stylesheets' text: the stress test of 20 KB stylesheets, which took in 1,000
+  rather than 792, and three tests in `document.test.ts`.
+- Counting only the links and imports whose stylesheet the copy takes in: the counting test in
+  `document.test.ts`.
+- No reuse of a page's repeated links and imports, reuse of links only or of imports only, or a
+  repeat that takes one from the count: the components test in `document.test.ts`, and the stress
+  test of 4,000 components. A count limit of 10,000 without reuse passed the components test of the
+  time, with 600, but kept Obsidian from responding for 3 to 8 s on eight stylesheets that each
+  import the next ten times.
+- Keeping no result for a stylesheet that cannot be read: the test of repeats of such a stylesheet.
+- One kept text for a link and an import of the same URL, a repeat that loses the stray `}` of its
+  stylesheet, and a repeat checked against the text limit but not added to it: the test of each.
+- Reusing a stylesheet that the count, or the text limit, cut short: the test of preparing it
+  again after each. Reusing stylesheets at every depth: the counting test, the test of preparing
+  again after the text limit, and both fan-out stress tests.
+
+The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
+keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
+preparation's measurements in Obsidian, with up to five imports a stylesheet.
 
 ## Limits
 

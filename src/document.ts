@@ -44,6 +44,23 @@ export interface PageContext {
 const MAX_IMPORT_DEPTH = 8;
 
 /**
+ * A page's limits on its vault stylesheets (`StylesheetBudget`): how many
+ * links and imports of them preparation follows, and how much of their text,
+ * in UTF-16 code units, the copy takes in: a stylesheet's file text when it
+ * is followed, and its prepared text, as copied, for each repeat of the page's
+ * own link or import of it that gets that text again. The depth limit bounds an
+ * import chain, not how many imports each stylesheet has, so without these
+ * the work and the copy would grow with that number raised to the depth
+ * (#154). Web pages load a median of 7 stylesheets with 68 KB of CSS, and 22
+ * with 256 KB at the 90th percentile (HTTP Archive's Web Almanac, 2022).
+ * Preparing a copy keeps Obsidian from responding until it ends: there, 16
+ * million characters of stylesheets took 5 to 12 s, and 1,000 small ones with
+ * ten imports each 0.1 to 0.85 s, but 10,000 of them 3 to 8 s.
+ */
+export const STYLESHEET_COUNT_LIMIT = 1_000;
+export const STYLESHEET_TEXT_LIMIT = 16_000_000;
+
+/**
  * Whether a vault file is a stylesheet, by its extension; the copy includes
  * no other file that a page names as one. With scripts on, the page's scripts
  * can read the copy's stylesheets, so a page that named a note as one would
@@ -63,6 +80,100 @@ async function readStylesheet(context: PageContext, path: string): Promise<strin
     return await context.read(path);
   } catch {
     return null;
+  }
+}
+
+/**
+ * A stylesheet prepared for the copy, and whether its text has a `}` outside
+ * any block, which an `@media` block around it would end early.
+ */
+interface PreparedSheet {
+  readonly text: string;
+  readonly strayCloser: boolean;
+}
+
+/**
+ * The vault stylesheets that a page's copy takes in, within the page's
+ * limits, which the document and the content of its templates share, in the
+ * order they are prepared. Each file is read once, however often the page
+ * links or imports it.
+ */
+class StylesheetBudget {
+  private taken = 0;
+  private text = 0;
+  /** How often `take` has kept a stylesheet out for the limits. */
+  private refused = 0;
+  private readonly reads = new Map<string, Promise<string | null>>();
+  private readonly kept = new Map<string, PreparedSheet | null>();
+
+  constructor(private readonly context: PageContext) {}
+
+  /**
+   * The text of a stylesheet to put in the copy in place of a link or an
+   * import of it, or null to leave the link or import as it is: when the
+   * page has followed as many links and imports as it may, or the file cannot
+   * be read, or its text would take the page past its limit. A smaller one
+   * after it can still fit, as with the copy limits. Every call counts, the
+   * ones that return null too, and so does a stylesheet whose text the caller
+   * then leaves out, so that the count bounds the work, not only the copy. A
+   * repeat that `sheet` answers without preparing makes no call.
+   */
+  async take(path: string): Promise<string | null> {
+    if (this.taken >= STYLESHEET_COUNT_LIMIT) {
+      this.refused++;
+      return null;
+    }
+    this.taken++;
+    let read = this.reads.get(path);
+    if (read === undefined) {
+      read = readStylesheet(this.context, path);
+      this.reads.set(path, read);
+    }
+    const css = await read;
+    if (css === null) return null;
+    if (this.text + css.length > STYLESHEET_TEXT_LIMIT) {
+      this.refused++;
+      return null;
+    }
+    this.text += css.length;
+    return css;
+  }
+
+  /**
+   * A stylesheet that the page links, or imports from one of its own `<style>`
+   * elements, by `key`: what `prepare` makes of it with `take`, or null to
+   * leave the link or import as it is. Such a stylesheet is always prepared
+   * the same way, against its own URL and with its own file as its only
+   * ancestor for the depth and cycle checks, so the result depends only on
+   * `key`, unless the limits kept something out of it. The key holds the kind,
+   * a link or an import, with the URL: an imported stylesheet is closed at its
+   * end and a linked one is not, so their texts can differ.
+   *
+   * A result that the limits did not touch is kept: a prepared stylesheet, or
+   * null for one that cannot be read, which the read cache gives every repeat
+   * too. The same key again gets it without preparing it again. It takes
+   * nothing from the count, as the page's own links and imports grow only
+   * with the page; a prepared stylesheet takes the length of its prepared
+   * text, as copied, from the text limit. A page of components that each link
+   * the same stylesheet from a shadow root then counts it once (#154). Only
+   * these are kept: the imports inside stylesheets are what multiplies.
+   */
+  async sheet(
+    key: string,
+    prepare: () => Promise<PreparedSheet | null>,
+  ): Promise<PreparedSheet | null> {
+    if (!this.kept.has(key)) {
+      const refused = this.refused;
+      const sheet = await prepare();
+      // `prepare` uses only `take` of the budget, so the same count of
+      // refusals means that the limits left its result whole.
+      if (this.refused === refused) this.kept.set(key, sheet);
+      return sheet;
+    }
+    const kept = this.kept.get(key) ?? null;
+    if (kept === null || this.text + kept.text.length > STYLESHEET_TEXT_LIMIT) return null;
+    this.text += kept.text.length;
+    return kept;
   }
 }
 
@@ -383,22 +494,61 @@ function locateReferences(root: ParentNode, baseUrl: string, context: PageContex
 
 /**
  * Returns a stylesheet's text with its imports of vault stylesheets replaced by
- * their text, and every reference made absolute. Imports from elsewhere stay
- * as they are, for the browser to load or refuse.
+ * their text, within the limits of a page of its own (`StylesheetBudget`), and
+ * every reference made absolute. Imports from elsewhere stay as they are, for
+ * the browser to load or refuse, as do those past the limits. The plugin
+ * prepares stylesheets only through `preparePage`; the tests and
+ * `scripts/css-benchmark.mjs` use this to check and time a stylesheet's
+ * preparation without a page around it.
  */
 export async function inlineStylesheet(
   css: string,
   sheetUrl: string,
   context: PageContext,
-  seen: ReadonlySet<string> = new Set(),
-  tokens: readonly CssToken[] = cssTokens(css),
 ): Promise<string> {
-  return (await inlineImports(css, sheetUrl, context, seen, tokens)).text;
+  const budget = new StylesheetBudget(context);
+  return (await inlineImports(css, sheetUrl, context, new Set(), cssTokens(css), budget)).text;
+}
+
+/**
+ * An imported stylesheet prepared for the copy, closed at its end, or null to
+ * leave its import as it is. `seen` holds the stylesheets that import it.
+ */
+async function importedSheet(
+  path: string,
+  sheetUrl: string,
+  context: PageContext,
+  seen: ReadonlySet<string>,
+  budget: StylesheetBudget,
+): Promise<PreparedSheet | null> {
+  const read = await budget.take(path);
+  if (read === null) return null;
+  // CSS ends each stylesheet on its own, closing what is still open there.
+  // Closed here, the text ends where a rule may start, with a whole token, so
+  // it leaves the text after its import as the page has it.
+  let imported = read;
+  let tokens = cssTokens(imported);
+  const end = cssEnd(imported, tokens);
+  if (end.closers !== "") {
+    imported += end.closers;
+    tokens = cssTokens(imported);
+  }
+  const inner = await inlineImports(
+    imported,
+    sheetUrl,
+    context,
+    new Set([...seen, path]),
+    tokens,
+    budget,
+  );
+  return { text: inner.text, strayCloser: end.strayCloser || inner.strayCloser };
 }
 
 /**
  * `inlineStylesheet`'s result, and whether it holds an imported stylesheet's
  * `}` outside any block, put in its text without an `@media` block around it.
+ * `seen` holds the stylesheet's own file and those that import it, and is
+ * empty for a page's own `<style>`.
  */
 async function inlineImports(
   css: string,
@@ -406,7 +556,8 @@ async function inlineImports(
   context: PageContext,
   seen: ReadonlySet<string>,
   tokens: readonly CssToken[],
-): Promise<{ text: string; strayCloser: boolean }> {
+  budget: StylesheetBudget,
+): Promise<PreparedSheet> {
   let strayCloser = false;
   const replacements: { start: number; end: number; text: string }[] = [];
   for (const match of cssImports(tokens)) {
@@ -431,32 +582,18 @@ async function inlineImports(
     const readable =
       path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
     if (target !== null && path !== null && readable && match.conditions !== "other") {
-      const read = await readStylesheet(context, path);
-      if (read !== null) {
-        // CSS ends each stylesheet on its own, closing what is still open
-        // there. Closed here, the text ends where a rule may start, with a
-        // whole token, so it leaves the text after its import as the page has
-        // it.
-        let imported = read;
-        let importedTokens = cssTokens(imported);
-        const end = cssEnd(imported, importedTokens);
-        if (end.closers !== "") {
-          imported += end.closers;
-          importedTokens = cssTokens(imported);
-        }
-        const inner = await inlineImports(
-          imported,
-          target,
-          context,
-          new Set([...seen, path]),
-          importedTokens,
-        );
-        const stray = end.strayCloser || inner.strayCloser;
+      const prepare = () => importedSheet(path, target, context, seen, budget);
+      // An import in a page's own <style> is prepared the same way each time.
+      // Its key keeps it apart from a link of the same URL, as an import's
+      // text is closed at its end and a link's is not.
+      const sheet =
+        seen.size === 0 ? await budget.sheet(`@import ${target}`, prepare) : await prepare();
+      if (sheet !== null) {
         if (match.conditions === "none") {
-          text = inner.text;
-          strayCloser ||= stray;
-        } else if (!stray) {
-          text = `@media ${conditions} {\n${inner.text}\n}`;
+          text = sheet.text;
+          strayCloser ||= sheet.strayCloser;
+        } else if (!sheet.strayCloser) {
+          text = `@media ${conditions} {\n${sheet.text}\n}`;
         }
         // Otherwise a stray "}" would end the @media block early, and the
         // block's own "}" would then take the importing sheet's next rule.
@@ -551,16 +688,18 @@ function isStylesheetLink(element: Element): element is HTMLLinkElement {
 /**
  * Replaces a document's or a template content's stylesheet links to `.css`
  * files in the vault with their text, and inlines the imports of its
- * `<style>` elements, as Obsidian's policy allows only inline styles.
+ * `<style>` elements, as Obsidian's policy allows only inline styles. Links
+ * and imports past the page's limits stay as they are.
  */
 async function inlineStylesheets(
   root: ParentNode,
   baseUrl: string,
   context: PageContext,
+  budget: StylesheetBudget,
 ): Promise<void> {
   // The <style> elements that links become have their imports inlined
-  // already. Preparing them again would read the files again, with the import
-  // depth and cycle checks restarted.
+  // already. Preparing them again would take their imports from the page's
+  // limits again, with the import depth and cycle checks restarted.
   const originalStyles = styleElements(root);
   for (const link of [...root.querySelectorAll("link")].filter(isStylesheetLink)) {
     const href = link.getAttribute("href") ?? "";
@@ -568,15 +707,21 @@ async function inlineStylesheets(
     const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
     const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
     if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
-    const css = await readStylesheet(context, path);
-    if (css === null) continue;
+    // Kept apart from an import of the same URL, whose text is closed at its end.
+    const sheet = await budget.sheet(`link ${sheetUrl}`, async () => {
+      const css = await budget.take(path);
+      return css === null
+        ? null
+        : inlineImports(css, sheetUrl, context, new Set([path]), cssTokens(css), budget);
+    });
+    if (sheet === null) continue;
     // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const style = link.ownerDocument.createElement("style");
     for (const name of ["media", "title"]) {
       const value = link.getAttribute(name);
       if (value !== null) style.setAttribute(name, value);
     }
-    setStyleText(style, await inlineStylesheet(css, sheetUrl, context, new Set([path])));
+    setStyleText(style, sheet.text);
     link.replaceWith(style);
   }
 
@@ -585,7 +730,7 @@ async function inlineStylesheets(
     const tokens = cssTokens(css);
     const text = styleElementText(
       cssImports(tokens).length > 0
-        ? await inlineStylesheet(css, baseUrl, context, new Set(), tokens)
+        ? (await inlineImports(css, baseUrl, context, new Set(), tokens, budget)).text
         : locateCssUrls(css, baseUrl, context, tokens),
     );
     // Escaped before comparing, so that a style whose text needs only the escape is written too.
@@ -1035,10 +1180,13 @@ export async function preparePage(
   const found = templates(doc);
   const roots: ParentNode[] = [doc];
   for (const { content } of found) if (content.firstElementChild !== null) roots.push(content);
+  // The roots share the page's stylesheet limits, in their order, as they
+  // share its copy limits.
+  const budget = new StylesheetBudget(context);
   for (const root of roots) {
     locateReferences(root, baseUrl, context);
     addTooltips(root, baseUrl, context);
-    await inlineStylesheets(root, baseUrl, context);
+    await inlineStylesheets(root, baseUrl, context, budget);
   }
 
   // After locating and copying, so that the references are final.

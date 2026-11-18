@@ -8,7 +8,13 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
-Nothing that changes the plugin.
+- A page whose stylesheets import each other many times opens in moments instead of keeping
+  Obsidian from responding for seconds to hours: for each page, the viewer follows at most 1,000
+  links and imports of vault stylesheets and copies at most 16 million characters of their text,
+  and leaves the rest as links and imports, which do not apply. The page's repeated links and
+  imports of a stylesheet that it has copied whole, as components with shadow DOM have, count only
+  the text that they add, and those of a missing stylesheet nothing. It reads each stylesheet file
+  once per page (#154).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 
