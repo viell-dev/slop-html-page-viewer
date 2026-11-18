@@ -17,7 +17,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   once per page (#154).
 - In the split view, scrolling the source right after its tab moves to another tab group or window,
   before the page shows again or as it does, is no longer undone: the page follows the source,
-  instead of sending it back to where the page was (#157).
+  instead of sending it back to where the page was. On Obsidian 1.5.3, the source is back in its
+  place as soon as the tab has moved, so the scrolling goes on from there. After such a move, the
+  find bar shows its matches again without scrolling to the current one (#157).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

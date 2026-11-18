@@ -340,7 +340,12 @@ type SideName = "source" | "page";
  */
 export class ScrollFollower {
   private leader: SideName | null = null;
-  /** Where moving a side put it, until the side reports that scroll. */
+  /**
+   * Where a side was put, by moving it or as `placed` and `passOver` say,
+   * until the side next reports a scroll, which is passed over if it is still
+   * there. A mark that no report follows stays until the side's next report,
+   * and can pass over that one if it moved the side by a pixel at most.
+   */
   private landed: Record<SideName, number | null> = { source: null, page: null };
 
   constructor(

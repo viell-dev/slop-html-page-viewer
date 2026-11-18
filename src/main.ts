@@ -26,11 +26,12 @@ import {
   isPinned,
   keepScrolling,
   type KeptScrolling,
+  placeNextDocument,
   type ReaderActivity,
+  type ReaderWatch,
   type ScrollPlace,
   scrollInstantly,
   scrollPlace,
-  showPlace,
   watchReader,
 } from "./scrolling";
 import {
@@ -175,14 +176,17 @@ class HtmlPageViewerView extends TextFileView {
   private scriptsEnabled: boolean;
   private themeEnabled: boolean;
   private iframe: HTMLIFrameElement | null = null;
-  /** Where the source view's source is scrolled to, for after its tab moves (#135). */
+  /**
+   * Where the source of the source view or the split view is scrolled to,
+   * for after its tab moves (#135, #157).
+   */
   private sourceScrolling: KeptScrolling | null = null;
   /**
    * What the reader does in the view while the frame has dropped its page's
    * document and the view does not show the next one yet, as after its tab
    * moved (#157).
    */
-  private readerWatch: { stop(): ReaderActivity } | null = null;
+  private readerWatch: ReaderWatch | null = null;
   /** The reading style in the frame's page, or null if it has none. */
   private shownStyle: string | null = null;
   private themeButton: HTMLButtonElement | null = null;
@@ -238,8 +242,9 @@ class HtmlPageViewerView extends TextFileView {
     super.onload();
     this.registerEvent(this.app.workspace.on("css-change", () => this.updateTheme()));
     // After the tab moves to another tab group or window, Obsidian 1.5.3 shows
-    // the source view's source from its top. In another tab group, the layout
-    // change that follows is all that the view learns of the move (#135).
+    // the source of the source view and the split view from its top. In
+    // another tab group, the source view learns of the move only from the
+    // layout change that follows (#135); the split view also from its frame.
     this.registerEvent(
       this.app.workspace.on("layout-change", () => this.sourceScrolling?.restore()),
     );
@@ -294,9 +299,8 @@ class HtmlPageViewerView extends TextFileView {
 
   override onResize(): void {
     super.onResize();
-    // A new window that the tab moved to lays the source view's source out
-    // only after the layout change that follows, and then resizes the view
-    // (#135).
+    // A new window that the tab moved to lays the view's source out only
+    // after the layout change that follows, and then resizes the view (#135).
     this.sourceScrolling?.restore();
   }
 
@@ -379,6 +383,8 @@ class HtmlPageViewerView extends TextFileView {
     this.clearFindMatches();
     container.empty();
     this.iframe = null;
+    // Emptying the view drops the frame's page, which starts a watch of the
+    // reader for the frame's next page; this view shows a new frame instead.
     this.stopReaderWatch();
     this.sourceScrolling = null;
     this.shownStyle = null;
@@ -428,8 +434,11 @@ class HtmlPageViewerView extends TextFileView {
     if (this.mode === "split") {
       // The source beside the page, or above it in a narrow view (styles.css).
       const split = container.createDiv({ cls: "html-page-viewer__split" });
-      renderSource(split, this.data);
-      split.querySelector(".html-page-viewer__source")?.setAttribute("tabindex", "-1");
+      const source = renderSource(split, this.data);
+      source.setAttribute("tabindex", "-1");
+      // On Obsidian 1.5.3, the source would show its top after a move until it
+      // followed the page, and a scroll of the reader's would start there.
+      this.sourceScrolling = keepScrolling(source);
       this.updateWrap();
       this.renderIframe(split);
       this.runFind();
@@ -657,8 +666,11 @@ class HtmlPageViewerView extends TextFileView {
     return { runs: this.find.query === "" ? [] : pageRuns(doc), win: doc.defaultView };
   }
 
-  /** Finds the find bar's text in what the view shows, and shows the current match. */
-  private runFind(): void {
+  /**
+   * Finds the find bar's text in what the view shows, and shows the current
+   * match, also by scrolling to it unless `reveal` is false.
+   */
+  private runFind(reveal = true): void {
     // Not for a bar that the view has replaced.
     if (!this.find.open || !this.findBar || !this.contentEl.contains(this.findBar)) return;
     this.clearFindMatches();
@@ -672,7 +684,7 @@ class HtmlPageViewerView extends TextFileView {
     this.findMore = more;
     this.findHighlighter = new Highlighter(target.win);
     this.find.index = Math.min(this.find.index, Math.max(ranges.length - 1, 0));
-    this.showFindMatch();
+    this.showFindMatch(true, reveal);
   }
 
   private moveFind(step: number): void {
@@ -682,8 +694,8 @@ class HtmlPageViewerView extends TextFileView {
     this.showFindMatch(false);
   }
 
-  /** Shows the current match, and with `all`, every match. */
-  private showFindMatch(all = true): void {
+  /** Shows the current match, and with `all`, every match, scrolling to it with `reveal`. */
+  private showFindMatch(all = true, reveal = true): void {
     const count = this.findMatches.length;
     const current = this.findMatches[this.find.index] ?? null;
     if (all) this.findHighlighter?.show(this.findMatches, current);
@@ -693,7 +705,7 @@ class HtmlPageViewerView extends TextFileView {
     } else {
       this.setFindCount(`${this.find.index + 1} of ${count}${this.findMore ? "+" : ""}`);
     }
-    if (current) scrollToRange(current);
+    if (current && reveal) scrollToRange(current);
   }
 
   private setFindCount(text: string): void {
@@ -932,31 +944,26 @@ class HtmlPageViewerView extends TextFileView {
     doc.defaultView?.addEventListener("pagehide", () => {
       showing.abort();
       if (placed) frame.place = scrollPlace(doc);
-      if (this.iframe === iframe) this.startReaderWatch();
+      if (this.iframe !== iframe) return;
+      this.startReaderWatch();
+      // Once the script that moves the tab has run, Obsidian has inserted the
+      // source again, which Chromium shows from its top (#135).
+      queueMicrotask(() => this.sourceScrolling?.restore());
     });
     // Search the page, follow its scrolling in the split view, and show it
     // where the previous document was, as soon as its text is there, before
     // its images load. The reader's input in the view, as in the split view's
     // source or the find bar, also counts as their own scrolling, also before
-    // the frame had this document. The split view's source follows the placed
-    // page, unless the reader has scrolled the source since the frame dropped
-    // its previous document: then the page follows the source. Until the
-    // reader acts, the source's scrolling is Obsidian's, which puts it back
-    // after a move, or the find bar's, which shows its match again just now.
+    // the frame had this document. After a move, the find bar shows its
+    // matches again without scrolling to the current one, which would take
+    // the page, or the split view's source, away from its place (#157).
     const parsed = (): void => {
       this.restyle(doc);
-      this.runFind();
       const reader = this.stopReaderWatch();
+      this.runFind(reader === null);
       const follower =
         this.mode === "split" ? this.syncScrolling(iframe, doc, showing.signal) : null;
-      if (follower && reader.scrolled) follower.scrolled("source");
-      else if (frame.place) {
-        if (!reader.acted) follower?.passOver("source");
-        showPlace(doc, frame.place, [this.contentEl], showing.signal, {
-          acted: reader.acted,
-          moved: () => follower?.placed("page"),
-        });
-      }
+      placeNextDocument(doc, frame.place, reader, follower, [this.contentEl], showing.signal);
       placed = true;
     };
     if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", parsed);
@@ -986,10 +993,11 @@ class HtmlPageViewerView extends TextFileView {
   /**
    * Watches what the reader does in the view until it shows the frame's next
    * document. The view follows no scrolling of the split view's source
-   * meanwhile, as it shows no page.
+   * meanwhile, as it shows no page. A watch that runs already, as when the
+   * frame drops a document that it never showed, goes on.
    */
   private startReaderWatch(): void {
-    this.stopReaderWatch();
+    if (this.readerWatch !== null) return;
     this.readerWatch = watchReader(
       this.contentEl,
       this.contentEl.querySelector<HTMLElement>(
@@ -998,9 +1006,9 @@ class HtmlPageViewerView extends TextFileView {
     );
   }
 
-  /** Stops watching the reader, and says what they did while watched. */
-  private stopReaderWatch(): ReaderActivity {
-    const activity = this.readerWatch?.stop() ?? { acted: false, scrolled: false };
+  /** Stops watching the reader, and says what they did while watched, or null without a watch. */
+  private stopReaderWatch(): ReaderActivity | null {
+    const activity = this.readerWatch?.stop() ?? null;
     this.readerWatch = null;
     return activity;
   }
@@ -1179,6 +1187,7 @@ class HtmlPageViewerView extends TextFileView {
       // The message replaces the find bar too.
       this.closeFind();
       this.contentEl.empty();
+      this.stopReaderWatch();
       this.contentEl.addClass("html-page-viewer");
       renderMessage(this.contentEl, `Unable to read HTML file: ${getErrorMessage(error)}`);
     }

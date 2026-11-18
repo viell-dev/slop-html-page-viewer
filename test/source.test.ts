@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
-import { button, frame, Harness, type HtmlView } from "./support/harness";
+import { button, frame, Harness, type HtmlView, loadFrame } from "./support/harness";
 
 async function showSource(data: string): Promise<HtmlView> {
   const harness = await Harness.load();
@@ -361,13 +361,24 @@ describe("the source view's place after its tab moves (#135)", () => {
     assert.deepEqual(scrolledTo, []);
   });
 
-  it("leaves the split view's source to follow its page", async () => {
+  it("puts the split view's source back too, at the layout change (#157)", async () => {
     const { harness, view, scroll, drop, scrolledTo } = await movedSource("Split");
     scroll(571);
     drop();
     harness.app.workspace.trigger("layout-change");
     view.onResize();
-    assert.deepEqual(scrolledTo, []);
+    assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
+  });
+
+  it("puts the split view's source back once the script that drops its page has run (#157)", async () => {
+    const { view, scroll, drop, scrolledTo } = await movedSource("Split");
+    const page = await loadFrame(view);
+    scroll(571);
+    drop();
+    page.defaultView!.dispatchEvent(new page.defaultView!.Event("pagehide"));
+    assert.deepEqual(scrolledTo, [], "not while the page is dropped");
+    await Promise.resolve();
+    assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
   });
 
   it("starts a source shown again from its top", async () => {

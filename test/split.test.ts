@@ -15,7 +15,7 @@ import {
 } from "../src/split";
 import { preparePage, SHADOW_ROOT_MARK } from "../src/document";
 import { startTags } from "../src/main";
-import { button, Harness } from "./support/harness";
+import { button, Harness, loadFrame, moveFrame } from "./support/harness";
 
 function anchors(html: string, tags: StartTag[]): [string, number][] {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -614,6 +614,41 @@ describe("the split view", () => {
       view.contentEl.querySelector(".html-page-viewer__find-count")?.textContent,
       "1 of 2",
     );
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+
+  it("finds in its source again after a move, without scrolling to the current match (#157)", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "Notes.html", PAGE);
+    button(view, "Split").click();
+    button(view, "Find in page").click();
+    const input = view.contentEl.querySelector<HTMLInputElement>(".html-page-viewer__find input");
+    assert.ok(input);
+    input.value = "<p";
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    // jsdom does not scroll; the view brings a match into view with this.
+    const revealed: string[] = [];
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value(this: HTMLElement) {
+        revealed.push(this.textContent ?? "");
+      },
+    });
+    try {
+      await loadFrame(view);
+      assert.equal(revealed.length, 1, "the first page's document shows the match");
+      revealed.length = 0;
+      await moveFrame(view);
+      assert.deepEqual(revealed, [], "after the move, the source stays where it is");
+      assert.equal(
+        view.contentEl.querySelector(".html-page-viewer__find-count")?.textContent,
+        "1 of 2",
+      );
+      assert.equal(window.CSS.highlights.get("html-page-viewer-match")?.size, 2);
+    } finally {
+      delete (window.HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
     input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
 

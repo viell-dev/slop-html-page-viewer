@@ -22,6 +22,10 @@ const globals = [
   "Text",
   "DOMParser",
   "XMLSerializer",
+  // A plugin's AbortController is its window's, whose signals the window's
+  // elements take; jsdom's elements take only jsdom's.
+  "AbortController",
+  "AbortSignal",
 ] as const;
 for (const name of globals) {
   Object.defineProperty(globalThis, name, {

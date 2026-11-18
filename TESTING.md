@@ -62,7 +62,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | The find bar finds in the source and the page, and moves with Enter, Shift+Enter, and Escape                                                                                       | `find.test.ts`: close paths, no-`checkVisibility` fallback, `content-visibility`                                                                                          | `find.e2e.ts`: Ctrl+F; finds exactly the words that the page paints                                                                    |
 | The split view keeps its two sides in step                                                                                                                                         | `split.test.ts`, also with shadow roots                                                                                                                                   | `split.e2e.ts`, both ways, on a smoothly scrolling page, and with shadow roots on an article, on the body, and declared late           |
 | A tab moved to another tab group or window keeps its reading style, and the place of a page that scrolls as a whole; the split view follows only its page (#126)                   | `move.test.ts`: the place, by the element at the window's top, through `display: contents` and in parts closed again; placing again at `load` until the reader's input    | `move.e2e.ts`: a narrower tab group, a new window, a theme changed in place, the split view, scrolling before load, closed parts       |
-| The split view follows the reader's scrolling of its source right after its tab moves, before the page shows again and in the frame that places it, not the find bar's (#157)      | `split.test.ts`: a placed side leads until a side reports a scroll of the user's, and other scrolling is passed over; `move.test.ts`: the reader while no page shows      | `move.e2e.ts`: the source scrolled before the moved page shows, in the frame that places it, or from before it to then; the find bar   |
+| **Unreleased (#157):** The split view follows the reader's scrolling of its source right after its tab moves, on from its place; the find bar moves neither side                   | `move.test.ts`: showing the moved page after the reader's scrolling, input only, or neither; `split.test.ts`: the placed side, the find bar; `source.test.ts`             | `move.e2e.ts`: before the page shows, in the frame that places it, or from one to the other; on from line 20; with the find bar        |
 | The source view stays scrolled as far as it was when its tab moves to another tab group or window (#135)                                                                           | `source.test.ts`: back after a layout change or a resize, not after the reader's scrolling                                                                                | `move.e2e.ts`: another tab group and a new window                                                                                      |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                        |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                              |
@@ -286,18 +286,24 @@ closed failed both tests of a part closed again, in both versions: the page show
 It also failed `move.test.ts`'s tests of those parts and of a page inside an element with
 `display: contents`, which kept its place only as a share of the body's height.
 
-On 2026-11-18 (#157), with the view as 0.6.0 has it, `move.e2e.ts`'s three tests of the reader's
-scrolling of the split view's source in a move failed in Obsidian 1.5.3 and 1.15.1: when the source
-was scrolled to line 30 before the moved page showed again, in the frame in which the view placed
-it, or with the reader's input before and the scroll after, the source went back to line 20, and
-the page stayed at paragraph 12. Leaving the view's placement to lead through the page's own report
-of it failed `split.test.ts`'s test of a scroll of the user's that comes before that report.
-Passing over only the page's own report of the placement, which let the source's report of the find
-bar's new search, made before the placement, lead, failed the find bar's test in `move.e2e.ts` in
-both versions: the page went to paragraph 26 in place of 12. Passing over the source's report of
-scrolling from before the placement also after the reader's input failed the test of a scroll
-before the page shows again in both of two runs in 1.15.1, though not in 1.5.3: Chromium reported
-the scroll only after the view placed the page.
+**Unreleased (#157):** On 2026-11-18, with the view as 0.6.0 has it, five of `move.e2e.ts`'s tests
+of the reader's scrolling of the split view's source in a move failed in Obsidian 1.5.3 and 1.15.1:
+to line 30 before the moved page showed again, in the frame in which the view placed it, from one to
+the other, and with the find bar open, the source went back to line 20 and the page stayed at
+paragraph 12; scrolled on by 200 pixels, it stayed at line 20. The version that the independent
+review read, `8214323`, failed both tests with the find bar open and an input before the page
+showed, in both versions: the find bar's search again scrolled the source to its match, which then
+led, and both sides went to paragraph 26 and line 33 or 34. It failed the test scrolled on by 200
+pixels in 1.5.3, where the page followed the source from its top to paragraph 2 and line 10.
+Each of these deliberate breakages failed a unit test:
+
+- In `placeNextDocument`: following the placed page whatever the reader scrolled; passing over the
+  source's earlier scrolling also after the reader's input; placing the page again at `load` after
+  it; not telling the follower of the placement; and passing over nothing. `move.test.ts`.
+- Leaving the view's placement to lead through the page's own report of it: `split.test.ts`.
+- Scrolling to the find bar's match after a move, and not starting the watch of the reader when the
+  frame drops its page: `split.test.ts`. Not keeping the split view's source's place, or not
+  putting it back once the move's script has run: `source.test.ts`.
 
 On 2026-11-17, each of these deliberate breakages failed the check named (#91):
 
@@ -419,15 +425,17 @@ preparation's measurements in Obsidian, with up to five imports a stylesheet.
   the four kinds of input in jsdom, which does not show that Chromium sends them where the view
   listens. A page inside an element with `display: contents`, and a part that a page hides with
   `display: none`, are tested only in `move.test.ts`.
-- `move.e2e.ts` scrolls the split view's source at a moment of a tab's move with a wheel event and
-  the source's `scrollTop`, since WebDriver's wheel cannot be timed to a task, and it instruments
-  the frame's window to find the task in which the view places the page. That Chromium reports the
-  source's scrolling before the page's in one frame is measured there, in Obsidian 1.5.3 and 1.15.1.
+- **Unreleased (#157):** `move.e2e.ts` scrolls the split view's source at a moment of a tab's move
+  with a wheel or pointer event and the source's `scrollTop`, since WebDriver's input cannot be
+  timed to a task, and it instruments the frame's window to find the task in which the view places
+  the page. Chromium reports the source's scrolling before the page's in one frame; traces in
+  Obsidian 1.5.3 and 1.15.1 measured that for #157, and the committed tests pass in either order.
   Whether Chromium reports a scroll made before the page shows again before or after the view
-  places it depends on when its next frame comes, which the test does not control; the test with
-  the input before and the scroll after makes the scroll after the placement instead. Only
-  `move.test.ts` tests that an input still being dispatched when the frame drops the page, as a
-  hotkey that moves the tab, is not the reader's.
+  places it depends on its next frame; `move.test.ts` tests both. Only `move.test.ts` tests that
+  an input still being dispatched when the frame drops the page, as a hotkey that moves the tab, is
+  not the reader's. A scroll on from the source's place is tested in another tab group: in a new
+  window, Obsidian 1.5.3 lays the source out only at the resize that follows, and the view puts it
+  back then, so a scroll before that starts from its top.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`

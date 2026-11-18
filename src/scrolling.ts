@@ -1,8 +1,10 @@
 // Scrolling the page in the view's frame: at once, past the page's own smooth
 // scrolling, and back to where the frame's previous document of the same copy
 // was when its tab moved to another tab group or window (#126), unless the
-// reader has scrolled since (#157). The source view's source goes back to its
-// place after such a move too (#135).
+// reader has scrolled since (#157). The source of the source view and of the
+// split view goes back to its place after such a move too (#135, #157).
+
+import type { ScrollFollower } from "./split";
 
 /**
  * Scrolls a window or an element at once, also in a page whose own style
@@ -218,6 +220,12 @@ export interface ReaderActivity {
   readonly scrolled: boolean;
 }
 
+/** A watch of the reader, from `watchReader`. */
+export interface ReaderWatch {
+  /** Ends the watch, and says what the reader did. */
+  stop(): ReaderActivity;
+}
+
 /**
  * Watches the reader's input in `view`, and the scrolling of `scrolling`
  * after it, until `stop`, which says what the reader did: as while the frame
@@ -227,10 +235,7 @@ export interface ReaderActivity {
  * counts from the next task on, which leaves out an input that is still being
  * dispatched, as a hotkey pressed in the view that moved the tab.
  */
-export function watchReader(
-  view: HTMLElement,
-  scrolling: HTMLElement | null,
-): { stop(): ReaderActivity } {
+export function watchReader(view: HTMLElement, scrolling: HTMLElement | null): ReaderWatch {
   const watching = new AbortController();
   const activity = { acted: false, scrolled: false };
   let counting = false;
@@ -255,6 +260,40 @@ export function watchReader(
       return { ...activity };
     },
   };
+}
+
+/**
+ * Shows a frame's document, which has its text, where the frame's previous
+ * document of the same copy was, `place`, as after its tab moved (#126), and
+ * keeps the split view's sides in step there with `follower`, if the view
+ * shows the split view and can follow the page. `reader` says what the
+ * reader did while the frame showed no page (#157), and is null when it
+ * showed one, as for its first document.
+ *
+ * - If they scrolled the source, the page follows it, and is not placed.
+ * - Otherwise the page is placed, and leads. A scroll of the source that the
+ *   source reports later, in the frame of the placement or after it, leads
+ *   instead, unless the reader has not acted: then the source's scrolling so
+ *   far was not theirs, but Obsidian's, which scrolls a moved tab's elements
+ *   back (#135), and it is passed over.
+ * - After their input, the page is not placed again when it loads.
+ */
+export function placeNextDocument(
+  doc: Document,
+  place: ScrollPlace | null,
+  reader: ReaderActivity | null,
+  follower: Pick<ScrollFollower, "passOver" | "placed" | "scrolled"> | null,
+  others: readonly EventTarget[],
+  signal: AbortSignal,
+): void {
+  if (follower && reader?.scrolled) {
+    follower.scrolled("source");
+    return;
+  }
+  if (!place) return;
+  const acted = reader?.acted ?? false;
+  if (!acted) follower?.passOver("source");
+  showPlace(doc, place, others, signal, { acted, moved: () => follower?.placed("page") });
 }
 
 /** An element's scroll position, kept for when the element loses it. */

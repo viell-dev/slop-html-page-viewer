@@ -103,6 +103,19 @@ export async function loadFrame(view: HtmlView): Promise<Document> {
   return page;
 }
 
+/**
+ * Moves the view's tab to another tab group or window, for its frame, as
+ * Chromium does when Obsidian takes the frame out of the page and inserts it
+ * again: the frame drops its document, which fires `pagehide`, and loads its
+ * copy again (#126).
+ */
+export async function moveFrame(view: HtmlView): Promise<Document> {
+  const win = frame(view)?.contentDocument?.defaultView;
+  assert.ok(win, "the frame shows a document");
+  win.dispatchEvent(new win.Event("pagehide"));
+  return loadFrame(view);
+}
+
 export function sandboxTokens(iframe: HTMLIFrameElement): string[] {
   const value = iframe.getAttribute("sandbox");
   assert.notEqual(value, null, "the frame has a sandbox attribute");
