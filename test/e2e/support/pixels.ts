@@ -88,20 +88,57 @@ export function decodePng(png: Buffer): Pixels {
   const raw = zlib.inflateSync(Buffer.concat(data));
   const stride = width * channels;
   const pixels = Buffer.alloc(height * stride);
+  // One filter per row, chosen outside the loop over its bytes: a window-sized
+  // screenshot has millions of bytes, and tests decode dozens of screenshots.
+  // Storing into the buffer keeps each sum's low eight bits, as PNG requires.
   for (let y = 0; y < height; y += 1) {
     const filter = raw[y * (stride + 1)];
-    const line = y * (stride + 1) + 1;
-    for (let x = 0; x < stride; x += 1) {
-      const a = x >= channels ? pixels[y * stride + x - channels] : 0;
-      const b = y > 0 ? pixels[(y - 1) * stride + x] : 0;
-      const c = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0;
-      const predictor = [0, a, b, (a + b) >> 1, paeth(a, b, c)][filter] ?? 0;
-      pixels[y * stride + x] = (raw[line + x] + predictor) & 0xff;
+    const from = y * (stride + 1) + 1;
+    const row = y * stride;
+    const above = row - stride;
+    switch (filter) {
+      case 0:
+        raw.copy(pixels, row, from, from + stride);
+        break;
+      case 1:
+        for (let x = 0; x < stride; x += 1)
+          pixels[row + x] = raw[from + x] + (x >= channels ? pixels[row + x - channels] : 0);
+        break;
+      case 2:
+        for (let x = 0; x < stride; x += 1)
+          pixels[row + x] = raw[from + x] + (y > 0 ? pixels[above + x] : 0);
+        break;
+      case 3:
+        for (let x = 0; x < stride; x += 1) {
+          const a = x >= channels ? pixels[row + x - channels] : 0;
+          const b = y > 0 ? pixels[above + x] : 0;
+          pixels[row + x] = raw[from + x] + ((a + b) >> 1);
+        }
+        break;
+      case 4:
+        for (let x = 0; x < stride; x += 1) {
+          const a = x >= channels ? pixels[row + x - channels] : 0;
+          const b = y > 0 ? pixels[above + x] : 0;
+          const c = x >= channels && y > 0 ? pixels[above + x - channels] : 0;
+          pixels[row + x] = raw[from + x] + paeth(a, b, c);
+        }
+        break;
+      default:
+        throw new Error(`Unsupported PNG: filter ${filter} in row ${y}`);
+    }
+  }
+  let rgb = pixels;
+  if (channels === 4) {
+    rgb = Buffer.alloc(width * height * 3);
+    for (let from = 0, to = 0; from < pixels.length; from += 4, to += 3) {
+      rgb[to] = pixels[from];
+      rgb[to + 1] = pixels[from + 1];
+      rgb[to + 2] = pixels[from + 2];
     }
   }
 
   return {
-    rgb: Buffer.from(pixels.filter((_, index) => index % channels < 3)),
+    rgb,
     width,
     height,
     count(color, tolerance = 6) {
