@@ -350,6 +350,90 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with stylesheets that import each other many times (#154)", function () {
+    const green = "rgb(46, 125, 50)";
+    // Eight stylesheets, each importing the next ten times: eleven million
+    // stylesheets eight deep, if nothing bounded how many the copy takes in.
+    const files: Record<string, string> = Object.fromEntries(
+      Array.from({ length: 8 }, (_, level) => [
+        `Import fan-out/${level}.css`,
+        `${level < 7 ? `@import "${level + 1}.css";\n`.repeat(10) : ""}#level${level} { color: ${green} }`,
+      ]),
+    );
+    files["Import fan-out/late.css"] = "#late { color: rgb(198, 40, 40) }";
+    files["Import fan-out.html"] = [
+      `<link rel="stylesheet" href="Import fan-out/0.css">`,
+      // Imported after the link's stylesheets have taken up the page's limit.
+      `<style>@import "Import fan-out/late.css";</style>`,
+      ...Array.from({ length: 8 }, (_, level) => `<p id="level${level}">${level}</p>`),
+      `<p id="late">late</p>`,
+    ].join("");
+
+    before(async function () {
+      await browser.executeObsidian(async ({ app }, files) => {
+        await app.vault.createFolder("Import fan-out");
+        for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+      }, files);
+    });
+
+    after(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        for (const path of ["Import fan-out.html", "Import fan-out"]) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file, true);
+        }
+      });
+    });
+
+    it("shows the page soon, with the stylesheets up to the limit, and keeps the window responding", async function () {
+      await openInActiveTab("Saved/Example article.html");
+      await waitForPage();
+      // Timers in Obsidian's window, which run only while it responds.
+      await browser.execute(() => {
+        const state = window as unknown as { e2eTicks?: number[]; e2eTimer?: number };
+        state.e2eTicks = [];
+        const tick = () => {
+          state.e2eTicks!.push(performance.now());
+          state.e2eTimer = window.setTimeout(tick, 10);
+        };
+        tick();
+      });
+      await openInActiveTab("Import fan-out.html");
+      await waitForPage();
+      const longest = await browser.execute(() => {
+        const state = window as unknown as { e2eTicks: number[]; e2eTimer: number };
+        clearTimeout(state.e2eTimer);
+        const ticks = [...state.e2eTicks, performance.now()];
+        return Math.max(...ticks.slice(1).map((tick, i) => tick - ticks[i]));
+      });
+      await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+      let shown: { colors: string[]; late: string; plain: string; copies: number };
+      try {
+        shown = await browser.execute((green) => {
+          const color = (id: string) => getComputedStyle(document.getElementById(id)!).color;
+          const text = [...document.querySelectorAll("style")].map((s) => s.textContent).join("");
+          return {
+            colors: Array.from({ length: 8 }, (_, level) => color(`level${level}`)),
+            late: color("late"),
+            plain: getComputedStyle(document.body).color,
+            copies: text.split(`{ color: ${green} }`).length - 1,
+          };
+        }, green);
+      } finally {
+        await browser.switchFrame(null);
+      }
+      // About 0.3 s in Obsidian 1.5.3 and 1.15.1, against hours without the
+      // limits; the margin is for slower hosts.
+      expect(longest).toBeLessThan(2_000);
+      expect({
+        colors: shown.colors,
+        // The import past the limit stays an import, which Obsidian's policy keeps from loading.
+        late: shown.late === shown.plain ? "not applied" : shown.late,
+        copies: shown.copies,
+      }).toEqual({ colors: Array(8).fill(green), late: "not applied", copies: 1_000 });
+    });
+  });
+
   before(async function () {
     // An image just outside the vault, which a page must not be able to show.
     const outside = path.join(path.dirname(await vaultFolder()), "outside.png");

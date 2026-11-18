@@ -12,6 +12,8 @@ import {
   pagePolicy,
   preparePage,
   SHADOW_ROOT_MARK,
+  STYLESHEET_PAGE_LIMIT,
+  STYLESHEET_TEXT_LIMIT,
   vaultPath,
 } from "../src/document";
 import { READING_STYLE_ID } from "../src/reading";
@@ -102,8 +104,9 @@ describe("CSS token boundaries (#91)", () => {
         },
       },
     });
-    // The link first, with its import, then the shadow root's own <style>.
-    assert.deepEqual(ctx.reads, ["Saved/sheet.css", "Saved/real.css", "Saved/real.css"]);
+    // The link first, with its import, then the shadow root's own <style>,
+    // whose import of the same file reads it no more (#154).
+    assert.deepEqual(ctx.reads, ["Saved/sheet.css", "Saved/real.css"]);
     assert.deepEqual(reads, ["Saved/real.png"]);
     assert.ok(!result.html.includes("GHOST"));
     const content = parse(result.html).querySelector("template")!.content;
@@ -364,6 +367,113 @@ it("processes linked stylesheet imports once, retaining the eight-file depth lim
     assert.deepEqual(self.reads, ["Saved/self.css"]);
     assert.equal(result.html.split(".self").length - 1, 1);
   }
+});
+
+describe("stylesheet limits (#154)", () => {
+  /**
+   * A context whose stylesheets each import ten others of their own, eight
+   * deep: about eleven million stylesheets, if nothing bounded how many are
+   * read. Past twice the limit, reads find nothing, so that a missing limit
+   * fails the test rather than keep it running.
+   */
+  function tree(): PageContext & { reads: string[] } {
+    const reads: string[] = [];
+    return {
+      pageUrl: `${VAULT}Saved/Example%20article.html`,
+      vaultUrl: VAULT,
+      reads,
+      async read(path) {
+        reads.push(path);
+        if (reads.length > 2 * STYLESHEET_PAGE_LIMIT) return null;
+        const name = /^Saved\/(t\d*)\.css$/.exec(path)?.[1];
+        if (name === undefined) return null;
+        const imports = Array.from({ length: 10 }, (_, i) => `@import "${name}${i}.css";`);
+        return `${imports.join("\n")}\n.${name} { color: red }`;
+      },
+    };
+  }
+
+  it("takes in at most the limit's number of stylesheets, leaving the rest as imports", async () => {
+    const ctx = tree();
+    const { html } = await preparePage('<link rel="stylesheet" href="t.css">', ctx);
+    assert.equal(ctx.reads.length, STYLESHEET_PAGE_LIMIT);
+    // Depth first, as the cascade orders them: the first chain is whole.
+    assert.deepEqual(
+      ctx.reads.slice(0, 8),
+      Array.from({ length: 8 }, (_, i) => `Saved/t${"0".repeat(i)}.css`),
+    );
+    const text = parse(html).querySelector("style")!.textContent;
+    assert.equal(text.split("{ color: red }").length - 1, STYLESHEET_PAGE_LIMIT);
+    // Each stylesheet taken in has ten imports, and all but the link's own
+    // file took the place of one of them; the others stay imports.
+    const left = 10 * STYLESHEET_PAGE_LIMIT - (STYLESHEET_PAGE_LIMIT - 1);
+    assert.equal(text.split('@import url("').length - 1, left);
+    assert.ok(text.includes(`@import url("${VAULT}Saved/t9.css");`));
+  });
+
+  it("counts links and imports alike, in the document and templates together", async () => {
+    const ctx = context(
+      Object.fromEntries(
+        Array.from({ length: 1_200 }, (_, i) => [`Saved/s${i}.css`, `.s${i} { color: red }`]),
+      ),
+    );
+    const links = (from: number) =>
+      Array.from({ length: 600 }, (_, i) => `<link rel="stylesheet" href="s${from + i}.css">`).join(
+        "",
+      );
+    const html = `${links(0)}<div><template shadowrootmode="open">${links(600)}</template></div>`;
+    const copy = parse(await prepare(html, ctx));
+    const content = copy.querySelector("template")!.content;
+    assert.equal(copy.querySelectorAll("link").length, 0);
+    assert.equal(copy.querySelectorAll("style").length, 600);
+    // A link past the limit stays a link, which Obsidian's policy keeps from loading.
+    const left = [...content.querySelectorAll("link")].map((link) => link.getAttribute("href"));
+    assert.deepEqual(
+      left,
+      Array.from({ length: 200 }, (_, i) => `s${1_000 + i}.css`),
+    );
+    assert.equal(content.querySelectorAll("style").length, 400);
+    assert.equal(ctx.reads.length, STYLESHEET_PAGE_LIMIT);
+
+    // A <style>'s imports count as well, after the page's links.
+    const styled = context({ "Saved/s0.css": ".s0 {}", "Saved/x.css": ".x {}" });
+    const many = `<link rel="stylesheet" href="s0.css">`.repeat(STYLESHEET_PAGE_LIMIT - 1);
+    const result = parse(
+      await prepare(`${many}<style>@import "x.css"; @import "x.css";</style>`, styled),
+    );
+    assert.equal(
+      [...result.querySelectorAll("style")].at(-1)!.textContent,
+      `.x {} @import url("${VAULT}Saved/x.css");`,
+    );
+  });
+
+  it("leaves out a stylesheet whose text would take the page past its limit, but not one after it", async () => {
+    const comment = (length: number) => `/*${"x".repeat(length - 4)}*/`;
+    const ctx = context({
+      "Saved/exact.css": comment(STYLESHEET_TEXT_LIMIT),
+      "Saved/over.css": comment(STYLESHEET_TEXT_LIMIT + 1),
+      "Saved/small.css": ".small {}",
+    });
+    // A stylesheet of exactly the limit fits, alone.
+    const exact = await prepare('<link rel="stylesheet" href="exact.css">', ctx);
+    assert.ok(!exact.includes("<link"));
+    assert.ok(exact.includes(`<style>${comment(STYLESHEET_TEXT_LIMIT)}</style>`));
+
+    const html = [
+      '<link rel="stylesheet" href="over.css">',
+      '<link rel="stylesheet" href="small.css">',
+      '<style>@import "over.css"; @import "small.css";</style>',
+    ].join("");
+    ctx.reads.length = 0;
+    const copy = parse(await prepare(html, ctx));
+    assert.equal(copy.querySelector("link")?.getAttribute("href"), "over.css");
+    assert.deepEqual(
+      [...copy.querySelectorAll("style")].map((style) => style.textContent),
+      [".small {}", `@import url("${VAULT}Saved/over.css"); .small {}`],
+    );
+    // Each file is read once, however often the page names it.
+    assert.deepEqual(ctx.reads, ["Saved/over.css", "Saved/small.css"]);
+  });
 });
 
 it("handles repeated malformed URL openers without quadratic work", () => {
@@ -1232,7 +1342,8 @@ describe("preparePage", () => {
         inner?.querySelector("img")?.getAttribute("srcset"),
         `${url("Assets/sprites/025.png")} 2x`,
       );
-      assert.deepEqual(ctx.reads, ["Theme/site.css", "Theme/site.css"]);
+      // Linked and imported, the file is read once (#154).
+      assert.deepEqual(ctx.reads, ["Theme/site.css"]);
     });
 
     it("locates url()s in style attributes and style elements, and leaves the rest", async () => {
