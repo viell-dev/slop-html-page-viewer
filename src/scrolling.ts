@@ -1,7 +1,10 @@
 // Scrolling the page in the view's frame: at once, past the page's own smooth
 // scrolling, and back to where the frame's previous document of the same copy
-// was when its tab moved to another tab group or window (#126). The source
-// view's source goes back to its place after such a move too (#135).
+// was when its tab moved to another tab group or window (#126), unless the
+// reader has scrolled since (#157). The source of the source view and of the
+// split view goes back to its place after such a move too (#135, #157).
+
+import type { ScrollFollower } from "./split";
 
 /**
  * Scrolls a window or an element at once, also in a page whose own style
@@ -163,28 +166,34 @@ const READER_INPUT = ["keydown", "pointerdown", "touchstart", "wheel"] as const;
  * has loaded, its images can still move its content, or leave it too short to
  * reach the place, so it is placed again when it loads, unless the reader has
  * acted first, in the page or on one of `others`, such as the split view's
- * source. The page's images, media, and fonts can come from any web address,
- * and `load` waits until each has arrived or failed, which for a host that
- * does not answer can take minutes: placing the page then would undo the
- * reader's scrolling. Scroll events cannot tell the reader's scrolling apart,
- * since Chromium's scroll anchoring also scrolls the page when content above
- * its top loads, so the reader's input counts instead. Nothing waits after
- * `signal`, which says that the frame no longer shows the document.
+ * source, or had already acted, as `acted` says. The page's images, media,
+ * and fonts can come from any web address, and `load` waits until each has
+ * arrived or failed, which for a host that does not answer can take minutes:
+ * placing the page then would undo the reader's scrolling. Scroll events
+ * cannot tell the reader's scrolling apart, since Chromium's scroll anchoring
+ * also scrolls the page when content above its top loads, so the reader's
+ * input counts instead. Nothing waits after `signal`, which says that the
+ * frame no longer shows the document. `moved` is called each time that
+ * placing the page scrolls it.
  */
 export function showPlace(
   doc: Document,
   place: ScrollPlace,
   others: readonly EventTarget[],
   signal: AbortSignal,
+  { acted = false, moved }: { readonly acted?: boolean; readonly moved?: () => void } = {},
 ): void {
   const win = doc.defaultView;
   if (!win) return;
   const show = (): void => {
     const top = placeTop(doc, place);
-    if (top !== null) scrollInstantly(win, doc.documentElement, { top, left: place.left });
+    if (top === null) return;
+    const { scrollX, scrollY } = win;
+    scrollInstantly(win, doc.documentElement, { top, left: place.left });
+    if (win.scrollX !== scrollX || win.scrollY !== scrollY) moved?.();
   };
   show();
-  if (doc.readyState === "complete" || signal.aborted) return;
+  if (acted || doc.readyState === "complete" || signal.aborted) return;
   // AbortSignal.any is newer than Obsidian 1.5.3's Chromium 114.
   const pending = new AbortController();
   const stop = (): void => pending.abort();
@@ -201,6 +210,90 @@ export function showPlace(
     for (const type of READER_INPUT)
       target.addEventListener(type, stop, { capture: true, passive: true, signal: pending.signal });
   }
+}
+
+/** What the reader did while `watchReader` watched. */
+export interface ReaderActivity {
+  /** Whether they pressed a key or a pointer button, touched the screen, or turned the wheel. */
+  readonly acted: boolean;
+  /** Whether the element watched for scrolling reported a scroll after that. */
+  readonly scrolled: boolean;
+}
+
+/** A watch of the reader, from `watchReader`. */
+export interface ReaderWatch {
+  /** Ends the watch, and says what the reader did. */
+  stop(): ReaderActivity;
+}
+
+/**
+ * Watches the reader's input in `view`, and the scrolling of `scrolling`
+ * after it, until `stop`, which says what the reader did: as while the frame
+ * has dropped a page's document and the view does not show the next one yet
+ * (#157). A scroll counts only after the reader's input, as Obsidian 1.15.1
+ * scrolls the elements of a tab that it moves back itself (#135). Input
+ * counts from the next task on, which leaves out an input that is still being
+ * dispatched, as a hotkey pressed in the view that moved the tab.
+ */
+export function watchReader(view: HTMLElement, scrolling: HTMLElement | null): ReaderWatch {
+  const watching = new AbortController();
+  const activity = { acted: false, scrolled: false };
+  let counting = false;
+  view.ownerDocument.defaultView?.setTimeout(() => {
+    counting = true;
+  }, 0);
+  const act = (): void => {
+    if (counting) activity.acted = true;
+  };
+  for (const type of READER_INPUT)
+    view.addEventListener(type, act, { capture: true, passive: true, signal: watching.signal });
+  scrolling?.addEventListener(
+    "scroll",
+    () => {
+      if (activity.acted) activity.scrolled = true;
+    },
+    { passive: true, signal: watching.signal },
+  );
+  return {
+    stop: () => {
+      watching.abort();
+      return { ...activity };
+    },
+  };
+}
+
+/**
+ * Shows a frame's document, which has its text, where the frame's previous
+ * document of the same copy was, `place`, as after its tab moved (#126), and
+ * keeps the split view's sides in step there with `follower`, if the view
+ * shows the split view and can follow the page. `reader` says what the
+ * reader did while the frame showed no page (#157), and is null when it
+ * showed one, as for its first document.
+ *
+ * - If they scrolled the source, the page follows it, and is not placed.
+ * - Otherwise the page is placed, and leads. A scroll of the source that the
+ *   source reports later, in the frame of the placement or after it, leads
+ *   instead, unless the reader has not acted: then the source's scrolling so
+ *   far was not theirs, but Obsidian's, which scrolls a moved tab's elements
+ *   back (#135), and it is passed over.
+ * - After their input, the page is not placed again when it loads.
+ */
+export function placeNextDocument(
+  doc: Document,
+  place: ScrollPlace | null,
+  reader: ReaderActivity | null,
+  follower: Pick<ScrollFollower, "passOver" | "placed" | "scrolled"> | null,
+  others: readonly EventTarget[],
+  signal: AbortSignal,
+): void {
+  if (follower && reader?.scrolled) {
+    follower.scrolled("source");
+    return;
+  }
+  if (!place) return;
+  const acted = reader?.acted ?? false;
+  if (!acted) follower?.passOver("source");
+  showPlace(doc, place, others, signal, { acted, moved: () => follower?.placed("page") });
 }
 
 /** An element's scroll position, kept for when the element loses it. */
@@ -222,21 +315,42 @@ export interface KeptScrolling {
  * its start while its last scroll event left it elsewhere. One that is not
  * laid out, as in a hidden tab or a window that has yet to lay it out, has
  * nothing to scroll, and is left alone until a later `restore`.
+ *
+ * The reader's scrolling to the start looks the same until Chromium reports
+ * it, in the next animation frame, while a layout change or a resize can
+ * come first (#157). So after the reader's input in the element, its start
+ * is not taken for a lost place until that frame has passed, or the element
+ * has reported a scroll. A window without animation frames renders nothing,
+ * and its input does not count.
  */
 export function keepScrolling(element: HTMLElement): KeptScrolling {
   let top = element.scrollTop;
   let left = element.scrollLeft;
+  /** Whether a scroll of the reader's can still be unreported. */
+  let unreported = false;
   element.addEventListener(
     "scroll",
     () => {
       top = element.scrollTop;
       left = element.scrollLeft;
+      unreported = false;
     },
     { passive: true },
   );
+  const acted = (): void => {
+    const win = element.ownerDocument.defaultView;
+    if (!win?.requestAnimationFrame) return;
+    unreported = true;
+    // Chromium reports a frame's scrolling before its animation frame callbacks.
+    win.requestAnimationFrame(() => {
+      unreported = false;
+    });
+  };
+  for (const type of READER_INPUT)
+    element.addEventListener(type, acted, { capture: true, passive: true });
   return {
     restore: () => {
-      if (!element.isConnected || element.clientHeight === 0) return;
+      if (unreported || !element.isConnected || element.clientHeight === 0) return;
       if (element.scrollTop !== 0 || element.scrollLeft !== 0 || (top === 0 && left === 0)) return;
       scrollInstantly(element, element, { top, left });
     },

@@ -331,15 +331,21 @@ type SideName = "source" | "page";
 /**
  * Keeps two sides scrolling in step: the side that was scrolled leads, at
  * most once for each call of `schedule`, as once per animation frame, and the
- * other follows, to where `follow` maps the leader's position. Moving the
- * other side makes it report a scroll of its own, which is passed over if the
- * side is still where it landed, which a page that snaps can make other than
- * where it was sent. A report that comes from somewhere else is a scroll of
- * the user's, made in the same frame, and the other side follows it.
+ * other follows, to where `follow` maps the leader's position. Of the sides
+ * that report a scroll before then, the last leads. Moving the other side
+ * makes it report a scroll of its own, which is passed over if the side is
+ * still where it landed, which a page that snaps can make other than where it
+ * was sent. A report that comes from somewhere else is a scroll of the
+ * user's, made in the same frame, and the other side follows it.
  */
 export class ScrollFollower {
   private leader: SideName | null = null;
-  /** Where moving a side put it, until the side reports that scroll. */
+  /**
+   * Where a side was put, by moving it or as `placed` and `passOver` say,
+   * until the side next reports a scroll, which is passed over if it is still
+   * there. A mark that no report follows stays until the side's next report,
+   * and can pass over that one if it moved the side by a pixel at most.
+   */
   private landed: Record<SideName, number | null> = { source: null, page: null };
 
   constructor(
@@ -355,6 +361,34 @@ export class ScrollFollower {
       this.landed[side] = null;
       if (Math.abs(this.sides[side].position() - landed) <= 1) return;
     }
+    this.lead(side);
+  }
+
+  /**
+   * Tells the follower that the view has just scrolled a side itself, to
+   * another position, as when it shows a moved page where it was (#126). The
+   * side leads from where it is now, and its own report of this scroll is
+   * passed over, so that a scroll of the user's that a side reports before
+   * the other side has followed leads instead. Chromium reports the scrolling
+   * in Obsidian's window, the source's, before the page's in a frame: were
+   * the page's report of this scroll taken for the lead, it would undo a
+   * scroll of the source that the user made in that frame (#157).
+   */
+  placed(side: SideName): void {
+    this.passOver(side);
+    this.lead(side);
+  }
+
+  /**
+   * Tells the follower that a side's scrolling until now was not the user's,
+   * as when the view knows that the reader has not scrolled it: the side's
+   * report of it is passed over while the side is still where it is now.
+   */
+  passOver(side: SideName): void {
+    this.landed[side] = this.sides[side].position();
+  }
+
+  private lead(side: SideName): void {
     const waiting = this.leader !== null;
     this.leader = side;
     if (waiting) return;

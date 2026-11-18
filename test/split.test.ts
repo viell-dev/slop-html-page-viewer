@@ -15,7 +15,7 @@ import {
 } from "../src/split";
 import { preparePage, SHADOW_ROOT_MARK } from "../src/document";
 import { startTags } from "../src/main";
-import { button, Harness } from "./support/harness";
+import { button, Harness, loadFrame, moveFrame } from "./support/harness";
 
 function anchors(html: string, tags: StartTag[]): [string, number][] {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -501,6 +501,59 @@ describe("following a scrolled side", () => {
     assert.deepEqual(source.scrolls, [350]);
   });
 
+  it("lets a side that the view placed lead, and passes over its report of that", () => {
+    const { source, page, following, frame } = follower();
+    page.set(600);
+    following.placed("page");
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [300]);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [], "the source's report of following is passed over");
+
+    // A user's scroll of the placed side itself leads from where it went.
+    page.set(1000);
+    following.placed("page");
+    page.set(1400);
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [300, 700]);
+  });
+
+  it("follows a user's scroll that comes before the report of a side that the view placed (#157)", () => {
+    const { source, page, following, frame } = follower();
+    page.set(600);
+    following.placed("page");
+    // In one frame, Chromium reports the source's scroll before the page's.
+    source.set(100);
+    following.scrolled("source");
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(page.scrolls, [200], "the page follows the user's scroll");
+    assert.deepEqual(source.scrolls, [], "the source is not sent back to the page");
+  });
+
+  it("passes over a side's report of scrolling that was not the user's", () => {
+    const { source, page, following, frame } = follower();
+    // As when the find bar's search scrolls the source before the view
+    // places a moved page: the source reports it in the frame after.
+    source.set(100);
+    following.passOver("source");
+    page.set(600);
+    following.placed("page");
+    following.scrolled("source");
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [300], "the placed page leads");
+    assert.deepEqual(page.scrolls, []);
+
+    source.set(50);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [100], "a user's scroll after that is followed");
+  });
+
   it("passes over one report of a page that does not land where it was sent", () => {
     const { source, page, following, frame } = follower(side(1000), side(2000, 64));
     source.set(110);
@@ -564,6 +617,41 @@ describe("the split view", () => {
     input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
 
+  it("finds in its source again after a move, without scrolling to the current match (#157)", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "Notes.html", PAGE);
+    button(view, "Split").click();
+    button(view, "Find in page").click();
+    const input = view.contentEl.querySelector<HTMLInputElement>(".html-page-viewer__find input");
+    assert.ok(input);
+    input.value = "<p";
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    // jsdom does not scroll; the view brings a match into view with this.
+    const revealed: string[] = [];
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value(this: HTMLElement) {
+        revealed.push(this.textContent ?? "");
+      },
+    });
+    try {
+      await loadFrame(view);
+      assert.equal(revealed.length, 1, "the first page's document shows the match");
+      revealed.length = 0;
+      await moveFrame(view);
+      assert.deepEqual(revealed, [], "after the move, the source stays where it is");
+      assert.equal(
+        view.contentEl.querySelector(".html-page-viewer__find-count")?.textContent,
+        "1 of 2",
+      );
+      assert.equal(window.CSS.highlights.get("html-page-viewer-match")?.size, 2);
+    } finally {
+      delete (window.HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+
   it("says that the two sides scroll apart while scripts are on", async () => {
     const harness = await Harness.load({ scriptsOn: true });
     const view = harness.newView();
@@ -593,5 +681,149 @@ describe("measuring again", () => {
     time = 300;
     assert.equal(value(), 2);
     assert.equal(value(), 2, "not while the size stays");
+  });
+});
+
+describe("the split view's page after a move (#157)", () => {
+  const LONG = `<!doctype html>\n<title>Long</title>\n${Array.from(
+    { length: 10 },
+    (_, index) => `<p>Paragraph ${index + 1}</p>`,
+  ).join("\n")}`;
+
+  /**
+   * Lays a frame's page out as jsdom does not: its paragraphs in a column,
+   * each 100 pixels high, with its window scrolled down by 150, into the
+   * second paragraph.
+   */
+  function scrolledDown(page: Document): void {
+    const win = page.defaultView!;
+    Object.defineProperty(win, "scrollY", { configurable: true, value: 150 });
+    Object.defineProperty(win.Element.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: Element) {
+        const index = this.localName === "p" ? [...this.parentElement!.children].indexOf(this) : 0;
+        const top = index * 100 - 150;
+        return { top, bottom: top + 100, height: 100, width: 100, left: 0, right: 100 };
+      },
+    });
+  }
+
+  /**
+   * The split view of LONG, in a window with animation frames, which jsdom
+   * does not have and which never run here, so that the view follows its
+   * page: its frame shows the page scrolled down, as before a move. `moved`
+   * moves the tab, with `away` run while the frame shows no page, and says
+   * where the view scrolled the frame's next document to.
+   */
+  async function splitView() {
+    Object.defineProperty(window, "requestAnimationFrame", {
+      configurable: true,
+      value: () => 0,
+    });
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "Long.html", LONG);
+    button(view, "Split").click();
+    await loadFrame(view, scrolledDown);
+    const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+    return {
+      view,
+      source,
+      moved: async (away?: () => void): Promise<ScrollToOptions[]> => {
+        const scrolls: ScrollToOptions[] = [];
+        await moveFrame(view, {
+          away,
+          prepare: (page) => {
+            page.defaultView!.scrollTo = ((options: ScrollToOptions) => {
+              scrolls.push(options);
+            }) as typeof window.scrollTo;
+          },
+        });
+        return scrolls;
+      },
+    };
+  }
+
+  /** The reader turns the wheel over the source, and Chromium reports the scroll. */
+  function readerScrolls(source: HTMLElement): void {
+    source.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+    source.dispatchEvent(new window.Event("scroll"));
+  }
+
+  const end = (): void => {
+    delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+  };
+
+  it("places the frame's next document where the previous one was", async () => {
+    try {
+      const { moved } = await splitView();
+      // Once its text is there, and again when it loads.
+      assert.notDeepEqual(await moved(), []);
+    } finally {
+      end();
+    }
+  });
+
+  it("leaves it unplaced, for the page to follow the source, after the reader scrolled the source while no page showed", async () => {
+    try {
+      const { source, moved } = await splitView();
+      assert.deepEqual(await moved(() => readerScrolls(source)), []);
+    } finally {
+      end();
+    }
+  });
+
+  it("goes on watching the reader when the frame drops a document that it never showed", async () => {
+    try {
+      const { view, source, moved } = await splitView();
+      const scrolls = await moved(() => {
+        readerScrolls(source);
+        // As when a second move comes before the view shows the page.
+        const win = view.contentEl.querySelector("iframe")!.contentDocument!.defaultView!;
+        win.dispatchEvent(new win.Event("pagehide"));
+      });
+      assert.deepEqual(scrolls, []);
+    } finally {
+      end();
+    }
+  });
+});
+
+describe("the find bar in a page shown again (#157)", () => {
+  it("scrolls to the current match in a page that a refresh shows again, which is no move", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(
+      view,
+      "Notes.html",
+      "<!doctype html>\n<title>Notes</title>\n<p>One</p>\n<p>Two</p>",
+    );
+    button(view, "Find in page").click();
+    const input = view.contentEl.querySelector<HTMLInputElement>(".html-page-viewer__find input");
+    assert.ok(input);
+    input.value = "Two";
+    const revealed: string[] = [];
+    const watchReveals = (page: Document): void => {
+      Object.defineProperty(page.defaultView!.HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value(this: HTMLElement) {
+          revealed.push(this.textContent ?? "");
+        },
+      });
+    };
+    const page = await loadFrame(view, watchReveals);
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    revealed.length = 0;
+    // Chromium drops the frame's page, firing pagehide, as emptying the view
+    // removes the frame; jsdom's stand-in for the frame's page does not.
+    const empty = view.contentEl.empty.bind(view.contentEl);
+    view.contentEl.empty = () => {
+      page.defaultView!.dispatchEvent(new page.defaultView!.Event("pagehide"));
+      empty();
+    };
+    button(view, "Refresh preview").click();
+    await loadFrame(view, watchReveals);
+    assert.deepEqual(revealed, ["Two"]);
+    input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
 });

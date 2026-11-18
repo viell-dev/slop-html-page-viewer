@@ -218,6 +218,234 @@ async function wheelDown(selector: string, from: number): Promise<PageState> {
   return state!;
 }
 
+/** Scrolls the active tab's split view's source to show line `number` at its top. */
+async function scrollSourceToLine(number: number): Promise<void> {
+  await browser.execute(
+    (active, number) => {
+      const source = document.querySelector<HTMLElement>(
+        `${active} .html-page-viewer__split .html-page-viewer__source`,
+      );
+      const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[
+        number - 1
+      ];
+      if (!source || !line) throw new Error(`No line ${number}`);
+      source.scrollTop = line.offsetTop;
+    },
+    ACTIVE,
+    number,
+  );
+}
+
+/**
+ * Opens the long page in the active tab's split view, with its source at line
+ * 20 and its page following it to paragraph 12. In the long page, paragraph N
+ * is on line 8 + N of the source.
+ */
+async function openLongPageSplit(): Promise<void> {
+  await openInActiveTab("Saved/Long page.html");
+  await clickToolbarButton("Split");
+  await waitForPage();
+  await scrollSourceToLine(20);
+  await browser.waitUntil(async () => Math.abs(((await pageState(false))?.top ?? 0) - 12) <= 1, {
+    timeout: 5000,
+    timeoutMsg: "the page did not follow the source to paragraph 12",
+  });
+}
+
+/**
+ * A reader's scrolling of the split view's source in a move: an input in the
+ * source, a wheel turn or a pointer press, and then, unless `scroll` is null,
+ * a scroll of the source to line 30, to its start, or down by 200 pixels
+ * from where it is,
+ * as a wheel scrolls. Each comes at one of two moments: in the first task
+ * after the frame drops the page's document, before the view shows the next
+ * one ("before shown"), or in the task in which the view places the frame's
+ * next document where the previous one was, once it has done so ("placed").
+ */
+interface ReaderInMove {
+  readonly input: "wheel" | "pointerdown";
+  readonly inputAt: "before shown" | "placed";
+  readonly scroll: "to line 30" | "to its start" | "down 200" | null;
+  readonly scrollAt: "before shown" | "placed";
+}
+
+/**
+ * What scrollSourceInMove did: for its input and its scroll, how far the moved
+ * page was scrolled down then, or null before the frame had its next page.
+ */
+interface SourceInMove {
+  input?: number | null;
+  scroll?: number | null;
+}
+
+/**
+ * Scrolls the active tab's split view's source in the move that moveActiveTab
+ * makes next, as `reader` says. The input is a dispatched event, and the
+ * scroll sets the source's scrollTop: a wheel turned through WebDriver cannot
+ * be timed to a moment of a move. In the task that places the page, the
+ * source and the page report their scrolling in the same animation frame,
+ * where Chromium reports the source's, in Obsidian's window, first. With the
+ * input before the page shows and the scroll only after it is placed, the
+ * source scrolls as with keys or the scroll bar, whose scrolling Chromium
+ * reports after the input.
+ */
+async function scrollSourceInMove(reader: ReaderInMove): Promise<void> {
+  await browser.execute(
+    (active, reader) => {
+      const source = document.querySelector<HTMLElement>(
+        `${active} .html-page-viewer__split .html-page-viewer__source`,
+      )!;
+      const frame = document.querySelector<HTMLIFrameElement>(
+        `${active} iframe.html-page-viewer__frame`,
+      )!;
+      const line = source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[29];
+      const old = frame.contentDocument!;
+      const result: { input?: number | null; scroll?: number | null } = {};
+      (window as unknown as { e2eSourceInMove: typeof result }).e2eSourceInMove = result;
+      const pageY = (): number | null => {
+        const doc = frame.contentDocument;
+        return doc && doc !== old && doc.URL === "about:srcdoc" ? doc.defaultView!.scrollY : null;
+      };
+      const act = (moment: "before shown" | "placed"): void => {
+        if (reader.inputAt === moment && result.input === undefined) {
+          result.input = pageY();
+          const init = { bubbles: true, cancelable: true };
+          source.dispatchEvent(
+            reader.input === "wheel"
+              ? new WheelEvent("wheel", { ...init, deltaY: 200 })
+              : new PointerEvent("pointerdown", { ...init, pointerType: "mouse" }),
+          );
+        }
+        if (reader.scroll !== null && reader.scrollAt === moment && result.scroll === undefined) {
+          result.scroll = pageY();
+          if (reader.scroll === "to line 30") source.scrollTop = line.offsetTop;
+          else if (reader.scroll === "to its start") source.scrollTop = 0;
+          else source.scrollTop += 200;
+        }
+      };
+      let dropped = false;
+      old.defaultView!.addEventListener("pagehide", () => {
+        dropped = true;
+        // After the task that moved the tab, as the reader's input is.
+        window.setTimeout(() => act("before shown"), 0);
+      });
+      // The frame's next documents can share one window: the one of the
+      // empty document that the frame starts with when Obsidian inserts it.
+      const watched = new WeakSet<Window>();
+      const watch = (): void => {
+        const win = frame.contentDocument?.defaultView;
+        if (!win || watched.has(win) || frame.contentDocument === old) return;
+        watched.add(win);
+        const scrollTo = win.scrollTo.bind(win) as (options: ScrollToOptions) => void;
+        win.scrollTo = ((options: ScrollToOptions) => {
+          scrollTo(options);
+          if (win.document.URL === "about:srcdoc" && win.scrollY > 0)
+            queueMicrotask(() => act("placed"));
+        }) as typeof win.scrollTo;
+      };
+      const channel = new MessageChannel();
+      const until = performance.now() + 10_000;
+      channel.port1.onmessage = () => {
+        if (dropped) watch();
+        if (performance.now() < until) channel.port2.postMessage(null);
+      };
+      channel.port2.postMessage(null);
+    },
+    ACTIVE,
+    reader,
+  );
+}
+
+/**
+ * Checks that scrollSourceInMove's input and scroll came at the moments that
+ * `reader` gives: before the view placed the moved page, or once it had.
+ */
+async function expectMoments(reader: ReaderInMove): Promise<void> {
+  const done = await browser.execute(
+    () => (window as unknown as { e2eSourceInMove: SourceInMove }).e2eSourceInMove,
+  );
+  const moments: [number | null | undefined, ReaderInMove["inputAt"]][] = [
+    [done.input, reader.inputAt],
+  ];
+  if (reader.scroll !== null) moments.push([done.scroll, reader.scrollAt]);
+  for (const [pageY, at] of moments) {
+    expect(pageY).not.toBeUndefined();
+    if (at === "placed") expect(pageY).toBeGreaterThan(0);
+    else expect(pageY ?? 0).toBe(0);
+  }
+}
+
+/**
+ * Scrolls the active tab's source to its start in one task, as the reader
+ * does with the wheel, and has Obsidian send `trigger` before Chromium
+ * reports the scroll in its next frame: a layout change, or a resize of the
+ * view. Then waits for two frames.
+ */
+async function scrollSourceToStartBefore(trigger: "layout-change" | "resize"): Promise<void> {
+  await browser.executeObsidian(({ app }, trigger) => {
+    const leaf = app.workspace.getMostRecentLeaf()!;
+    const source = leaf.view.containerEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+    source.dispatchEvent(
+      new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -2000 }),
+    );
+    source.scrollTop = 0;
+    if (trigger === "resize") (leaf.view as unknown as { onResize(): void }).onResize();
+    else app.workspace.trigger("layout-change");
+  }, trigger);
+  await nextFrames();
+  await nextFrames();
+}
+
+/** How far the active tab's source is scrolled down. */
+async function sourceTop(): Promise<number> {
+  return browser.execute(
+    (active) =>
+      document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!.scrollTop,
+    ACTIVE,
+  );
+}
+
+/**
+ * Opens the long page in the split view, as openLongPageSplit does, with the
+ * find bar open on paragraph 45, on line 53, and the source scrolled back to
+ * line 20 after the find bar brought that line to its middle.
+ */
+async function openLongPageSplitFinding(): Promise<void> {
+  await openLongPageSplit();
+  await browser.$(`${ACTIVE} .html-page-viewer__split .html-page-viewer__source`).click();
+  await browser.keys(["Control", "f"]);
+  await browser.$(`${ACTIVE} .html-page-viewer__find input`).setValue("Paragraph 45 of");
+  await browser.keys("Enter");
+  await browser.waitUntil(async () => ((await pageState(false))?.line ?? 0) > 30, {
+    timeout: 5000,
+    timeoutMsg: "the find bar did not scroll the source to paragraph 45's line",
+  });
+  await scrollSourceToLine(20);
+  await browser.waitUntil(async () => Math.abs(((await pageState(false))?.top ?? 0) - 12) <= 1, {
+    timeout: 5000,
+    timeoutMsg: "the page did not follow the source back to paragraph 12",
+  });
+}
+
+/**
+ * Waits until the moved tab's page has loaded with its source at line `line`
+ * and its page following it, and checks that nothing moves either side
+ * afterwards. In the long page, paragraph N is on line 8 + N.
+ */
+async function expectMovedSplitAt(line: number, what: string): Promise<void> {
+  await waitForMovedPage(
+    (state) =>
+      state.readyState === "complete" &&
+      Math.abs((state.line ?? 0) - line) <= 1 &&
+      Math.abs(state.top - (line - 8)) <= 1,
+    what,
+  );
+  await nextFrames();
+  const settled = (await pageState(true))!;
+  expect(Math.abs((settled.line ?? 0) - line)).toBeLessThanOrEqual(1);
+  expect(Math.abs(settled.top - (line - 8))).toBeLessThanOrEqual(1);
+}
+
 /**
  * Moves the active tab's page, scrolled to paragraph 30 of HELD, to another
  * tab group while its image is held, so that it has its text again long
@@ -540,22 +768,7 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
   });
 
   it("keeps the split view's sides in place and in step, following only the page it shows", async function () {
-    // In the long page, paragraph N is on line 8 + N of the source.
-    await openInActiveTab("Saved/Long page.html");
-    await clickToolbarButton("Split");
-    await waitForPage();
-    await browser.execute((active) => {
-      const source = document.querySelector<HTMLElement>(
-        `${active} .html-page-viewer__split .html-page-viewer__source`,
-      );
-      const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[19];
-      if (!source || !line) throw new Error("No line 20");
-      source.scrollTop = line.offsetTop;
-    }, ACTIVE);
-    await browser.waitUntil(async () => Math.abs(((await pageState(false))?.top ?? 0) - 12) <= 1, {
-      timeout: 5000,
-      timeoutMsg: "the page did not follow the source to paragraph 12",
-    });
+    await openLongPageSplit();
 
     // Counts each time something measures the page's document that the frame
     // is about to drop, as the split view's following of it does.
@@ -577,7 +790,8 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
     }, ACTIVE);
 
     await moveActiveTab("group");
-    // The source follows the placed page an animation frame later.
+    // On 1.5.3, the source follows the placed page an animation frame later;
+    // 1.15.1 scrolls it back itself while it moves the tab.
     const after = await waitForMovedPage(
       (state) =>
         state.readyState === "complete" &&
@@ -588,15 +802,9 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
     expect(Math.abs(after.top - 12)).toBeLessThanOrEqual(1);
     expect(Math.abs((after.line ?? 0) - 20)).toBeLessThanOrEqual(1);
 
-    // Line 30 is paragraph 22's.
-    await browser.execute((active) => {
-      const source = document.querySelector<HTMLElement>(
-        `${active} .html-page-viewer__split .html-page-viewer__source`,
-      );
-      const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[29];
-      if (!source || !line) throw new Error("No line 30");
-      source.scrollTop = line.offsetTop;
-    }, ACTIVE);
+    // Line 30 is paragraph 22's. The view follows it whenever it comes after
+    // the move, also before it has followed the placed page.
+    await scrollSourceToLine(30);
     await browser.waitUntil(async () => Math.abs(((await pageState(true))?.top ?? 0) - 22) <= 1, {
       timeout: 5000,
       timeoutMsg: "the moved page did not follow the source to paragraph 22",
@@ -607,6 +815,140 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
       ),
     ).toBe(0);
   });
+
+  for (const [what, reader] of [
+    [
+      "in the animation frame in which it places the moved page",
+      { input: "wheel", inputAt: "placed", scroll: "to line 30", scrollAt: "placed" },
+    ],
+    [
+      "before it shows the moved page again",
+      { input: "wheel", inputAt: "before shown", scroll: "to line 30", scrollAt: "before shown" },
+    ],
+    [
+      "that starts before it shows the moved page again",
+      { input: "wheel", inputAt: "before shown", scroll: "to line 30", scrollAt: "placed" },
+    ],
+  ] as const) {
+    it(`follows the reader's scrolling of the split view's source ${what} (#157)`, async function () {
+      await openLongPageSplit();
+      await nextFrames();
+      await scrollSourceInMove(reader);
+      await moveActiveTab("group");
+      await expectMovedSplitAt(30, "its page following its source to paragraph 22 and line 30");
+      await expectMoments(reader);
+    });
+  }
+
+  // A wheel scrolls the source on from where it is. Obsidian 1.5.3 shows the
+  // moved source from its top, where the view puts it back as the move ends.
+  it("follows the reader's scrolling of the split view's source on from its place, before it shows the moved page again (#157)", async function () {
+    await openLongPageSplit();
+    await nextFrames();
+    const reader = {
+      input: "wheel",
+      inputAt: "before shown",
+      scroll: "down 200",
+      scrollAt: "before shown",
+    } as const;
+    await scrollSourceInMove(reader);
+    await moveActiveTab("group");
+    // 200 pixels are more than 9 of the source's lines.
+    await waitForMovedPage(
+      (state) => state.readyState === "complete" && (state.line ?? 0) >= 29,
+      "its source scrolled on from line 20",
+    );
+    await nextFrames();
+    const settled = (await pageState(true))!;
+    expect(settled.line).toBeGreaterThanOrEqual(29);
+    expect(settled.line).toBeLessThanOrEqual(32);
+    expect(Math.abs(settled.top - (settled.line! - 8))).toBeLessThanOrEqual(1);
+    await expectMoments(reader);
+  });
+
+  // After a move, the find bar shows its matches again in the split view's
+  // source without scrolling it to the current one: that would take both
+  // sides away from their place, or from the reader's scrolling.
+  it("keeps the split view's sides in place when the find bar finds in its source again after the move (#157)", async function () {
+    await openLongPageSplitFinding();
+    await nextFrames();
+    await moveActiveTab("group");
+    await expectMovedSplitAt(20, "its page at paragraph 12 and its source at line 20");
+  });
+
+  for (const [what, reader, line] of [
+    [
+      "a pointer press in its source leaves it",
+      { input: "pointerdown", inputAt: "before shown", scroll: null, scrollAt: "before shown" },
+      20,
+    ],
+    [
+      "the reader scrolls its source",
+      { input: "wheel", inputAt: "before shown", scroll: "to line 30", scrollAt: "before shown" },
+      30,
+    ],
+  ] as const) {
+    it(`keeps the split view with the find bar open where ${what} before the moved page shows (#157)`, async function () {
+      await openLongPageSplitFinding();
+      await nextFrames();
+      await scrollSourceInMove(reader);
+      await moveActiveTab("group");
+      await expectMovedSplitAt(line, `its source at line ${line} and its page following it`);
+      await expectMoments(reader);
+    });
+  }
+
+  // The reader's scroll of the source to its start looks like a source that
+  // lost its place until Chromium reports it, and the view keeps the place
+  // of the split view's and the source view's source for after a move.
+  it("follows the reader's scrolling of the split view's source to its start, before it shows the moved page again in a new window (#157)", async function () {
+    await openLongPageSplit();
+    await nextFrames();
+    const reader = {
+      input: "wheel",
+      inputAt: "before shown",
+      scroll: "to its start",
+      scrollAt: "before shown",
+    } as const;
+    await scrollSourceInMove(reader);
+    await moveActiveTab("window");
+    await waitForMovedPage(
+      (state) => state.readyState === "complete" && state.line === 1 && state.scrollY <= 1,
+      "its source and its page at their start",
+    );
+    await nextFrames();
+    expect(await pageState(true)).toMatchObject({ inWindow: true, line: 1 });
+    expect((await pageState(true))!.scrollY).toBeLessThanOrEqual(1);
+    await expectMoments(reader);
+  });
+
+  for (const trigger of ["layout-change", "resize"] as const) {
+    const what = trigger === "resize" ? "a resize" : "a layout change";
+    it(`leaves the split view's source at its start where the reader scrolls it, when ${what} comes before Chromium reports it (#157)`, async function () {
+      await openLongPageSplit();
+      await nextFrames();
+      await scrollSourceToStartBefore(trigger);
+      expect(await sourceTop()).toBe(0);
+      await browser.waitUntil(async () => (await pageState(false))?.scrollY === 0, {
+        timeout: 5000,
+        timeoutMsg: "the page did not follow the source to its start",
+      });
+    });
+
+    it(`leaves the source view's source at its start where the reader scrolls it, when ${what} comes before Chromium reports it (#157)`, async function () {
+      await openInActiveTab("Saved/Long page.html");
+      await clickToolbarButton("Source");
+      await browser.execute((active) => {
+        const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!;
+        source.scrollTop = 400;
+      }, ACTIVE);
+      // The view learns where the source is from its scroll event.
+      await nextFrames();
+      expect(await sourceTop()).toBe(400);
+      await scrollSourceToStartBefore(trigger);
+      expect(await sourceTop()).toBe(0);
+    });
+  }
 
   // Chromium shows an element that Obsidian took out of the page and inserted
   // again from its top. Obsidian 1.15.1 scrolls it back itself; on 1.5.3 the

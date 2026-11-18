@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { JSDOM } from "jsdom";
-import { placeTop, type ScrollPlace, scrollPlace, showPlace } from "../src/scrolling";
+import {
+  placeNextDocument,
+  placeTop,
+  type ReaderActivity,
+  type ScrollPlace,
+  scrollPlace,
+  showPlace,
+  watchReader,
+} from "../src/scrolling";
+import { ScrollFollower } from "../src/split";
 
 /**
  * A page laid out as its elements' `data-top` and `data-height` say, in page
@@ -278,5 +287,257 @@ describe("placing a moved page again when it loads (#126)", () => {
     showPlace(doc, PLACE, [viewElement()], new AbortController().signal);
     doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
     assert.deepEqual(scrolls, [1100]);
+  });
+
+  it("places it once, and not again when it loads, after the reader acted before it was shown (#157)", async () => {
+    const { doc, scrolls } = await loadingPage();
+    showPlace(doc, PLACE, [viewElement()], new AbortController().signal, { acted: true });
+    doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
+    assert.deepEqual(scrolls, [1100]);
+  });
+
+  it("says when placing it scrolls it, and not when it is there already (#157)", () => {
+    for (const [from, moves] of [
+      [0, 1],
+      [1100, 0],
+    ] as const) {
+      const doc = laidOut(PAGE, from);
+      const win = doc.defaultView!;
+      // The window goes where it is sent at once, as Chromium's does.
+      let scrollY: number = from;
+      Object.defineProperty(win, "scrollY", { configurable: true, get: () => scrollY });
+      win.scrollTo = ((options: ScrollToOptions) => {
+        scrollY = options.top ?? scrollY;
+      }) as typeof win.scrollTo;
+      Object.defineProperty(doc, "readyState", { configurable: true, value: "complete" });
+      let moved = 0;
+      showPlace(doc, PLACE, [viewElement()], new AbortController().signal, {
+        moved: () => (moved += 1),
+      });
+      assert.equal(scrollY, 1100);
+      assert.equal(moved, moves, `placed from ${from}`);
+    }
+  });
+});
+
+describe("the reader's scrolling while the view shows no page (#157)", () => {
+  /** The view and its split view's source, and a wait for the next task. */
+  function view(): { view: HTMLElement; source: HTMLElement; nextTask: () => Promise<void> } {
+    const element = viewElement();
+    const win = element.ownerDocument.defaultView!;
+    return {
+      view: element,
+      source: element.firstElementChild as HTMLElement,
+      nextTask: () => new Promise((resolve) => win.setTimeout(resolve, 0)),
+    };
+  }
+
+  function scroll(element: HTMLElement): void {
+    element.dispatchEvent(new element.ownerDocument.defaultView!.Event("scroll"));
+  }
+
+  for (const type of ["keydown", "pointerdown", "touchstart", "wheel"]) {
+    it(`counts a scroll of the source after a ${type} in the view`, async () => {
+      const { view: element, source, nextTask } = view();
+      const watch = watchReader(element, source);
+      await nextTask();
+      const realm = source.ownerDocument.defaultView!;
+      source.dispatchEvent(new realm.Event(type, { bubbles: true }));
+      scroll(source);
+      assert.deepEqual(watch.stop(), { acted: true, scrolled: true });
+    });
+  }
+
+  it("counts the reader's input without a scroll as acting only", async () => {
+    const { view: element, source, nextTask } = view();
+    const watch = watchReader(element, source);
+    await nextTask();
+    element.dispatchEvent(new element.ownerDocument.defaultView!.Event("keydown"));
+    assert.deepEqual(watch.stop(), { acted: true, scrolled: false });
+  });
+
+  it("passes over a scroll without the reader's input, as Obsidian 1.15.1 makes after a move", () => {
+    const { view: element, source } = view();
+    const watch = watchReader(element, source);
+    scroll(source);
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
+  });
+
+  it("passes over input that was still being dispatched when it started, as a hotkey that moved the tab", () => {
+    const { view: element, source } = view();
+    const watch = watchReader(element, source);
+    source.dispatchEvent(new source.ownerDocument.defaultView!.Event("keydown", { bubbles: true }));
+    scroll(source);
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
+  });
+
+  it("counts nothing after it stops", async () => {
+    const { view: element, source, nextTask } = view();
+    const watch = watchReader(element, source);
+    await nextTask();
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
+    source.dispatchEvent(new source.ownerDocument.defaultView!.Event("wheel", { bubbles: true }));
+    scroll(source);
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
+  });
+});
+
+describe("showing the frame's next document after a move (#126, #157)", () => {
+  /**
+   * PAGE as the frame's next document, which has its text but has not loaded,
+   * laid out as `laidOut` does at the height that its window is scrolled to,
+   * and a split view's follower of it and of a source half its height, whose
+   * frames run when `frame` says. The reader or Obsidian scrolls the source
+   * with `scrollSource`, which Chromium reports only with `report`.
+   */
+  async function nextDocument() {
+    const doc = laidOut(PAGE, 0);
+    const win = doc.defaultView!;
+    if (doc.readyState !== "complete")
+      await new Promise((resolve) => win.addEventListener("load", resolve, { once: true }));
+    Object.defineProperty(doc, "readyState", { configurable: true, value: "interactive" });
+    let scrollY = 0;
+    Object.defineProperty(win, "scrollY", { configurable: true, get: () => scrollY });
+    Object.defineProperty(win.Element.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: Element) {
+        const top = Number(this.getAttribute("data-top") ?? 0) - scrollY;
+        const height = Number(this.getAttribute("data-height") ?? 0);
+        return { top, bottom: top + height, height, width: 100 };
+      },
+    });
+    const page: number[] = [];
+    win.scrollTo = ((options: ScrollToOptions) => {
+      scrollY = options.top ?? scrollY;
+      page.push(scrollY);
+    }) as typeof win.scrollTo;
+    let sourceTop = 0;
+    const source: number[] = [];
+    const frames: (() => void)[] = [];
+    const follower = new ScrollFollower(
+      {
+        source: {
+          position: () => sourceTop,
+          furthest: () => 10_000,
+          scrollTo: (to) => {
+            sourceTop = to;
+            source.push(to);
+          },
+        },
+        page: {
+          position: () => scrollY,
+          furthest: () => 20_000,
+          scrollTo: (to) => win.scrollTo({ top: to }),
+        },
+      },
+      { source: (top) => top * 2, page: (top) => top / 2 },
+      (run) => frames.push(run),
+    );
+    return {
+      doc,
+      follower,
+      /** Where the follower and the view scrolled the page and the source to. */
+      scrolls: { page, source },
+      scrollSource: (to: number) => {
+        sourceTop = to;
+      },
+      report: (side: "source" | "page") => follower.scrolled(side),
+      frame: () => {
+        for (const run of frames.splice(0)) run();
+      },
+      load: () => win.dispatchEvent(new win.Event("load")),
+    };
+  }
+
+  const show = (
+    next: Awaited<ReturnType<typeof nextDocument>>,
+    reader: ReaderActivity | null,
+    place: ScrollPlace | null = PLACE,
+  ): void =>
+    placeNextDocument(
+      next.doc,
+      place,
+      reader,
+      next.follower,
+      [viewElement()],
+      new AbortController().signal,
+    );
+
+  for (const place of [PLACE, null]) {
+    it(`lets the page follow a scroll of the source that the reader made while no page showed, ${place ? "from a place" : "from its top"}`, async () => {
+      const next = await nextDocument();
+      next.scrollSource(300);
+      show(next, { acted: true, scrolled: true }, place);
+      next.frame();
+      assert.deepEqual(next.scrolls.page, [600], "the page follows the source, unplaced");
+      next.load();
+      assert.deepEqual(next.scrolls.page, [600], "and is not placed when it loads");
+    });
+  }
+
+  it("lets a scroll of the source lead that the reader made before the page showed, and that comes after it", async () => {
+    // As with keys or the scroll bar: the reader's input before the page
+    // shows, and Chromium's report of the scroll only after it is placed.
+    const next = await nextDocument();
+    next.scrollSource(300);
+    show(next, { acted: true, scrolled: false });
+    assert.deepEqual(next.scrolls.page, [1100], "placed");
+    next.report("source");
+    next.report("page");
+    next.frame();
+    assert.deepEqual(next.scrolls.page, [1100, 600], "the page follows the source");
+    assert.deepEqual(next.scrolls.source, [], "the source is not sent back");
+    next.load();
+    assert.deepEqual(next.scrolls.page, [1100, 600], "and is not placed again when it loads");
+  });
+
+  it("passes over Obsidian's scroll of the source without the reader's input, and lets the placed page lead", async () => {
+    const next = await nextDocument();
+    // Obsidian 1.15.1 scrolls the moved source back itself; Chromium can
+    // report it after the page is placed.
+    next.scrollSource(300);
+    show(next, { acted: false, scrolled: false });
+    next.report("source");
+    next.report("page");
+    next.frame();
+    assert.deepEqual(next.scrolls.source, [550], "the source follows the placed page");
+    next.load();
+    assert.deepEqual(next.scrolls.page, [1100, 1100], "placed again when it loads");
+  });
+
+  it("lets a scroll of the reader's lead that the source reports in the frame of the placement", async () => {
+    const next = await nextDocument();
+    show(next, { acted: false, scrolled: false });
+    next.scrollSource(300);
+    next.report("source");
+    next.report("page");
+    next.frame();
+    assert.deepEqual(next.scrolls.page, [1100, 600], "the page follows the source");
+    assert.deepEqual(next.scrolls.source, [], "the source is not sent back");
+  });
+
+  it("places the page without the split view, and not again when it loads after the reader's input", async () => {
+    const next = await nextDocument();
+    placeNextDocument(
+      next.doc,
+      PLACE,
+      { acted: true, scrolled: true },
+      null,
+      [viewElement()],
+      new AbortController().signal,
+    );
+    next.load();
+    assert.deepEqual(next.scrolls.page, [1100]);
+  });
+
+  it("leaves a first document, and one whose previous document was at its top, where it is", async () => {
+    for (const reader of [null, { acted: false, scrolled: false }]) {
+      const next = await nextDocument();
+      show(next, reader, null);
+      next.report("source");
+      next.frame();
+      next.load();
+      assert.deepEqual(next.scrolls, { page: [], source: [] });
+    }
   });
 });

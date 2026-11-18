@@ -90,17 +90,41 @@ export function frame(view: HtmlView): HTMLIFrameElement | null {
  * `srcdoc` and jsdom does not: once the copy is prepared, the frame's
  * `contentDocument` is a document at about:srcdoc parsed from it, and the
  * frame fires `load`. Only a page with scripts off has Obsidian's origin, so
- * that the view can reach it.
+ * that the view can reach it. `prepare` gets the document before the frame
+ * shows it, as to lay it out.
  */
-export async function loadFrame(view: HtmlView): Promise<Document> {
+export async function loadFrame(
+  view: HtmlView,
+  prepare?: (page: Document) => void,
+): Promise<Document> {
   await settle();
   const iframe = frame(view);
   assert.ok(iframe?.srcdoc, "the view shows a frame with its copy");
   const page = new JSDOM(iframe.srcdoc, { url: "about:srcdoc" }).window.document;
+  prepare?.(page);
   Object.defineProperty(iframe, "contentDocument", { configurable: true, get: () => page });
   iframe.dispatchEvent(new window.Event("load"));
   await settle();
   return page;
+}
+
+/**
+ * Moves the view's tab to another tab group or window, for its frame, as
+ * Chromium does when Obsidian takes the frame out of the page and inserts it
+ * again: the frame drops its document, which fires `pagehide`, and loads its
+ * copy again (#126). `away` runs from the task after that, while the frame
+ * shows no page, and `prepare` gets the next document as `loadFrame` does.
+ */
+export async function moveFrame(
+  view: HtmlView,
+  { away, prepare }: { away?: () => void | Promise<void>; prepare?: (page: Document) => void } = {},
+): Promise<Document> {
+  const win = frame(view)?.contentDocument?.defaultView;
+  assert.ok(win, "the frame shows a document");
+  win.dispatchEvent(new win.Event("pagehide"));
+  await settle();
+  await away?.();
+  return loadFrame(view, prepare);
 }
 
 export function sandboxTokens(iframe: HTMLIFrameElement): string[] {
