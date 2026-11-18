@@ -34,6 +34,9 @@ describe("plugin code", () => {
     });
   }
 
+  // Obsidian's own code writes files too: TextFileView, which the view
+  // extends, saves the view's data to its file. Those writes are not in this
+  // bundle; refresh.test.ts covers them.
   it("has no direct calls to vault file mutation APIs", () => {
     assert.doesNotMatch(bundle, /\bvault\.(?:adapter\.)?(?:modify|process|create|createBinary|delete|trash|rename|append|write|writeBinary|remove)\s*\(/);
   });
