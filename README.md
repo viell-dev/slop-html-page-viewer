@@ -79,8 +79,8 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   `<style>` element's own text and a stylesheet `<link>` in HTML; the elements inside an SVG
   `<style>`, a MathML `<style>`, and a `<link>` inside SVG or MathML stay as the page has them. A
   stylesheet names files only with its `url()`s and its imports, and only the imports at its start
-  count, after nothing but `@charset`, other imports, and `@layer` statements before the first
-  import. Text inside CSS strings and comments, such as `content: "url(icon.png)"`, stays as the
+  count, after nothing but `@charset`, `@supports-condition` rules, other imports, and `@layer`
+  statements before the first import. Text inside CSS strings and comments, such as `content: "url(icon.png)"`, stays as the
   page has it. The viewer does not yet check a `<style>` or `<link>` element's `type`, or a link's
   `disabled` attribute ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
@@ -156,6 +156,11 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
     still apply: telling which rules are valid would take a CSS parser;
   - an import with media conditions of a stylesheet that has a `}` outside any block: wrapped in
     `@media`, as the viewer copies other such imports, that `}` would end the wrapper early.
+- **A page whose stylesheets import each other many times can keep the viewer preparing it for a
+  long time**, and Obsidian may not respond meanwhile, also when it opens such a page again at its
+  next start. The viewer follows each stylesheet's imports up to eight deep, but nothing bounds how
+  many imports each stylesheet has, so the work multiplies with each level
+  ([#154](https://github.com/viell-dev/slop-html-page-viewer/issues/154)).
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets
   still apply, and the **Local files with scripts on** setting copies the page's images, media, text

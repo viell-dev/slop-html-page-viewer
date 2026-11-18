@@ -60,8 +60,8 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   reach the page, and a link navigates the frame, which keeps its sandbox.
 - **CSS resources.** A stylesheet names resources only with its URL arguments and the sources of
   the imports that browsers apply, including their quoted forms: imports at the start of a
-  stylesheet, after nothing but `@charset`, other imports, and `@layer` statements before the first
-  import. Resource-like text inside CSS strings and comments, in the page's stylesheets and in its
+  stylesheet, after nothing but `@charset`, `@supports-condition` rules, other imports, and `@layer`
+  statements before the first import. Resource-like text inside CSS strings and comments, in the page's stylesheets and in its
   shadow DOM's alike, causes no stylesheet reads, and no copying either. An imported stylesheet ends
   in the copy where CSS ends it, with what it leaves open closed, so that string and comment text
   after its import stays text and names no file. The scan does not evaluate CSS, and inlining can
@@ -87,9 +87,12 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   folder. Obsidian saves an open file's view to the file when the file leaves it; the viewer turns
   that saving off, so Obsidian does not write the files it shows either.
 
-  Since 0.6.0, these include the `.css` files that the page's shadow DOM links or imports, and the
-  files that it names there, read and copied by the same file types, limits, and vault-only paths
-  as the rest of the page's ([#124](https://github.com/viell-dev/slop-html-page-viewer/issues/124)).
+  Since 0.6.0, these include the `.css` files that the content of the page's `<template>` elements
+  links or imports, and the files that it names there, read and copied by the same file types,
+  limits, and vault-only paths as the rest of the page's
+  ([#124](https://github.com/viell-dev/slop-html-page-viewer/issues/124)). That covers its shadow
+  DOM, which comes from such templates, and also a template that declares no shadow root, because a
+  page with scripts on can use its content.
 
   Of the page's `<style>` and `<link>` elements, it reads and copies only for an HTML or SVG
   `<style>` element's own text and for HTML stylesheet `<link>` elements, the ones whose namespace
