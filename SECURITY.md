@@ -68,6 +68,13 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   still change which of the importing sheet's rules apply
   ([#152](https://github.com/viell-dev/slop-html-page-viewer/issues/152)).
 
+  **Unreleased (#155):** so does each of the page's own stylesheets, a `<style>` element's text and
+  a linked stylesheet, which 0.6.0 reads as written. An import without its `;` at its end is read
+  and copied into the page, and an unquoted URL at its end names a file, which a linked
+  stylesheet's folder resolves and which, with **Local files with scripts on**, is copied. Before,
+  they named nothing, so the viewer read and copied less than CSS names, never more
+  ([#155](https://github.com/viell-dev/slop-html-page-viewer/issues/155)).
+
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
   files, that only CSS strings or comments named, or that imports named which never apply: one
   after a style rule, and one into a cascade layer written with a comment or an escape before
@@ -101,12 +108,20 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   `<link>` loads nothing; a `<style>` in its place would be parsed as SVG's or MathML's in the
   frame, which reads its text as markup. Before 0.6.0, the viewer read and copied for all of these,
   and replaced a `<link>` inside SVG or MathML with such a `<style>`; fixed in 0.6.0
-  ([#143](https://github.com/viell-dev/slop-html-page-viewer/issues/143)). It does not yet check
-  their `type` or a link's `disabled` attribute
-  ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)). It also prepares the
-  stylesheets in every `<template>`, whose content a page with scripts on can use, and in
-  `<noscript>`, which such a page never shows
-  ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
+  ([#143](https://github.com/viell-dev/slop-html-page-viewer/issues/143)). Version 0.6.0 does not
+  check their `type` or a link's `disabled` attribute. It also prepares the stylesheets in every
+  `<template>`, whose content a page with scripts on can use, and in `<noscript>`, which such a
+  page never shows ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
+
+  **Unreleased (#147):** it reads and copies only for the elements that Chromium also applies by
+  their `type` and a link's `disabled` attribute: a `<style>` with no `type`, an empty one, or
+  `text/css` in any case, without parameters or spaces, and a link without `disabled` whose `type`
+  is absent, or whose part before any `;`, trimmed of whitespace, is empty or `text/css` in any
+  case. The others cause no reads or copying, and the copy keeps them as the page has them;
+  before, such a link became a `<style>` that applied. On Obsidian 1.5.3, whose Chromium applies an
+  SVG `<style>` only with a lowercase `text/css`, an SVG `<style>` with that type in other case is
+  still prepared, though it applies nothing
+  ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with

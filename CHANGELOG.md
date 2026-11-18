@@ -22,6 +22,16 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   find bar shows its matches again without scrolling to the current one. In the split view and the
   **Source** view, the reader's scroll of the source to its start is no longer undone by a layout
   change or a resize that comes before Chromium reports it (#157).
+- The viewer reads and copies only for the `<style>` and stylesheet `<link>` elements that browsers
+  apply. A `<style>` of another type, such as `text/x-scss` or `text/css; charset=utf-8`, keeps
+  its text as written, and a disabled link or one of another type, such as `text/plain`, stays a
+  link instead of becoming a `<style>` whose rules applied. A page whose only stylesheets are such
+  elements shows in Obsidian's theme. A disabled link that a page's scripts enable later stays
+  without its stylesheet (#147).
+- A `<style>` or a linked stylesheet that ends in an import without its `;` now imports its file,
+  and an unquoted `url(` at the end of a linked stylesheet loads from the stylesheet's folder, as
+  CSS ends each stylesheet on its own. A page's link and import of the same stylesheet then count
+  once toward its stylesheet limits (#155).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

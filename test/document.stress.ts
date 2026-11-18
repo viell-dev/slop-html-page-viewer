@@ -134,3 +134,30 @@ describe("preparing a page whose stylesheets import each other many times (#154)
     assert.deepEqual(reads, ["Saved/item.css", "Saved/tokens.css"]);
   });
 });
+
+describe("preparing a page whose links have long types (#147)", () => {
+  it("trims a link type's whitespace in time that grows with the type's length", async () => {
+    // A run of spaces inside the essence, with text after it: a trim that
+    // tries the run from each of its positions takes quadratic time. A regular
+    // expression that did took 12.7 s for this page in Node.js 24 on Windows,
+    // and the scan from each end 52 ms.
+    const spaces = " ".repeat(50_000);
+    const ctx = {
+      ...context,
+      read: (path: string) => Promise.resolve(path === "Saved/a.css" ? ".a {}" : null),
+    };
+    const html = [
+      `<link rel="stylesheet" type="x${spaces}x" href="a.css">`,
+      `<link rel="stylesheet" type="${spaces}TEXT/CSS${spaces};${spaces}x" href="a.css">`,
+    ].join("");
+    const start = performance.now();
+    const { html: output } = await preparePage(html, ctx);
+    const elapsed = performance.now() - start;
+    assert.ok(elapsed < 1_000, `${Math.round(elapsed)} ms`);
+    // The first is not CSS and stays a link; the second is, and is replaced.
+    const doc = new DOMParser().parseFromString(output, "text/html");
+    assert.equal(doc.querySelectorAll("link").length, 1);
+    assert.equal(doc.querySelector("link")!.getAttribute("type"), `x${spaces}x`);
+    assert.equal(doc.querySelector("style")!.textContent, ".a {}");
+  });
+});
