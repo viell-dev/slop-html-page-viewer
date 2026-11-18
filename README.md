@@ -162,14 +162,18 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   many imports each stylesheet has, so the work multiplies with each level
   ([#154](https://github.com/viell-dev/slop-html-page-viewer/issues/154)).
 
-  **Unreleased (#154):** the viewer copies at most 1,000 stylesheets and 16 million characters of
-  stylesheet text into a page, its links and imports together, also those of its shadow DOM,
-  counting a stylesheet again for each link or import of it. The links and imports past either
-  limit stay links and imports, which Obsidian's policy keeps from loading, so such a page shows
-  only some of its styles, without keeping the viewer preparing it. A smaller stylesheet after one
-  too large for what remains is still copied. Obsidian still does not respond while the viewer
-  prepares a page, about a third to half a second for each million characters of stylesheets that
-  it copies ([#158](https://github.com/viell-dev/slop-html-page-viewer/issues/158)).
+  **Unreleased (#154):** for each page, also its shadow DOM, the viewer follows at most 1,000 links
+  and imports of vault stylesheets, and copies at most 16 million characters of the stylesheets'
+  text, before it makes their URLs absolute. Each link and import that it follows counts, also when
+  its stylesheet is missing, too large, or then left as an import. Only a repeat of a link in the
+  page, or of an import in one of its own `<style>` elements, of a stylesheet that the viewer has
+  already copied whole counts just its text, so that a page of components that each link the same
+  stylesheet shows whole. The links and imports past either limit stay links and imports, which
+  Obsidian's policy keeps from loading, so such a page shows only some of its styles, without
+  keeping the viewer preparing it. A smaller stylesheet after one too large for what remains is
+  still copied. Obsidian still does not respond while the viewer prepares a page, about a third to
+  half a second for each million characters of stylesheets that it copies
+  ([#158](https://github.com/viell-dev/slop-html-page-viewer/issues/158)).
 
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets

@@ -103,18 +103,24 @@ shadow root. `scripts/css-benchmark.mjs` reports a revision's time and peak memo
 KB and 4 MB stylesheets, as observations rather than a check.
 
 **Unreleased (#154):** beside the eight-file depth limit, `document.test.ts` checks the page's
-stylesheet limits: at most 1,000 stylesheets and 16 million characters of their text, counting a
-stylesheet again for each link or import of it, and shared by the page's links and imports in the
-document and in shadow roots. Those past a limit stay links and imports, a smaller stylesheet after
-one too large still fits, one of exactly the limit fits alone, and each file is read once.
-`document.stress.ts` prepares eight stylesheets that each import the next ten times, eleven million
-stylesheets without the limits, with small and with 20 KB stylesheets. Its context fails the
-preparation once it has looked at twice as many imports as the limits allow, so that a missing limit
-fails the test in about a second instead of running for hours. `resources.e2e.ts` checks in
-Obsidian 1.5.3 and the latest that such a page shows the stylesheets up to the limit, that an import
-past it does not apply, and that the window's timers never stop for 2 s while it opens; they
-stopped for at most 0.3 s when measured (#154), against 3 to 5 s with five imports a stylesheet
-before the limits.
+stylesheet limits: at most 1,000 links and imports followed, and 16 million characters of the
+stylesheets' text, shared by the page's links and imports in the document and in shadow roots.
+Every link and import followed counts, also of a missing, too large, or left-out stylesheet, so
+that one past the limit stays a link or an import and is not read. A smaller stylesheet after one
+too large still fits, one of exactly the limit fits alone, and each file is read once. A repeat of
+the page's own link or `<style>` import of a stylesheet copied whole gets that copy and counts only
+its text, so that 600 components that each link or import the same stylesheet show whole. One that
+the limits cut short is prepared again, and with **Local files with scripts on** the copy limits
+count the files of each place. `document.stress.ts` prepares eight stylesheets that each import the
+next ten times, eleven million stylesheets without the limits, with small and with 20 KB
+stylesheets, and a page of 4,000 such components. Its context fails the preparation once it has
+looked at twice as many imports as the limits allow, so that a missing limit fails the test within
+a second; by extrapolation from #154's measurements, the copy would otherwise pass V8's longest
+string within a minute or two. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that such
+a page shows the stylesheets up to the limit, that an import past it does not apply, and that the
+window's timers never stop for 2 s while it opens. They stopped for at most 0.3 s when measured
+(#154), against 3 to 5 s with five imports a stylesheet before the limits, and, by extrapolation,
+6 to 10 minutes for this page.
 
 Import position coverage (#136): `css.test.ts` checks where imports count: only where a top-level
 rule starts, before every rule but `@charset`, `@supports-condition`, other imports, and `@layer`
@@ -332,12 +338,23 @@ the check named in `document.test.ts`:
   test.
 - Counting any `<style>` as the page's own styles: the reading style test.
 
-**Unreleased (#154):** On 2026-11-18, removing the limit on how many stylesheets a page takes in
-failed `document.stress.ts`'s test of small stylesheets within a second, with its context's error,
-and both tests of that limit in `document.test.ts`. Removing the limit on their text failed the
-stress test of 20 KB stylesheets, which took in 1,000 rather than 792, and the test of that limit in
-`document.test.ts`. The test in `resources.e2e.ts` was not run against the preparation before the
-limits, which would keep Obsidian from responding for hours on its page; #154 records that
+**Unreleased (#154):** On 2026-11-18, each of these breakages failed the check named:
+
+- No limit on how many links and imports a page follows: `document.stress.ts`'s test of small
+  stylesheets, within a second, with its context's error, and four tests in `document.test.ts`.
+- No limit on the stylesheets' text: the stress test of 20 KB stylesheets, which took in 1,000
+  rather than 792, and two tests in `document.test.ts`.
+- Counting only the links and imports whose stylesheet the copy takes in: the counting test in
+  `document.test.ts`.
+- No reuse of a page's repeated links and imports: the components test in `document.test.ts`. A
+  count limit of 10,000 without reuse passed it, but kept Obsidian from responding for 3 to 8 s on
+  eight stylesheets that each import the next ten times.
+- Reusing a stylesheet that the limits cut short: the test of preparing it again. Reusing one
+  without counting its text: the test of repeats within the text limit. Reusing stylesheets at
+  every depth: the counting test and both fan-out stress tests.
+
+The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
+keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
 preparation's measurements in Obsidian, with up to five imports a stylesheet.
 
 ## Limits

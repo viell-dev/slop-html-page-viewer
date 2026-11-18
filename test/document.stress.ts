@@ -4,7 +4,7 @@ import "./support/dom";
 import {
   preparePage,
   SHADOW_ROOT_MARK,
-  STYLESHEET_PAGE_LIMIT,
+  STYLESHEET_COUNT_LIMIT,
   STYLESHEET_TEXT_LIMIT,
 } from "../src/document";
 
@@ -45,15 +45,16 @@ describe("preparing a page whose stylesheets import each other many times (#154)
   /**
    * Eight stylesheets, each importing the next ten times, linked from a page:
    * eleven million stylesheets eight deep, if nothing bounded how many the
-   * copy takes in. Each import that preparation looks at asks whether its
-   * file exists; past twice as many as the limits allow, the context fails
-   * the preparation, so that a missing limit fails the test quickly rather
-   * than run for hours.
+   * copy takes in. By extrapolation from the rates measured in #154, that copy
+   * would pass V8's longest string within a minute or two and fail there.
+   * Each import that preparation looks at asks whether its file exists; past
+   * twice as many as the limits allow, the context fails the preparation, so
+   * that a missing limit fails the test within a second.
    */
   async function prepareFanOut(rules: string) {
     const reads: string[] = [];
     let looked = 0;
-    const most = 2 * FAN * (STYLESHEET_PAGE_LIMIT + 1);
+    const most = 2 * FAN * (STYLESHEET_COUNT_LIMIT + 1);
     const ctx = {
       ...context,
       async read(path: string) {
@@ -79,11 +80,11 @@ describe("preparing a page whose stylesheets import each other many times (#154)
       reads,
       Array.from({ length: 8 }, (_, i) => `Saved/${i}.css`),
     );
-    assert.equal(copies, STYLESHEET_PAGE_LIMIT);
+    assert.equal(copies, STYLESHEET_COUNT_LIMIT);
     // The rest stay imports, which Obsidian's policy keeps from loading.
     assert.equal(
       text.split('@import url("').length - 1,
-      FAN * STYLESHEET_PAGE_LIMIT - (STYLESHEET_PAGE_LIMIT - 1),
+      FAN * STYLESHEET_COUNT_LIMIT - (STYLESHEET_COUNT_LIMIT - 1),
     );
     // Depth first: the first chain is whole, eight files deep.
     assert.ok(text.indexOf(".level7") < text.indexOf(".level1 "));
@@ -95,9 +96,41 @@ describe("preparing a page whose stylesheets import each other many times (#154)
     const { text, copies } = await prepareFanOut(rules);
     // Every level's file has the same length, so as many fit as the limit holds.
     const fit = Math.floor(STYLESHEET_TEXT_LIMIT / sheet(0, rules).length);
-    assert.ok(fit < STYLESHEET_PAGE_LIMIT);
+    assert.ok(fit < STYLESHEET_COUNT_LIMIT);
     assert.equal(copies, fit);
     // The imports left, made absolute, add a little to the text taken in.
     assert.ok(text.length < STYLESHEET_TEXT_LIMIT + 1_000_000, `${text.length} characters`);
+  });
+
+  it("shows whole a page of thousands of components that each link or import the same stylesheet", async () => {
+    // Declarative shadow roots that share a stylesheet each link it: work that
+    // grows with the page, not with a power of it, which the limits leave alone.
+    const rule = ".item > .label { color: rgb(46, 125, 50); padding: 0 4px }\n";
+    const item = `@import "tokens.css";\n${rule.repeat(Math.ceil(1_900 / rule.length))}`;
+    const tokens = ":host { --gap: 4px; --size: 1rem }";
+    const reads: string[] = [];
+    const ctx = {
+      ...context,
+      read(path: string) {
+        reads.push(path);
+        return Promise.resolve(
+          { "Saved/item.css": item, "Saved/tokens.css": tokens }[path] ?? null,
+        );
+      },
+    };
+    const count = 4_000;
+    const component = (sheet: string) =>
+      `<x-item><template shadowrootmode="open">${sheet}<p class="label">x</p></template></x-item>`;
+    const html = [
+      ...Array<string>(count / 2).fill(component('<link rel="stylesheet" href="item.css">')),
+      ...Array<string>(count / 2).fill(component('<style>@import "item.css";</style>')),
+    ].join("");
+    const { html: output } = await preparePage(html, ctx);
+    // Read from the copy's text: parsing it again in jsdom would take longer
+    // than preparing it.
+    const sheet = `<template shadowrootmode="open"><style>${item.replace('@import "tokens.css";', tokens)}</style><p`;
+    assert.equal(output.split(sheet).length - 1, count);
+    assert.doesNotMatch(output, /<link|@import/);
+    assert.deepEqual(reads, ["Saved/item.css", "Saved/tokens.css"]);
   });
 });

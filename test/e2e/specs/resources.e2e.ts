@@ -422,8 +422,9 @@ describe("A page's local files in Obsidian", function () {
       } finally {
         await browser.switchFrame(null);
       }
-      // About 0.3 s in Obsidian 1.5.3 and 1.15.1, against hours without the
-      // limits; the margin is for slower hosts.
+      // At most 0.3 s in Obsidian 1.5.3 and 1.15.1, against 6 to 10 minutes
+      // without the limits, by extrapolation from #154's measurements of five
+      // imports a stylesheet; the margin is for slower hosts.
       expect(longest).toBeLessThan(2_000);
       expect({
         colors: shown.colors,
