@@ -283,6 +283,7 @@ describe("the source view's place after its tab moves (#135)", () => {
     view: HtmlView & { onResize(): void };
     scroll: (top: number, left?: number) => void;
     drop: () => void;
+    jump: (top: number, left: number) => void;
     resize: (height: number) => void;
     scrolledTo: ScrollToOptions[];
   }> {
@@ -320,6 +321,12 @@ describe("the source view's place after its tab moves (#135)", () => {
       drop: () => {
         top = 0;
         left = 0;
+      },
+      // Scrolls the source without its report, which Chromium sends in its
+      // next frame.
+      jump: (toTop: number, toLeft: number) => {
+        top = toTop;
+        left = toLeft;
       },
       resize: (to: number) => {
         height = to;
@@ -517,6 +524,21 @@ describe("the source view's place after its tab moves (#135)", () => {
       });
     }
   }
+
+  it("goes back to where the find bar put the source, when its tab moves before Chromium reports that scroll (#167)", async () => {
+    const { harness, view, scroll, drop, jump, scrolledTo } = await movedSource();
+    scroll(571);
+    // The find bar scrolls the source to a match further down, and the tab
+    // moves before Chromium reports that scroll.
+    const field = findScrolling(view, "Two", () => jump(300, 7));
+    try {
+      drop();
+      harness.app.workspace.trigger("layout-change");
+      assert.deepEqual(scrolledTo, [{ top: 300, left: 7, behavior: "instant" }]);
+    } finally {
+      endFindScrolling(field);
+    }
+  });
 
   it("keeps its place where the find bar scrolls a source that is not laid out, which scrolls nothing (#167)", async () => {
     const { view, scroll, drop, resize, scrolledTo } = await movedSource();
