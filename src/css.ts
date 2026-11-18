@@ -35,16 +35,54 @@ function unescapeCss(value: string): string {
 export interface CssToken {
   start: number;
   end: number;
-  kind: "space" | "comment" | "string" | "name" | "url" | "delim" | "at-keyword" | "other";
+  kind:
+    | "space"
+    | "comment"
+    | "string"
+    | "name"
+    | "url"
+    | "delim"
+    | "at-keyword"
+    | "cdo"
+    | "cdc"
+    | "other";
   value: string;
+  /**
+   * Set on a comment, string, or unquoted URL that the end of the text ended
+   * before its closer: CSS keeps such a token as it is.
+   */
+  open?: true;
 }
 
-/** A top-level import rule's span, its reference, and where its media list starts. */
+/** A top-level import rule's span, its reference, and what follows the reference. */
 export interface CssImport {
   start: number;
   end: number;
   reference: string;
   mediaStart: number;
+  /**
+   * What the import's conditions are: none, only spaces and comments; a media
+   * query list, which `@media` takes as it is; or anything else, such as a
+   * cascade layer, a scope, or support conditions.
+   */
+  conditions: "none" | "media" | "other";
+}
+
+/** What CSS closes at the end of a stylesheet, which ends each one on its own. */
+export interface CssEnd {
+  /**
+   * The text that closes what the stylesheet leaves open at its end: a
+   * comment, a string, an unquoted URL, an escape, blocks, and a rule that has
+   * not ended. Text put after the stylesheet's own then reads as it would in a
+   * stylesheet of its own.
+   */
+  closers: string;
+  /**
+   * Whether the stylesheet has a `}` outside any block. At the top level of a
+   * stylesheet, CSS makes it part of a rule's prelude, but inside a block,
+   * such as `@media`, it would end that block.
+   */
+  strayCloser: boolean;
 }
 
 const space = (c: string): boolean => {
@@ -85,6 +123,17 @@ const badUrlCode = (n: number): boolean =>
   n === 127;
 const validEscape = (css: string, i: number): boolean =>
   css[i] === "\\" && !newline(css[i + 1] ?? "");
+/**
+ * Whether an identifier starts at `i`, as CSS checks before it reads "@" as
+ * the start of an at-keyword: "@1" and "@-1" are a delimiter and a number,
+ * which start a qualified rule, not an at-rule.
+ */
+const identifierStart = (css: string, i: number): boolean => {
+  const start = (c: string): boolean => name(c) && c !== "-" && !(c >= "0" && c <= "9");
+  if (css[i] === "-")
+    return start(css[i + 1] ?? "") || css[i + 1] === "-" || validEscape(css, i + 1);
+  return start(css[i] ?? "") || validEscape(css, i);
+};
 
 /**
  * Whether `text` is `keyword`, given in lowercase, compared ASCII
@@ -138,18 +187,18 @@ function escapeEnd(css: string, start: number): number {
  * Unquoted contents make a URL token, or a bad URL, which runs through its
  * closing parenthesis: syntax in its remnants must never turn into a resource
  * reference. An unquoted URL left open at the end is taken as bad too, which
- * leaves it as it is.
+ * leaves it as it is, and marked open.
  */
 function consumeUrl(
   css: string,
   open: number,
-): { end: number; kind: "url" | "other"; value: string } | null {
+): { end: number; kind: "url" | "other"; value: string; open: boolean } | null {
   let i = skipSpace(css, open + 1);
   if (css[i] === '"' || css[i] === "'") {
     const string = stringEnd(css, i);
     i = skipSpace(css, string.end);
     return string.closed && css[i] === ")"
-      ? { end: i + 1, kind: "url", value: string.value }
+      ? { end: i + 1, kind: "url", value: string.value, open: false }
       : null;
   }
   const content = i;
@@ -163,8 +212,11 @@ function consumeUrl(
   i = skipSpace(css, i);
   if (css[i] !== ")") valid = false;
   while (i < css.length && css[i] !== ")") i = css[i] === "\\" ? escapeEnd(css, i) : i + 1;
-  if (css[i] === ")") i++;
-  return valid ? { end: i, kind: "url", value } : { end: i, kind: "other", value: "" };
+  const closed = css[i] === ")";
+  if (closed) i++;
+  return valid
+    ? { end: i, kind: "url", value, open: false }
+    : { end: i, kind: "other", value: "", open: !closed };
 }
 
 /** A forward-only scanner: no recursion or backtracking on page-controlled text. */
@@ -175,10 +227,12 @@ export function cssTokens(css: string): CssToken[] {
     const start = i;
     let kind: CssToken["kind"] = "other";
     let value = "";
+    let open = false;
     if (css.startsWith("/*", i)) {
       const end = css.indexOf("*/", i + 2);
       i = end < 0 ? css.length : end + 2;
       kind = "comment";
+      open = end < 0;
     } else if (space(css[i])) {
       i = skipSpace(css, i);
       kind = "space";
@@ -188,11 +242,20 @@ export function cssTokens(css: string): CssToken[] {
       if (string.closed || i === css.length) {
         kind = "string";
         value = string.value;
+        open = !string.closed;
       }
+    } else if (css.startsWith("<!--", i)) {
+      i += 4;
+      kind = "cdo";
+    } else if (css.startsWith("-->", i)) {
+      // Before names: CSS reads "-->" as one token where a token starts.
+      i += 3;
+      kind = "cdc";
     } else if (
       name(css[i]) ||
       validEscape(css, i) ||
-      ((css[i] === "#" || css[i] === "@") && (name(css[i + 1] ?? "") || validEscape(css, i + 1)))
+      (css[i] === "#" && (name(css[i + 1] ?? "") || validEscape(css, i + 1))) ||
+      (css[i] === "@" && identifierStart(css, i + 1))
     ) {
       const prefix = css[i] === "#" || css[i] === "@" ? css[i++] : "";
       while (i < css.length && (name(css[i]) || validEscape(css, i))) {
@@ -206,12 +269,13 @@ export function cssTokens(css: string): CssToken[] {
         i = url.end;
         kind = url.kind;
         value = url.value;
+        open = url.open;
       }
     } else {
       kind = "delim";
       value = css[i++];
     }
-    tokens.push({ start, end: i, kind, value });
+    tokens.push(open ? { start, end: i, kind, value, open: true } : { start, end: i, kind, value });
   }
   return tokens;
 }
@@ -234,40 +298,170 @@ function nest(blocks: string[], token: CssToken): void {
   else if (token.value === blocks.at(-1)) blocks.pop();
 }
 
-/** Only top-level import rules, with a balanced prelude and a terminating semicolon. */
+/** Tokens that CSS discards between rules at a stylesheet's top level. */
+const betweenRules = (token: CssToken): boolean =>
+  token.kind === "space" ||
+  token.kind === "comment" ||
+  token.kind === "cdo" ||
+  token.kind === "cdc";
+
+/** A top-level rule, from the token that starts it to the token after its end. */
+interface TopLevelRule {
+  start: number;
+  end: number;
+  /** Whether its `;` or its block ended it, or the end of the text did. */
+  ending: ";" | "block" | "end";
+  /** The closers of the blocks still open at the end of the text. */
+  blocks: string[];
+  /** Whether its own `{}` block had started. */
+  block: boolean;
+  /** Whether its prelude has a `}` outside any block. */
+  strayCloser: boolean;
+}
+
+/**
+ * Follows a top-level rule as CSS Syntax 3 consumes a stylesheet's contents:
+ * an at-keyword starts an at-rule, which its `;` or its block ends, and any
+ * other token a qualified rule, which its block ends. A `}` outside any block
+ * is part of the prelude there.
+ */
+function topLevelRule(tokens: readonly CssToken[], start: number): TopLevelRule {
+  const atRule = tokens[start].kind === "at-keyword";
+  const blocks: string[] = [];
+  let block = false;
+  let strayCloser = false;
+  for (let i = atRule ? start + 1 : start; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.kind !== "delim") continue;
+    if (blocks.length === 0) {
+      if (atRule && token.value === ";")
+        return { start, end: i + 1, ending: ";", blocks, block, strayCloser };
+      if (token.value === "}") strayCloser = true;
+      if (token.value === "{") block = true;
+    }
+    nest(blocks, token);
+    if (block && blocks.length === 0)
+      return { start, end: i + 1, ending: "block", blocks, block, strayCloser };
+  }
+  return { start, end: tokens.length, ending: "end", blocks, block, strayCloser };
+}
+
+/**
+ * Classifies an import's conditions by their tokens. `@media` takes only a
+ * media query list. A list starts with neither `layer` nor `scope`, which
+ * CSS Cascade 5 and 6 put before it, and has no function at its top level:
+ * the functions there are `layer()`, `scope()`, and `supports()`, or part of
+ * a media query that the plugin does not read, which keeps the import as an
+ * import for the browser to decide. Strings and comments name none of them.
+ */
+function importConditions(
+  tokens: readonly CssToken[],
+  from: number,
+  to: number,
+): CssImport["conditions"] {
+  const blocks: string[] = [];
+  let first = true;
+  for (let i = from; i < to; i++) {
+    const token = tokens[i];
+    if (token.kind === "space" || token.kind === "comment") continue;
+    if (token.kind === "name" && blocks.length === 0) {
+      if (first && (isKeyword(token.value, "layer") || isKeyword(token.value, "scope")))
+        return "other";
+      const next = tokens[i + 1];
+      if (next?.kind === "delim" && next.value === "(") return "other";
+    }
+    first = false;
+    nest(blocks, token);
+  }
+  return first ? "none" : "media";
+}
+
+/**
+ * The import rules that CSS applies: only where a top-level rule starts, and
+ * only before every rule but `@charset`, `@supports-condition`, other imports,
+ * and `@layer` statements before the first import (CSS Cascade 5). Browsers
+ * keep importing after a rule that they drop as invalid, but telling which
+ * rules are valid would mean evaluating CSS, so every other rule ends the
+ * imports here: that can only find fewer of them. Each import found has a
+ * string or URL, a balanced prelude, and a terminating semicolon.
+ */
 export function cssImports(tokens: readonly CssToken[]): CssImport[] {
   const imports: CssImport[] = [];
-  const blocks: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
+  let beforeImports = true;
+  for (let i = 0; i < tokens.length;) {
     const token = tokens[i];
-    if (blocks.length > 0 || token.kind !== "at-keyword" || !isKeyword(token.value, "@import")) {
-      nest(blocks, token);
+    if (betweenRules(token)) {
+      i++;
       continue;
     }
-    let j = i + 1;
-    while (tokens[j]?.kind === "space" || tokens[j]?.kind === "comment") j++;
-    const resource = tokens[j];
-    if (!resource || (resource.kind !== "string" && resource.kind !== "url")) continue;
-    const prelude: string[] = [];
-    for (j++; j < tokens.length; j++) {
-      const part = tokens[j];
-      if (prelude.length === 0 && part.kind === "delim") {
-        // A block makes the rule something else, and a stray "}" its media list invalid.
-        if (part.value === "{" || part.value === "}") break;
-        if (part.value === ";") {
-          imports.push({
-            start: token.start,
-            end: part.end,
-            reference: resource.value,
-            mediaStart: resource.end,
-          });
-          break;
-        }
-      }
-      nest(prelude, part);
-    }
-    // Never rescan a malformed import prelude for more imports.
-    i = j - 1;
+    if (token.kind !== "at-keyword") break;
+    const rule = topLevelRule(tokens, i);
+    if (isKeyword(token.value, "@import")) {
+      // Browsers drop a malformed import, so it leaves later imports in place.
+      beforeImports = false;
+      const found = importRule(tokens, rule);
+      if (found !== null) imports.push(found);
+    } else if (isKeyword(token.value, "@layer")) {
+      if (!beforeImports || rule.ending !== ";") break;
+    } else if (
+      !isKeyword(token.value, "@charset") &&
+      !isKeyword(token.value, "@supports-condition")
+    )
+      break;
+    i = rule.end;
   }
   return imports;
+}
+
+/** An import rule that names a string or URL and ends with its `;`, or null. */
+function importRule(tokens: readonly CssToken[], rule: TopLevelRule): CssImport | null {
+  // A stray "}" makes the media list invalid, and would end a block put around it.
+  if (rule.ending !== ";" || rule.strayCloser) return null;
+  let i = rule.start + 1;
+  while (tokens[i]?.kind === "space" || tokens[i]?.kind === "comment") i++;
+  const resource = tokens[i];
+  if (resource.kind !== "string" && resource.kind !== "url") return null;
+  const semicolon = tokens[rule.end - 1];
+  return {
+    start: tokens[rule.start].start,
+    end: semicolon.end,
+    reference: resource.value,
+    mediaStart: resource.end,
+    conditions: importConditions(tokens, i + 1, rule.end - 1),
+  };
+}
+
+/**
+ * What a stylesheet leaves open at its end, which CSS closes there, and
+ * whether it has a `}` outside any block; see {@link CssEnd}. A `\` at the end
+ * stands for U+FFFD, or for nothing in a string, so the closers start with
+ * what keeps that meaning and keeps the `\` from escaping them.
+ */
+export function cssEnd(css: string, tokens: readonly CssToken[]): CssEnd {
+  let strayCloser = false;
+  let pending: TopLevelRule | null = null;
+  for (let i = 0; i < tokens.length;) {
+    if (betweenRules(tokens[i])) {
+      i++;
+      continue;
+    }
+    const rule = topLevelRule(tokens, i);
+    strayCloser ||= rule.strayCloser;
+    if (rule.ending === "end") pending = rule;
+    i = rule.end;
+  }
+  const last = tokens.at(-1);
+  let backslashes = 0;
+  while (css[css.length - 1 - backslashes] === "\\") backslashes++;
+  const escape = backslashes % 2 === 1 && last?.kind !== "comment";
+  let closers = "";
+  if (last?.open && last.kind === "comment") closers = "*/";
+  else if (last?.open && last.kind === "string") closers = (escape ? "\n" : "") + css[last.start];
+  else if (last?.open) closers = (escape ? REPLACEMENT_CHARACTER : "") + ")";
+  else if (escape) closers = REPLACEMENT_CHARACTER;
+  if (pending !== null) {
+    closers += [...pending.blocks].reverse().join("");
+    if (!pending.block) closers += tokens[pending.start].kind === "at-keyword" ? ";" : "{}";
+  }
+  return { closers, strayCloser };
 }

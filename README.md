@@ -88,6 +88,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   viewer does not yet check a `<style>` or `<link>` element's `type`, or a link's `disabled`
   attribute (#147).
 
+  **Unreleased (#136):** as in browsers, only the imports at the start of a stylesheet count, after
+  nothing but `@charset`, other imports, and `@layer` statements before the first import.
+
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
   browser would instead.
@@ -157,6 +160,19 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   allows a page only inline styles, so the viewer copies each linked stylesheet from the vault into
   the page it shows; it does not download stylesheets from the web. A local stylesheet applies only
   from a file whose name ends in `.css`.
+- **Imports into cascade layers or with support conditions do not apply** when they name a
+  stylesheet in the vault, such as `@import "base.css" layer;`. The viewer does not copy them into
+  the page as it copies other imports, and Obsidian's policy keeps the page from loading them
+  ([#151](https://github.com/viell-dev/slop-html-page-viewer/issues/151)).
+
+  **Unreleased (#136):** neither do imports after a rule that browsers drop as invalid, such as an
+  unknown at-rule, which browsers still apply: telling which rules are valid would take a CSS
+  parser.
+
+  **Unreleased (#139):** nor does an import with media conditions of a stylesheet that has a `}`
+  outside any block: the viewer keeps it as an import rather than wrap the stylesheet in `@media`,
+  where that `}` would end the wrapper early.
+
 - **With scripts on, local files load only when they are copied into the page.** Scripts run
   without access to Obsidian, and Obsidian does not serve vault files to such a page. Copied
   stylesheets still apply, and the **Local files with scripts on** setting copies the page's images,

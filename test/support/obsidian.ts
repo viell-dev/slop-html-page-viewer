@@ -140,7 +140,11 @@ export class App {
       return text === undefined ? null : new TFile(path, new TextEncoder().encode(text).length);
     },
     getRoot: (): null => null,
-    cachedRead: async (file: TFile): Promise<string> => this.files.get(file.path) ?? "",
+    // Obsidian 1.5.3 and 1.15.1 drop a leading byte order mark, as resources.e2e.ts shows.
+    cachedRead: async (file: TFile): Promise<string> => {
+      const text = this.files.get(file.path) ?? "";
+      return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+    },
     readBinary: async (file: TFile): Promise<ArrayBuffer> => {
       this.binaryReads.push(file.path);
       return new TextEncoder().encode(this.files.get(file.path) ?? "").buffer;

@@ -214,6 +214,8 @@ describe("<style> text that Chromium applies (#143)", () => {
     for (const html of [
       '<svg><style><desc>@import "ghost.css";</desc>circle { fill: red }<desc>a { b: url(ghost.png) }</desc></style></svg>',
       '<math><style>@import "ghost.css"; a { b: url(ghost.png) }</style></math>',
+      // The child element's quote is not the <style>'s text, so the string stays a string (#91).
+      '<svg><style>a{}<desc>"</desc> b::after { content: "url(ghost.png)" } c { d: "</style></svg>',
     ]) {
       for (const place of places) {
         for (const { copying, reads, copies, html: copy } of await prepared(place(html))) {
@@ -369,6 +371,183 @@ it("handles repeated malformed URL openers without quadratic work", () => {
   const start = performance.now();
   assert.equal(absoluteUrls(css, VAULT + "site.css"), css);
   assert.ok(performance.now() - start < 2_000, "80 KB of malformed CSS must finish within 2 s");
+});
+
+/**
+ * Prepares a stylesheet in each place that a page can have one: a <style>, a
+ * linked file, and both of those in a shadow root (#124), each with and
+ * without copying local files. Reports, for each, the stylesheets read apart
+ * from the linked one, the files copied, and the prepared stylesheet's text.
+ */
+async function everyPlace(css: string, files: Record<string, string>) {
+  const results: { place: string; reads: string[]; copies: string[]; text: string }[] = [];
+  const sheets = [`<style>${css}</style>`, '<link rel="stylesheet" href="sheet.css">'];
+  const shadow = (sheet: string) =>
+    `<div><template shadowrootmode="open">${sheet}</template></div>`;
+  for (const html of [...sheets, ...sheets.map(shadow)]) {
+    for (const copying of [false, true]) {
+      const ctx = context({ ...files, "Saved/sheet.css": css });
+      const copies: string[] = [];
+      const copyFiles: LocalFiles = {
+        size: () => 1,
+        async readBinary(path) {
+          copies.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      };
+      const result = await preparePage(html, ctx, copying ? { copyFiles } : {});
+      const doc = parse(result.html);
+      const root = html.includes("<template") ? doc.querySelector("template")!.content : doc;
+      results.push({
+        place: `${html}${copying ? ", copying" : ""}`,
+        reads: ctx.reads.filter((path) => path !== "Saved/sheet.css"),
+        copies,
+        text: root.querySelector("style")!.textContent,
+      });
+    }
+  }
+  return results;
+}
+
+describe("import placement (#136)", () => {
+  it("reads no import that CSS ignores, in every place that a page has a stylesheet", async () => {
+    for (const css of [
+      'a { color: red } @import "ghost.css";',
+      // To CSS, the import is part of the qualified rule's prelude: its selector.
+      'x @import "ghost.css"; a { color: red }',
+      ') @import "ghost.css"; a { color: red }',
+      '} @import "ghost.css";',
+      // A stray ";" starts a qualified rule too.
+      '@import "real.css";; @import "ghost.css";',
+      // An @layer statement after an import ends the imports.
+      '@import "real.css"; @layer a; @import "ghost.css";',
+    ]) {
+      for (const { place, reads, text } of await everyPlace(css, {
+        "Saved/real.css": "REAL{}",
+        "Saved/ghost.css": "GHOST{}",
+      })) {
+        assert.deepEqual(
+          reads,
+          css.includes("real.css") ? ["Saved/real.css"] : [],
+          `${css} in ${place}`,
+        );
+        assert.ok(text.includes('@import "ghost.css";'), `${css} in ${place}: ${text}`);
+      }
+    }
+  });
+
+  it("imports after @charset, @layer statements, and HTML comment markers", async () => {
+    const css = '<!--\n@charset "utf-8"; @layer base; @import "real.css";\n-->';
+    for (const { place, reads, text } of await everyPlace(css, { "Saved/real.css": "REAL{}" })) {
+      assert.deepEqual(reads, ["Saved/real.css"], place);
+      assert.equal(text, '<!--\n@charset "utf-8"; @layer base; REAL{}\n-->', place);
+    }
+  });
+});
+
+describe("import conditions (#144)", () => {
+  it("keeps imports with cascade layers, scopes, or support conditions, found by their tokens", async () => {
+    for (const conditions of [
+      "/**/ layer",
+      String.raw`\6c ayer`,
+      "layer(base) supports(display: grid) screen",
+      "scope(.card)",
+      "supports(display: grid)",
+    ]) {
+      const ctx = context({ "real.css": "REAL{}" });
+      const css = await inlineStylesheet(
+        `@import "real.css" ${conditions};`,
+        `${VAULT}main.css`,
+        ctx,
+      );
+      assert.equal(css, `@import url("${VAULT}real.css") ${conditions};`);
+      assert.deepEqual(ctx.reads, [], conditions);
+    }
+  });
+
+  it("puts imports with only a media query list in @media, whatever its comments say", async () => {
+    const ctx = context({ "real.css": "REAL{}" });
+    for (const [source, result] of [
+      [
+        '@import "real.css" screen /* supports( layer */;',
+        "@media screen /* supports( layer */ {\nREAL{}\n}",
+      ],
+      ['@import "real.css" /* layer */;', "REAL{}"],
+    ])
+      assert.equal(await inlineStylesheet(source, `${VAULT}main.css`, ctx), result);
+  });
+});
+
+describe("the end of an imported stylesheet (#139)", () => {
+  it("copies no file that the importing sheet names only in a string, in every place", async () => {
+    for (const [imported, css] of [
+      ['"', '@import "a.css"; p { content: "url(ghost.png)" }'],
+      ["/*", '@import "a.css"; p { content: "*/ url(ghost.png)" }'],
+      ["a { b: url(", '@import "a.css"; p { content: "x) url(ghost.png)" }'],
+      ["a { b: 'c\\", `@import "a.css"; p { content: "' url(ghost.png)" }`],
+      ['"', '@import "a.css" screen; p { content: "url(ghost.png)" }'],
+    ]) {
+      for (const { place, reads, copies, text } of await everyPlace(css, {
+        "Saved/a.css": imported,
+      })) {
+        assert.deepEqual(reads, ["Saved/a.css"], `${imported} in ${place}`);
+        assert.deepEqual(copies, [], `${imported} in ${place}`);
+        assert.ok(
+          text.endsWith(css.slice(css.indexOf(";") + 1)),
+          `${imported} in ${place}: ${text}`,
+        );
+      }
+    }
+  });
+
+  it("keeps the rules after an import whose sheet ends in a comment, a block, or a prelude", async () => {
+    const css = '@import "a.css"; p { background: url(real.png) }';
+    for (const [imported, closed] of [
+      ["/*", "/**/"],
+      ["a {", "a {}"],
+      ["a", "a{}"],
+      ["@media print", "@media print;"],
+      ["a:is(b", "a:is(b){}"],
+      // "@1" starts a qualified rule, which a block ends, not a ";".
+      ["@1;", "@1;{}"],
+    ]) {
+      for (const { place, copies, text } of await everyPlace(css, { "Saved/a.css": imported })) {
+        const url = place.endsWith("copying")
+          ? "data:image/png;base64,AQ=="
+          : `${VAULT}Saved/real.png`;
+        assert.equal(text, `${closed} p { background: url("${url}") }`, place);
+        assert.deepEqual(copies, place.endsWith("copying") ? ["Saved/real.png"] : [], place);
+      }
+    }
+  });
+
+  it("closes an imported sheet before resolving its own URLs", async () => {
+    // To CSS, an unquoted URL at the end of a stylesheet is a URL, of that stylesheet's.
+    const files = { "Saved/css/a.css": "p { background: url(img.png" };
+    for (const { place, copies, text } of await everyPlace('@import "css/a.css";', files)) {
+      if (place.endsWith("copying")) assert.deepEqual(copies, ["Saved/css/img.png"], place);
+      else assert.equal(text, `p { background: url("${VAULT}Saved/css/img.png")}`, place);
+    }
+  });
+
+  it("closes a sheet inside @media, and keeps one with a } outside any block an import", async () => {
+    const ctx = context({
+      "a.css": "a {",
+      "stray.css": "} x {}",
+      "outer.css": '@import "stray.css";',
+    });
+    const inline = (css: string) => inlineStylesheet(css, `${VAULT}main.css`, ctx);
+    assert.equal(await inline('@import "a.css" screen; p {}'), "@media screen {\na {}\n} p {}");
+    // Inside @media, the stray "}" would end the block, and the block's own
+    // "}" would take the next rule.
+    for (const sheet of ["stray.css", "outer.css"])
+      assert.equal(
+        await inline(`@import "${sheet}" screen; p {}`),
+        `@import url("${VAULT}${sheet}") screen; p {}`,
+      );
+    // At the top level, it is part of a rule's prelude, as in the sheet itself.
+    assert.equal(await inline('@import "outer.css"; p {}'), "} x {} p {}");
+  });
 });
 
 function context(

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { it } from "node:test";
-import { cssTokens, cssImports } from "../src/css";
+import { describe, it } from "node:test";
+import { cssEnd, cssImports, cssTokens } from "../src/css";
 
 it("keeps malformed quoted functions and subsequent literal strings separate", () => {
   for (const css of [
@@ -28,7 +28,9 @@ it("distinguishes bad strings, EOF strings and newline recovery", () => {
   const tokens = cssTokens('"bad\nurl(real.png)');
   assert.equal(tokens[0].kind, "other");
   assert.equal(tokens.find((t) => t.kind === "url")?.value, "real.png");
-  assert.deepEqual(cssTokens('"EOF'), [{ start: 0, end: 4, kind: "string", value: "EOF" }]);
+  assert.deepEqual(cssTokens('"EOF'), [
+    { start: 0, end: 4, kind: "string", value: "EOF", open: true },
+  ]);
 });
 
 it("ends a hex escape before a line continuation, which stands for nothing", () => {
@@ -104,4 +106,169 @@ it("decodes real URL tokens and treats backslash-newline as a delimiter", () => 
     ["\\\nurl(real.png)", "real.png"],
   ])
     assert.equal(cssTokens(css).find((t) => t.kind === "url")?.value, value);
+});
+
+describe("import placement (#136)", () => {
+  const imported = (css: string) => cssImports(cssTokens(css)).map((rule) => rule.reference);
+
+  it("finds imports only where a top-level rule starts, before other rules", () => {
+    for (const css of [
+      'a { color: red } @import "ghost.css";',
+      // To CSS, an @import inside a qualified rule's prelude is part of its selector.
+      'x @import "ghost.css"; a { color: red }',
+      ') @import "ghost.css"; a { color: red }',
+      '} @import "ghost.css";',
+      '; @import "ghost.css";',
+      '@media print {} @import "ghost.css";',
+      '@namespace svg url(http://www.w3.org/2000/svg); @import "ghost.css";',
+      '@layer base {} @import "ghost.css";',
+      '@font-face { font-family: X } @import "ghost.css";',
+      // Browsers still import after rules that they drop as invalid, which only CSS evaluation tells.
+      '@unknown; @import "ghost.css";',
+      // U+FEFF in a stylesheet's text is a name character, which starts a rule.
+      '\ufeff@import "ghost.css";',
+    ])
+      assert.deepEqual(imported(css), [], JSON.stringify(css));
+    for (const [css, references] of [
+      ['@import "real.css";; @import "ghost.css";', ["real.css"]],
+      ['@import "real.css"; @layer a; @import "ghost.css";', ["real.css"]],
+      ['@import "real.css"; a {} @import "ghost.css";', ["real.css"]],
+    ] as const)
+      assert.deepEqual(imported(css), references, JSON.stringify(css));
+  });
+
+  it("finds imports after @charset, @layer statements, other imports, and HTML comment markers", () => {
+    for (const css of [
+      '@charset "utf-8"; @import "a.css"; @import url(b.css);',
+      '@layer reset, base; @import "a.css"; @import url(b.css);',
+      '<!-- @import "a.css"; --> <!-- @import url(b.css); -->',
+      '/* first */ @import "a.css";\n@charset "x"; @import url(b.css);',
+      '@supports-condition --x { (display: grid) } @import "a.css"; @import url(b.css);',
+      // A malformed import is dropped, and leaves the next one in place.
+      '@import "a.css"; @import foo; @import "x.css" { } @import "y.css" }; @import url(b.css);',
+      String.raw`@IMPORT "a.css"; @\69mport url(b.css);`,
+    ])
+      assert.deepEqual(imported(css), ["a.css", "b.css"], JSON.stringify(css));
+  });
+
+  it("reads HTML comment markers as single tokens", () => {
+    const kinds = (css: string) => cssTokens(css).map((t) => [t.kind, css.slice(t.start, t.end)]);
+    assert.deepEqual(kinds("<!--url(x)-->"), [
+      ["cdo", "<!--"],
+      ["url", "url(x)"],
+      ["cdc", "-->"],
+    ]);
+    assert.deepEqual(kinds("a--> --->"), [
+      ["name", "a--"],
+      ["delim", ">"],
+      ["space", " "],
+      ["name", "---"],
+      ["delim", ">"],
+    ]);
+  });
+});
+
+describe("import conditions (#144)", () => {
+  const conditions = (css: string) => cssImports(cssTokens(`@import "a.css"${css};`))[0].conditions;
+
+  it("tells a media query list from conditions that @media cannot take, by their tokens", () => {
+    for (const css of ["", " ", " /**/ ", "\n/* layer */"]) assert.equal(conditions(css), "none");
+    for (const css of [
+      " screen",
+      " print, screen and (min-width: calc(10px + 1em))",
+      " screen /* layer( supports( */",
+      ' "layer("',
+      " screen layer",
+      " (supports(x))",
+    ])
+      assert.equal(conditions(css), "media", JSON.stringify(css));
+    for (const css of [
+      " layer",
+      " /**/ layer",
+      " LAYER screen",
+      String.raw` \6c ayer`,
+      " layer/**/(x)",
+      " layer(base)",
+      " scope",
+      " scope(.card) screen",
+      " supports(display: grid)",
+      " layer(a) supports((display: grid) and (gap: 1px)) print",
+      // A function in a media query is not read, so the import stays one for the browser.
+      " screen, unknown(x)",
+    ])
+      assert.equal(conditions(css), "other", JSON.stringify(css));
+  });
+});
+
+describe("the end of a stylesheet (#139)", () => {
+  it("closes what a stylesheet leaves open, as its end does", () => {
+    for (const [css, closers] of [
+      ["a { color: red }", ""],
+      ["a {} /* done */ <!-- -->", ""],
+      ["", ""],
+      ['"', '"{}'],
+      // In a string, a "\" at the end stands for nothing, as before a newline.
+      ["'a\\", "\n'{}"],
+      ["/*", "*/"],
+      ["a { /* \\", "*/}"],
+      ["a { b: url(", ")}"],
+      ["a { b: url(x\\", "\ufffd)}"],
+      ['a { b: url(x"y', ")}"],
+      ['a { b: url("x', '")}'],
+      ["a {", "}"],
+      ["@media print { a { b: (c [d", "])}}"],
+      ["a, b", "{}"],
+      ["a:is(b", "){}"],
+      ["@media screen", ";"],
+      ["@import 'x.css'", ";"],
+      ["a { b: c\\", "\ufffd}"],
+      ["\\", "\ufffd{}"],
+      ["a { b: c\\\\", "}"],
+      ["a{}-", "{}"],
+      ["a{}<!-", "{}"],
+      // "@" starts an at-rule only before an identifier; "@1" starts a qualified rule.
+      ["@1", "{}"],
+      ["a{} @1;", "{}"],
+      ["@-", "{}"],
+      ["@-x", ";"],
+      ["@--", ";"],
+    ])
+      assert.equal(cssEnd(css, cssTokens(css)).closers, closers, JSON.stringify(css));
+  });
+
+  it("reads '@' as an at-keyword only before an identifier", () => {
+    const kinds = (css: string) => cssTokens(css).map((token) => token.kind);
+    assert.deepEqual(kinds("@1"), ["delim", "name"]);
+    assert.deepEqual(kinds("@-1"), ["delim", "name"]);
+    for (const css of ["@-x", "@--x", "@\\31", "@x"])
+      assert.deepEqual(kinds(css), ["at-keyword"], css);
+  });
+
+  it("leaves nothing open once closed", () => {
+    for (const css of [
+      '"',
+      "/*",
+      "a { b: url(x\\",
+      "@media print { a { b: (c",
+      "x",
+      "a { b: 'c\\",
+    ]) {
+      const closed = css + cssEnd(css, cssTokens(css)).closers;
+      const tokens = cssTokens(closed);
+      assert.ok(!tokens.some((token) => token.open), JSON.stringify(closed));
+      assert.equal(cssEnd(closed, tokens).closers, "", JSON.stringify(closed));
+    }
+  });
+
+  it("finds a } outside any block", () => {
+    for (const [css, stray] of [
+      ["a { b: c } }", true],
+      ["} a {}", true],
+      ['@import "x" };', true],
+      ["a { b: (}) }", false],
+      ["a { } b { [}] }", false],
+      ['a { content: "}" } /* } */', false],
+    ] as const)
+      assert.equal(cssEnd(css, cssTokens(css)).strayCloser, stray, css);
+  });
 });

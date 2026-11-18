@@ -214,6 +214,142 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with stylesheet imports (#136, #139, #144)", function () {
+    const green = "rgb(46, 125, 50)";
+    // Each case's paragraph, and the styles that its stylesheets give it.
+    const styles = [
+      // #139: imported sheets that end inside a string, a comment, an unquoted
+      // url(, and a block. The rules after each import must still apply, and
+      // the strings there must stay strings.
+      `<style>@import "Import rules/string.css"; #string::after { content: "url(Saved/2026-01-15/figure.png)" } #string { color: ${green} }</style>`,
+      `<style>@import "Import rules/comment.css"; #comment { color: ${green} }</style>`,
+      `<style>@import "Import rules/url.css"; #url::after { content: "x) url(Saved/2026-01-15/figure.png)" } #url { color: ${green} }</style>`,
+      `<style>@import "Import rules/block.css"; #block { color: ${green} }</style>`,
+      // #136: an import after a style rule, which CSS ignores, and one after
+      // what CSS allows before imports.
+      `<style>p { margin: 0 } @import "Import rules/ghost.css";</style>`,
+      `<style><!-- @charset "utf-8"; @layer page; @import "Import rules/placed.css"; --></style>`,
+      // A stylesheet file that starts with a byte order mark, and imports
+      // another. Obsidian's reads leave the mark out, as browsers do; CSS
+      // would read it as part of a name, which starts a rule before imports.
+      `<link rel="stylesheet" href="Import rules/bom.css">`,
+      // #144: an import into a cascade layer, with a comment before "layer".
+      `<style>@import "Import rules/layered.css" /**/ layer;</style>`,
+    ].join("\n");
+    const paragraphs = ["string", "comment", "url", "block", "ghost", "placed", "bom", "layered"]
+      .map((id) => `<p id="${id}">${id}</p>`)
+      .join("");
+    const files: Record<string, string> = {
+      "Import rules/string.css": '"',
+      "Import rules/comment.css": "/*",
+      "Import rules/url.css": "a { b: url(",
+      "Import rules/block.css": "a {",
+      "Import rules/ghost.css": "#ghost { color: rgb(198, 40, 40) }",
+      "Import rules/placed.css": `#placed { color: ${green} }`,
+      "Import rules/bom.css": '﻿@import "bom import.css"; #bom { font-style: italic }',
+      "Import rules/bom import.css": `﻿#bom { color: ${green} }`,
+      "Import rules/layered.css": `#layered { color: ${green} }`,
+      "Import rules.html":
+        `${styles}<p id="plain">plain</p>${paragraphs}` +
+        `<div id="host"><template shadowrootmode="open">${styles}${paragraphs}</template></div>`,
+    };
+
+    before(async function () {
+      await browser.executeObsidian(async ({ app }, files) => {
+        await app.vault.createFolder("Import rules");
+        for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+      }, files);
+    });
+
+    after(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        for (const path of ["Import rules.html", "Import rules"]) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file, true);
+        }
+      });
+    });
+
+    /** The colors and generated content of the page's paragraphs, and its shadow root's. */
+    async function shown() {
+      // Asked inside the frame, which a page with scripts on keeps from the window.
+      await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+      try {
+        return await browser.execute(() => {
+          const read = (root: Document | ShadowRoot) =>
+            Object.fromEntries(
+              [...root.querySelectorAll("p[id]")].map((p) => [
+                p.id,
+                { color: getComputedStyle(p).color, after: getComputedStyle(p, "::after").content },
+              ]),
+            );
+          const sheets = [...document.querySelectorAll("style")].map((s) => s.textContent ?? "");
+          return {
+            page: read(document),
+            shadow: read(document.querySelector("#host")!.shadowRoot!),
+            layered: sheets.find((text) => text.includes("layer;")) ?? null,
+          };
+        });
+      } finally {
+        await browser.switchFrame(null);
+      }
+    }
+
+    /** What the page shows of each case, in the document and in its shadow root. */
+    function cases(result: Awaited<ReturnType<typeof shown>>) {
+      const plain = result.page.plain.color;
+      return [result.page, result.shadow].map((root) => ({
+        string: root.string,
+        url: root.url,
+        comment: root.comment.color,
+        block: root.block.color,
+        ghost: root.ghost.color === plain ? "not applied" : root.ghost.color,
+        placed: root.placed.color,
+        bom: root.bom.color,
+        layered: root.layered.color === plain ? "not applied" : root.layered.color,
+      }));
+    }
+
+    const expected = {
+      string: { color: green, after: '"url(Saved/2026-01-15/figure.png)"' },
+      url: { color: green, after: '"x) url(Saved/2026-01-15/figure.png)"' },
+      comment: green,
+      block: green,
+      ghost: "not applied",
+      placed: green,
+      bom: green,
+      // The layered import stays an import, which Obsidian's policy does not
+      // load into the page, as with any import of a vault stylesheet.
+      layered: "not applied",
+    };
+
+    it("applies only the imports that CSS applies, and the rules after them", async function () {
+      await openInActiveTab("Import rules.html");
+      await waitForPage();
+      const result = await shown();
+      expect({
+        cases: cases(result),
+        layered:
+          /^@import url\("app:\/\/[^"]+\/Import%20rules\/layered\.css"\) \/\*\*\/ layer;$/.test(
+            result.layered ?? "",
+          ),
+      }).toEqual({ cases: [expected, expected], layered: true });
+    });
+
+    it("copies no file that only string text names, with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Import rules.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        expect(cases(await shown())).toEqual([expected, expected]);
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   before(async function () {
     // An image just outside the vault, which a page must not be able to show.
     const outside = path.join(path.dirname(await vaultFolder()), "outside.png");

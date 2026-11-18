@@ -102,6 +102,33 @@ content beside an applied local stylesheet in real Obsidian, in the document and
 `scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300 KB and 4 MB
 stylesheets, as observations rather than a check.
 
+**Unreleased (#136):** `css.test.ts` checks where imports count: only where a top-level rule
+starts, before every rule but `@charset`, `@supports-condition`, other imports, and `@layer`
+statements before the first import, with `<!--` and `-->` left out between rules. The cases in
+`document.test.ts` read no import after a style rule, in a rule's selector, or after a stray `)`,
+`}`, or `;`, or an `@layer` statement after an import, in `<style>` elements and linked
+stylesheets, the document's and a shadow root's alike, with and without copying files.
+`resources.e2e.ts` checks in Obsidian that such an import does not apply, that one after
+`@charset`, an `@layer` statement, and `<!--` does, and that a linked stylesheet that starts with
+a byte order mark keeps its import, as Obsidian's reads leave the mark out.
+
+**Unreleased (#144):** `css.test.ts` classifies an import's conditions by their tokens: none, a
+media query list, or conditions that start with `layer` or `scope`, or have a function at their top
+level, such as `layer()`, `scope()`, and `supports()`, written with comments and escapes too.
+`document.test.ts` checks that only a media query list becomes `@media`, and that the others stay
+imports and read nothing. `resources.e2e.ts` checks in Obsidian that an import into a layer with a
+comment before `layer` stays an import in the copy, which Obsidian does not load (#151).
+
+**Unreleased (#139):** `css.test.ts` checks what closes a stylesheet that ends inside a comment, a
+string, an unquoted URL, an escape, blocks, or a rule that has not ended, that nothing is open once
+it is closed, and which `}` are outside any block. The cases in `document.test.ts` copy no file
+that only the importing stylesheet's strings name, keep the rules after the import, and resolve an
+unquoted URL at the end of an imported stylesheet against that stylesheet, in every place a page
+has a stylesheet. An import with media conditions of a stylesheet with a `}` outside any block,
+also one in a stylesheet that it imports, stays an import. `resources.e2e.ts` checks in Obsidian
+that the rules after imports whose stylesheets end inside a string, a comment, an unquoted `url(`,
+and a block apply, and that their strings stay strings with scripts on and files copied.
+
 **Unreleased (#143):** `document.test.ts` checks, in the document and in a shadow root, with and
 without copying files, that the plugin reads and copies only for an HTML or SVG `<style>`'s own text
 nodes, joined, and for HTML stylesheet links, also inside SVG's `<foreignObject>`. Rewriting an SVG
@@ -254,6 +281,25 @@ with `display: contents`, which kept its place only as a share of the body's hei
   name there: `document.test.ts`.
 - Assigning every `<style>` element's text, even unchanged, which removed an SVG `<style>`
   element's children: `document.test.ts`.
+
+**Unreleased (#136):** On 2026-11-17, the stylesheet preparation before this change, after #91,
+failed both new tests of imports in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where an
+import after a style rule applied. Finding imports anywhere outside blocks, as it does, or at the
+start of any top-level rule, or allowing `@layer` statements after an import, failed `css.test.ts`
+and `document.test.ts`. So did reading `<!--` and `-->` as other text.
+
+**Unreleased (#144):** On 2026-11-17, in the same `resources.e2e.ts` run, an import into a layer
+with a comment before `layer` became `@media /**/ layer`. The regular expression that classified
+an import's conditions before this change failed `document.test.ts`.
+
+**Unreleased (#139):** On 2026-11-17, in the same `resources.e2e.ts` run, the rules after imports
+whose stylesheets end inside a string, a comment, an unquoted `url(`, or a block did not apply.
+These failed `document.test.ts`:
+
+- Inlining an imported stylesheet without closing it.
+- Closing it after resolving its own URLs, which left its unquoted URL at the end unresolved.
+- Putting a stylesheet with a `}` outside any block in `@media`, or checking only its own text and
+  not that of the stylesheets it imports.
 
 **Unreleased (#143):** On 2026-11-17, the preparation of `<style>` elements and links as `main` had
 it at `f329f7f` failed four tests in `document.test.ts`, and both tests of `<style>` text in
