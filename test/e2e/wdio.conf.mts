@@ -117,6 +117,7 @@ export const config: WebdriverIO.Config = {
           specs("split.e2e.ts"),
           specs("move.e2e.ts"),
           specs("read-only.e2e.ts"),
+          specs("measure-parsing.e2e.ts"),
         ],
       ),
       capability(appVersion, installerVersion, pluginDir, corpusDir, [specs("corpus.e2e.ts")]),
