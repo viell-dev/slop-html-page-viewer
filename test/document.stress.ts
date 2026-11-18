@@ -70,17 +70,22 @@ describe("preparing a page whose stylesheets import each other many times (#154)
     };
     const { html } = await preparePage('<link rel="stylesheet" href="0.css">', ctx);
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const text = doc.querySelector("style")!.textContent;
-    return { reads, text, copies: text.split("{ color: red }\n").length - 1 };
+    // The imports past the limits stay imports, each with the stylesheets
+    // after it in a <style> of its own (#152).
+    const styles = [...doc.querySelectorAll("style")].map((style) => style.textContent);
+    const text = styles.join("");
+    return { reads, text, styles, copies: text.split("{ color: red }\n").length - 1 };
   }
 
   it("takes in as many small stylesheets as the limit allows, reading each file once", async () => {
-    const { reads, text, copies } = await prepareFanOut("");
+    const { reads, text, styles, copies } = await prepareFanOut("");
     assert.deepEqual(
       reads,
       Array.from({ length: 8 }, (_, i) => `Saved/${i}.css`),
     );
     assert.equal(copies, STYLESHEET_COUNT_LIMIT);
+    // A stylesheet's imports left as imports, one after another, share one.
+    assert.ok(styles.length <= STYLESHEET_COUNT_LIMIT, `${styles.length} <style> elements`);
     // The rest stay imports, which Obsidian's policy keeps from loading.
     assert.equal(
       text.split('@import url("').length - 1,

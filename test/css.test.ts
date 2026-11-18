@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cssEnd, cssImports, cssTokens } from "../src/css";
+import { cssEnd, cssImports, cssTokens, importStop } from "../src/css";
 
 it("keeps malformed quoted functions and subsequent literal strings separate", () => {
   for (const css of [
@@ -13,14 +13,14 @@ it("keeps malformed quoted functions and subsequent literal strings separate", (
       tokens.filter((t) => t.kind === "url"),
       [],
     );
-    assert.deepEqual(cssImports(tokens), []);
+    assert.deepEqual(cssImports(css, tokens), []);
     assert.equal(tokens.map((t) => css.slice(t.start, t.end)).join(""), css);
     assert.equal(tokens.find((t) => t.value === "url")?.kind, "name");
   }
 });
 
 it("distinguishes bad strings, EOF strings and newline recovery", () => {
-  assert.deepEqual(cssImports(cssTokens('@import "ghost.css?\\"\nscreen;')), []);
+  assert.deepEqual(cssImports('@import "ghost.css?\\"\nscreen;'), []);
   assert.deepEqual(
     cssTokens('url("ghost.png?\\"\n )').filter((t) => t.kind === "url"),
     [],
@@ -72,7 +72,7 @@ it("ends a bad string at a newline after any escaped control character", () => {
         tokens.filter((t) => t.kind === "url"),
         [],
       );
-      assert.deepEqual(cssImports(tokens), []);
+      assert.deepEqual(cssImports(css, tokens), []);
     }
   }
 });
@@ -86,11 +86,11 @@ it("uses delimiters only for nesting and prelude boundaries", () => {
     'a { b: [}]; @import "ghost.css"; }',
     '@import "ghost.css" ({);',
   ])
-    assert.deepEqual(cssImports(cssTokens(css)), []);
+    assert.deepEqual(cssImports(css), []);
   const css = '@import "real.css" url(; x) screen;';
-  assert.equal(cssImports(cssTokens(css))[0].end, css.length);
+  assert.equal(cssImports(css)[0].end, css.length);
   assert.deepEqual(
-    cssImports(cssTokens('@import "real.css" ); @import "ghost.css" (}); a { }')).map(
+    cssImports('@import "real.css" ); @import "ghost.css" (}); a { }').map(
       (rule) => rule.reference,
     ),
     ["real.css", "ghost.css"],
@@ -109,7 +109,7 @@ it("decodes real URL tokens and treats backslash-newline as a delimiter", () => 
 });
 
 describe("import placement (#136)", () => {
-  const imported = (css: string) => cssImports(cssTokens(css)).map((rule) => rule.reference);
+  const imported = (css: string) => cssImports(css).map((rule) => rule.reference);
 
   it("finds imports only where a top-level rule starts, before other rules", () => {
     for (const css of [
@@ -168,35 +168,124 @@ describe("import placement (#136)", () => {
   });
 });
 
-describe("import conditions (#144)", () => {
-  const conditions = (css: string) => cssImports(cssTokens(`@import "a.css"${css};`))[0].conditions;
+describe("import conditions (#144, #151)", () => {
+  const conditions = (css: string) => cssImports(`@import "a.css"${css};`)[0].conditions;
+  const none = { layer: null, supports: null, media: null };
 
-  it("tells a media query list from conditions that @media cannot take, by their tokens", () => {
-    for (const css of ["", " ", " /**/ ", "\n/* layer */"]) assert.equal(conditions(css), "none");
-    for (const css of [
-      " screen",
-      " print, screen and (min-width: calc(10px + 1em))",
-      " screen /* layer( supports( */",
-      ' "layer("',
-      " screen layer",
-      " (supports(x))",
+  it("reads a media query list, which @media takes as it is, by its tokens", () => {
+    for (const css of ["", " ", " /**/ ", "\n/* layer */"])
+      assert.deepEqual(conditions(css), none, JSON.stringify(css));
+    for (const [css, media] of [
+      [" screen", "screen"],
+      [
+        " print, screen and (min-width: calc(10px + 1em))",
+        "print, screen and (min-width: calc(10px + 1em))",
+      ],
+      [" screen /* layer( supports( */", "screen /* layer( supports( */"],
+      [' "layer("', '"layer("'],
+      [" screen layer", "screen layer"],
+      [" (supports(x))", "(supports(x))"],
+      // Spaces before it go, comments stay, and its end is as written.
+      ["\n /**/ screen\\ ", "/**/ screen\\ "],
     ])
-      assert.equal(conditions(css), "media", JSON.stringify(css));
+      assert.deepEqual(conditions(css), { ...none, media }, JSON.stringify(css));
+  });
+
+  it("reads a layer, support conditions, and a media query list, in that order", () => {
+    for (const [css, read] of [
+      [" layer", { layer: "" }],
+      [" /**/ layer", { layer: "" }],
+      [" LAYER screen", { layer: "", media: "screen" }],
+      [String.raw` \6c ayer`, { layer: "" }],
+      // A comment between `layer` and `(` makes `layer` a keyword, and `(x)` a media query.
+      [" layer/**/(x)", { layer: "", media: "/**/(x)" }],
+      [" layer(base)", { layer: "base" }],
+      [" Layer( base.x--y.-z )", { layer: "base.x--y.-z" }],
+      [" layer(/**/a/**/)", { layer: "a" }],
+      [String.raw` layer(\31 a.b\.c)`, { layer: String.raw`\31 a.b\.c` }],
+      [" layer(initial)", { layer: "initial" }],
+      [" supports(display: grid)", { supports: "display: grid" }],
+      [" SUPPORTS( display: grid )", { supports: " display: grid " }],
+      [
+        " supports(not (display: grid))screen",
+        { supports: "not (display: grid)", media: "screen" },
+      ],
+      [
+        " layer(a) supports((display: grid) and (gap: 1px)) print",
+        { layer: "a", supports: "(display: grid) and (gap: 1px)", media: "print" },
+      ],
+      [" layer supports(a: b)", { layer: "", supports: "a: b" }],
+      [
+        " layer(a)supports(b:c)(min-width: 1px)",
+        { layer: "a", supports: "b:c", media: "(min-width: 1px)" },
+      ],
+    ] as const)
+      assert.deepEqual(conditions(css), { ...none, ...read }, JSON.stringify(css));
+  });
+
+  it("finds no block form for conditions that Chromium does not read as these", () => {
     for (const css of [
-      " layer",
-      " /**/ layer",
-      " LAYER screen",
-      String.raw` \6c ayer`,
-      " layer/**/(x)",
-      " layer(base)",
       " scope",
       " scope(.card) screen",
-      " supports(display: grid)",
-      " layer(a) supports((display: grid) and (gap: 1px)) print",
+      " layer(a) scope(.card)",
       // A function in a media query is not read, so the import stays one for the browser.
       " screen, unknown(x)",
+      // Chromium 114 and 150 read these as part of a media query list, which never matches.
+      " layer()",
+      " layer( )",
+      " layer(1a)",
+      " layer(-1a)",
+      " layer(a .b)",
+      " layer(a. b)",
+      " layer(a.)",
+      " layer(.a)",
+      " layer(a, b)",
+      " layer(a b)",
+      " layer(#a)",
+      " layer(a) layer(b)",
+      " supports(a: b) layer(a)",
+      " supports(a: b) supports(c: d)",
+      // Chromium 150 drops an import whose support conditions are empty.
+      " supports()",
+      " supports( /**/ )",
+      // Not one in Chromium 114 and 150, which this does not read.
+      " layer(a/**/.b)",
     ])
-      assert.equal(conditions(css), "other", JSON.stringify(css));
+      assert.equal(conditions(css), null, JSON.stringify(css));
+  });
+});
+
+describe("what a stylesheet's text keeps later imports from (#152)", () => {
+  const stop = (css: string) => importStop(cssTokens(css), 0, css.length);
+
+  it("tells text that imports may follow from text that keeps them from counting", () => {
+    for (const css of [
+      "",
+      " /* a */ <!-- -->",
+      '@charset "utf-8";',
+      "@supports-condition --x { (a: b) }",
+    ])
+      assert.equal(stop(css), "none", JSON.stringify(css));
+    for (const css of ["@layer a;", "@layer a, b; @charset 'x';"])
+      assert.equal(stop(css), "after-import", JSON.stringify(css));
+    for (const css of [
+      "a {}",
+      "@layer a {}",
+      "@layer a; b {}",
+      "@media print {}",
+      "@namespace x url(y);",
+      "@unknown;",
+    ])
+      assert.equal(stop(css), "all", JSON.stringify(css));
+  });
+
+  it("reads only the range it is given", () => {
+    const css = '@layer a; @import "x.css"; b {}';
+    const tokens = cssTokens(css);
+    const first = cssImports(css, tokens)[0];
+    assert.equal(importStop(tokens, 0, first.start), "after-import");
+    assert.equal(importStop(tokens, first.end, css.length), "all");
+    assert.equal(importStop(tokens, first.start, first.end), "none");
   });
 });
 
@@ -270,5 +359,20 @@ describe("the end of a stylesheet (#139)", () => {
       ['a { content: "}" } /* } */', false],
     ] as const)
       assert.equal(cssEnd(css, cssTokens(css)).strayCloser, stray, css);
+  });
+
+  it("finds the <!-- and --> that CSS discards between top-level rules (#152)", () => {
+    const markers = (css: string) =>
+      cssEnd(css, cssTokens(css)).markers.map(({ start, end }) => css.slice(start, end));
+    assert.deepEqual(markers("<!-- a {} --> <!--@import 'x';-->"), ["<!--", "-->", "<!--", "-->"]);
+    // In a rule, they are tokens like any other.
+    for (const css of [
+      "a <!-- {}",
+      "a { <!-- b {} --> }",
+      "@media print { <!-- }",
+      "a--> {}",
+      '"<!--"',
+    ])
+      assert.deepEqual(markers(css), [], JSON.stringify(css));
   });
 });

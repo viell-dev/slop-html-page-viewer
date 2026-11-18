@@ -13,7 +13,14 @@
 // vault files to. When the settings ask for it, the page's local images,
 // media, fonts, and scripts are then copied into it as data: URLs (#11).
 
-import { cssEnd, cssImports, cssTokens, type CssToken } from "./css";
+import {
+  cssEnd,
+  cssImports,
+  cssTokens,
+  importStop,
+  type CssToken,
+  type ImportConditions,
+} from "./css";
 import { READING_STYLE_ID } from "./reading";
 
 /** What the view knows about the page and its vault. */
@@ -38,6 +45,24 @@ export interface PageContext {
    * do not resolve as paths name a file as Obsidian's own links do.
    */
   locate?(linktext: string): string | null;
+  /**
+   * Whether the host's Chromium applies an import's support conditions. By
+   * default, whether its `CSSImportRule` has `supportsText`, which Chromium
+   * added with them (`hostImportSupports`).
+   */
+  readonly importSupports?: boolean;
+}
+
+/**
+ * Whether this window's Chromium applies the support conditions of an
+ * import, `supports()`. Chromium 150 (Obsidian 1.15.1) does; Chromium 114
+ * (Obsidian 1.5.3) reads `supports()` as part of the media query list, which
+ * then never matches, so that the import never applies, whatever the
+ * conditions (#151).
+ */
+function hostImportSupports(): boolean {
+  const rule = (window as { CSSImportRule?: { prototype: object } }).CSSImportRule;
+  return rule !== undefined && "supportsText" in rule.prototype;
 }
 
 /** The deepest chain of stylesheet imports that is followed. */
@@ -83,13 +108,154 @@ async function readStylesheet(context: PageContext, path: string): Promise<strin
   }
 }
 
+/** Text of a prepared stylesheet, and which later imports it keeps from counting (`importStop`). */
+interface TextPart {
+  readonly kind: "text";
+  readonly text: string;
+  readonly stop: ReturnType<typeof importStop>;
+}
+
 /**
- * A stylesheet prepared for the copy, and whether its text has a `}` outside
- * any block, which an `@media` block around it would end early.
+ * An import that the copy keeps as an import, for the browser to load or
+ * refuse: of a stylesheet from elsewhere, or one past the limits.
+ */
+interface KeptImport {
+  readonly kind: "import";
+  /** The rule as the copy has it. */
+  readonly text: string;
+  /** Its stylesheet's URL, or null for a reference that does not resolve. */
+  readonly url: string | null;
+  /** Its conditions, or null for ones without a block form (`CssImport`). */
+  readonly conditions: ImportConditions | null;
+}
+
+/**
+ * A stylesheet prepared for the copy, in order: text, and the imports that
+ * stay imports, each of which counts only where nothing before it in its
+ * stylesheet keeps it from counting (`stylesheetTexts`). Also the length of
+ * its text, and whether it has a `}` outside any block, which a block around
+ * it, such as `@media`, would end early.
  */
 interface PreparedSheet {
-  readonly text: string;
+  readonly parts: readonly (TextPart | KeptImport)[];
+  readonly length: number;
   readonly strayCloser: boolean;
+}
+
+const STOPS = ["none", "after-import", "all"] as const;
+
+/** Adds a part, joining text to the text before it. Parts are shared, so never changed. */
+function addPart(parts: (TextPart | KeptImport)[], part: TextPart | KeptImport): void {
+  if (part.text === "") return;
+  const last = parts.at(-1);
+  if (part.kind === "text" && last?.kind === "text") {
+    const stop = STOPS[Math.max(STOPS.indexOf(last.stop), STOPS.indexOf(part.stop))];
+    parts[parts.length - 1] = { kind: "text", text: last.text + part.text, stop };
+  } else parts.push(part);
+}
+
+/** An import rule of `url` with these conditions. */
+function importText(url: string, conditions: ImportConditions): string {
+  const { layer, supports, media } = conditions;
+  const layerText = layer === null ? "" : layer === "" ? " layer" : ` layer(${layer})`;
+  const supportsText = supports === null ? "" : ` supports(${supports})`;
+  return `@import url(${cssString(url)})${layerText}${supportsText}${media === null ? "" : ` ${media}`};`;
+}
+
+/**
+ * A kept import in a stylesheet that an import with `outer` conditions puts
+ * in the copy, with those conditions added to its own, so that it can still
+ * count, or null when one import cannot have both. Layers nest by name, and
+ * support conditions both hold, but an anonymous layer has no name for
+ * another rule to add to, and two media query lists have no general form
+ * for both: such an import goes in the blocks as text, which never counts.
+ */
+function composedImport(part: KeptImport, outer: ImportConditions): KeptImport | null {
+  const inner = part.conditions;
+  if (part.url === null || inner === null) return null;
+  if (outer.layer === "" || (outer.layer !== null && inner.layer === "")) return null;
+  if (outer.media !== null && inner.media !== null) return null;
+  const conditions: ImportConditions = {
+    layer:
+      outer.layer === null || inner.layer === null
+        ? (outer.layer ?? inner.layer)
+        : `${outer.layer}.${inner.layer}`,
+    supports:
+      outer.supports === null || inner.supports === null
+        ? (outer.supports ?? inner.supports)
+        : `(${outer.supports}) and (${inner.supports})`,
+    media: outer.media ?? inner.media,
+  };
+  return { kind: "import", text: importText(part.url, conditions), url: part.url, conditions };
+}
+
+/**
+ * Text in the block forms of an import's conditions: `@media`, then
+ * `@supports`, then `@layer`. The conditions go outside the layer, as CSS
+ * Cascade 5 adds an import's layer to the layer order only where its
+ * conditions hold: in Obsidian 1.5.3 and 1.15.1, a layer inside `@media`
+ * that does not match comes in the order where it is next declared, as an
+ * import's layer does, and a layer around `@media` comes where it is (#151).
+ */
+function blockText(text: string, conditions: ImportConditions): string {
+  const { layer, supports, media } = conditions;
+  const blocks = [
+    media === null ? null : `@media ${media}`,
+    supports === null ? null : `@supports (${supports})`,
+    layer === null ? null : layer === "" ? "@layer" : `@layer ${layer}`,
+  ].filter((block) => block !== null);
+  return blocks.map((block) => `${block} {\n`).join("") + text + "\n}".repeat(blocks.length);
+}
+
+/**
+ * A stylesheet's parts as an import with these conditions puts them in the
+ * importing stylesheet: its text in their block forms, and its kept imports
+ * with the conditions added (`composedImport`) or as text in the blocks.
+ * Text is joined first, so that an anonymous layer holds the whole
+ * stylesheet, as one block makes one layer.
+ */
+function blockParts(
+  parts: readonly (TextPart | KeptImport)[],
+  conditions: ImportConditions,
+): (TextPart | KeptImport)[] {
+  const joined: (TextPart | KeptImport)[] = [];
+  for (const part of parts) {
+    const kept = part.kind === "import" ? composedImport(part, conditions) : null;
+    addPart(joined, kept ?? { kind: "text", text: part.text, stop: "all" });
+  }
+  return joined.map((part) =>
+    part.kind === "import"
+      ? part
+      : { kind: "text", text: blockText(part.text, conditions), stop: "all" },
+  );
+}
+
+/**
+ * The texts of the stylesheets that the copy puts in place of a prepared
+ * one, in order. An import that stays an import counts only where nothing
+ * before it in its stylesheet keeps it from counting, which an imported
+ * stylesheet's rules do when the copy puts them before it (#152): after them,
+ * it starts a stylesheet of its own, and the parts after it follow it there.
+ * Stylesheets apply in order, so each rule keeps its place in the cascade.
+ */
+function stylesheetTexts(parts: readonly (TextPart | KeptImport)[]): string[] {
+  const texts: string[] = [];
+  let text = "";
+  let imported = false;
+  let stopped = false;
+  for (const part of parts) {
+    if (part.kind === "import") {
+      if (stopped) {
+        texts.push(text);
+        text = "";
+        stopped = false;
+      }
+      imported = true;
+    } else if (part.stop === "all" || (part.stop === "after-import" && imported)) stopped = true;
+    text += part.text;
+  }
+  texts.push(text);
+  return texts;
 }
 
 /**
@@ -171,8 +337,8 @@ class StylesheetBudget {
       return sheet;
     }
     const kept = this.kept.get(url) ?? null;
-    if (kept === null || this.text + kept.text.length > STYLESHEET_TEXT_LIMIT) return null;
-    this.text += kept.text.length;
+    if (kept === null || this.text + kept.length > STYLESHEET_TEXT_LIMIT) return null;
+    this.text += kept.length;
     return kept;
   }
 }
@@ -506,38 +672,49 @@ function locateReferences(root: ParentNode, baseUrl: string, context: PageContex
  * text where the property is used, so a use with more text after it can
  * compute differently, as with `--x: (1px + 2px` in `calc(var(--x) * 2)`.
  */
-function closedSheet(css: string): { text: string; tokens: CssToken[]; strayCloser: boolean } {
+function closedSheet(css: string): {
+  text: string;
+  tokens: CssToken[];
+  strayCloser: boolean;
+  markers: CssToken[];
+} {
   const tokens = cssTokens(css);
-  const end = cssEnd(css, tokens);
-  if (end.closers === "") return { text: css, tokens, strayCloser: end.strayCloser };
-  const text = css + end.closers;
-  return { text, tokens: cssTokens(text), strayCloser: end.strayCloser };
+  const { closers, strayCloser, markers } = cssEnd(css, tokens);
+  if (closers === "") return { text: css, tokens, strayCloser, markers };
+  const text = css + closers;
+  // The markers keep their places: the closers only follow the text.
+  return { text, tokens: cssTokens(text), strayCloser, markers };
 }
 
 /**
- * Returns a stylesheet's text, closed at its end (`closedSheet`), with its
- * imports of vault stylesheets replaced by their text, within the limits of a
- * page of its own (`StylesheetBudget`), and every reference made absolute.
- * Imports from elsewhere stay as they are, for the browser to load or refuse,
- * as do those past the limits. The plugin prepares stylesheets only through
- * `preparePage`; the tests and `scripts/css-benchmark.mjs` use this to check
- * and time a stylesheet's preparation without a page around it.
+ * Returns the texts of the stylesheets that the copy puts in place of a
+ * stylesheet (`stylesheetTexts`): its text, closed at its end
+ * (`closedSheet`), with its imports of vault stylesheets replaced by their
+ * text, within the limits of a page of its own (`StylesheetBudget`), and
+ * every reference made absolute. Imports from elsewhere stay as they are, for
+ * the browser to load or refuse, as do those past the limits. The plugin
+ * prepares stylesheets only through `preparePage`; the tests and
+ * `scripts/css-benchmark.mjs` use this to check and time a stylesheet's
+ * preparation without a page around it.
  */
 export async function inlineStylesheet(
   css: string,
   sheetUrl: string,
   context: PageContext,
-): Promise<string> {
+): Promise<string[]> {
   const budget = new StylesheetBudget(context);
   const { text, tokens } = closedSheet(css);
-  return (await inlineImports(text, sheetUrl, context, new Set(), tokens, budget)).text;
+  const sheet = await inlineImports(text, sheetUrl, context, new Set(), tokens, budget);
+  return stylesheetTexts(sheet.parts);
 }
 
 /**
  * A vault stylesheet that a link or an import names, prepared for the copy and
  * closed at its end (`closedSheet`), or null to leave the link or import as it
- * is. `seen` holds the stylesheets that import it, and is empty for the page's
- * own links and the imports of its own `<style>` elements.
+ * is. Its markers become spaces, so that it reads the same in a block of an
+ * import's conditions (#152). `seen` holds the stylesheets that import it, and
+ * is empty for the page's own links and the imports of its own `<style>`
+ * elements.
  */
 async function fileSheet(
   path: string,
@@ -556,15 +733,24 @@ async function fileSheet(
     new Set([...seen, path]),
     sheet.tokens,
     budget,
+    sheet.markers,
   );
-  return { text: inner.text, strayCloser: sheet.strayCloser || inner.strayCloser };
+  return { ...inner, strayCloser: sheet.strayCloser || inner.strayCloser };
+}
+
+/** Whether an import has no conditions: its stylesheet's parts go in the importing one as they are. */
+function unconditional({ layer, supports, media }: ImportConditions): boolean {
+  return layer === null && supports === null && media === null;
 }
 
 /**
- * `inlineStylesheet`'s result, and whether it holds an imported stylesheet's
- * `}` outside any block, put in its text without an `@media` block around it.
- * `seen` holds the stylesheet's own file and those that import it, and is
- * empty for a page's own `<style>`.
+ * A stylesheet's parts (`PreparedSheet`), with its imports of vault
+ * stylesheets replaced by theirs, in the block forms of their conditions
+ * (`blockParts`), and each of its URLs made absolute; `markers` (`CssEnd`)
+ * become spaces. Also whether it holds an imported stylesheet's `}` outside
+ * any block, put in it without a block around it. `seen` holds the
+ * stylesheet's own file and those that import it, and is empty for a page's
+ * own `<style>`.
  */
 async function inlineImports(
   css: string,
@@ -573,12 +759,44 @@ async function inlineImports(
   seen: ReadonlySet<string>,
   tokens: readonly CssToken[],
   budget: StylesheetBudget,
+  markers: readonly CssToken[] = [],
 ): Promise<PreparedSheet> {
+  const importSupports = context.importSupports ?? hostImportSupports();
   let strayCloser = false;
-  const replacements: { start: number; end: number; text: string }[] = [];
-  for (const match of cssImports(tokens)) {
-    const rule = css.slice(match.start, match.end);
-    const media = css.slice(match.mediaStart, match.end - 1);
+  // Imports and URLs share the same scan; never rescan each intervening segment.
+  const rewrites: { start: number; end: number; text: string }[] = [];
+  for (const token of tokens) {
+    if (token.kind !== "url") continue;
+    const text = absoluteUrl(css.slice(token.start, token.end), token.value, sheetUrl, context);
+    rewrites.push({ start: token.start, end: token.end, text });
+  }
+  if (markers.length > 0) {
+    for (const { start, end } of markers) rewrites.push({ start, end, text: " " });
+    rewrites.sort((a, b) => a.start - b.start);
+  }
+  let cursor = 0;
+  let next = 0;
+  /** The stylesheet's own text from the cursor to `to`, rewritten, and the cursor moved there. */
+  const own = (to: number): TextPart => {
+    const stop = importStop(tokens, cursor, to);
+    let text = "";
+    for (; next < rewrites.length && rewrites[next].start < to; next++) {
+      const { start, end, text: rewrite } = rewrites[next];
+      // A URL inside an import rule, as in `@import url(...)`, is part of the
+      // rule's replacement already.
+      if (start < cursor) continue;
+      text += css.slice(cursor, start) + rewrite;
+      cursor = end;
+    }
+    text += css.slice(cursor, to);
+    cursor = to;
+    return { kind: "text", text, stop };
+  };
+
+  const parts: (TextPart | KeptImport)[] = [];
+  for (const match of cssImports(css, tokens)) {
+    addPart(parts, own(match.start));
+    cursor = match.end;
     const reference = match.reference;
     const absolute = resolve(reference, sheetUrl);
     const located = absolute === null ? null : locatedUrl(reference, absolute, context);
@@ -588,51 +806,46 @@ async function inlineImports(
     // covers characters such as U+FEFF that CSS reads as part of a name. Keep
     // the end as written: a newline there ends a bad string, and a space after
     // a backslash keeps it from escaping what follows.
-    const conditions = media.replace(/^[\t\n\f\r ]+/, "");
-    let text =
-      target === null
-        ? rule
-        : `@import url(${cssString(target)})${conditions ? ` ${conditions}` : ""};`;
-    // Only a media query list has a block form to put the imported text in:
-    // imports with cascade layers, scopes, or support conditions stay imports.
+    const written = css.slice(match.conditionsStart, match.end - 1).replace(/^[\t\n\f\r ]+/, "");
+    const kept: KeptImport = {
+      kind: "import",
+      text:
+        target === null
+          ? css.slice(match.start, match.end)
+          : `@import url(${cssString(target)})${written ? ` ${written}` : ""};`,
+      url: target,
+      conditions: match.conditions,
+    };
+    // An import with a scope, or with support conditions where the host
+    // never applies them, stays an import, as the browser reads it (#151).
+    const conditions =
+      match.conditions !== null && (match.conditions.supports === null || importSupports)
+        ? match.conditions
+        : null;
     const readable =
       path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
-    if (target !== null && path !== null && readable && match.conditions !== "other") {
+    let sheet: PreparedSheet | null = null;
+    if (target !== null && path !== null && readable && conditions !== null) {
       const prepare = () => fileSheet(path, target, context, seen, budget);
       // An import in a page's own <style> is prepared the same way each time,
       // as a link of the same URL is.
-      const sheet = seen.size === 0 ? await budget.sheet(target, prepare) : await prepare();
-      if (sheet !== null) {
-        if (match.conditions === "none") {
-          text = sheet.text;
-          strayCloser ||= sheet.strayCloser;
-        } else if (!sheet.strayCloser) {
-          text = `@media ${conditions} {\n${sheet.text}\n}`;
-        }
-        // Otherwise a stray "}" would end the @media block early, and the
-        // block's own "}" would then take the importing sheet's next rule.
-      }
+      sheet = seen.size === 0 ? await budget.sheet(target, prepare) : await prepare();
     }
-    replacements.push({ start: match.start, end: match.end, text });
+    if (sheet !== null && conditions !== null && unconditional(conditions)) {
+      for (const part of sheet.parts) addPart(parts, part);
+      strayCloser ||= sheet.strayCloser;
+    } else if (sheet !== null && conditions !== null && !sheet.strayCloser) {
+      for (const part of blockParts(sheet.parts, conditions)) addPart(parts, part);
+    } else {
+      // A stray "}" would end the blocks early, and the blocks' own "}" would
+      // then take the importing sheet's next rule.
+      addPart(parts, kept);
+    }
   }
-
-  // Imports and URLs share the same scan; never rescan each intervening segment.
-  for (const token of tokens) {
-    if (token.kind !== "url") continue;
-    const text = absoluteUrl(css.slice(token.start, token.end), token.value, sheetUrl, context);
-    replacements.push({ start: token.start, end: token.end, text });
-  }
-  replacements.sort((a, b) => a.start - b.start);
-  let result = "";
-  let cursor = 0;
-  for (const { start, end, text } of replacements) {
-    // A URL inside an import rule, as in `@import url(...)`, is part of the
-    // rule's replacement already.
-    if (start < cursor) continue;
-    result += css.slice(cursor, start) + text;
-    cursor = end;
-  }
-  return { text: result + css.slice(cursor), strayCloser };
+  addPart(parts, own(css.length));
+  let length = 0;
+  for (const part of parts) length += part.text.length;
+  return { parts, length, strayCloser };
 }
 
 /**
@@ -804,14 +1017,9 @@ async function inlineStylesheets(
       fileSheet(path, sheetUrl, context, new Set(), budget),
     );
     if (sheet === null) continue;
-    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
-    const style = link.ownerDocument.createElement("style");
-    for (const name of ["media", "title"]) {
-      const value = link.getAttribute(name);
-      if (value !== null) style.setAttribute(name, value);
-    }
-    setStyleText(style, sheet.text);
-    link.replaceWith(style);
+    link.replaceWith(
+      ...stylesheetTexts(sheet.parts).map((text) => styleFor(link, HTML_NAMESPACE, text)),
+    );
   }
 
   for (const style of originalStyles) {
@@ -820,14 +1028,36 @@ async function inlineStylesheets(
     // CSS reads them there. The copy keeps the closed text, which the copying
     // of files then reads as well.
     const { text: css, tokens } = closedSheet(own);
-    const text = styleElementText(
-      cssImports(tokens).length > 0
-        ? (await inlineImports(css, baseUrl, context, new Set(), tokens, budget)).text
-        : locateCssUrls(css, baseUrl, context, tokens),
-    );
+    const texts =
+      cssImports(css, tokens).length > 0
+        ? stylesheetTexts(
+            (await inlineImports(css, baseUrl, context, new Set(), tokens, budget)).parts,
+          )
+        : [locateCssUrls(css, baseUrl, context, tokens)];
+    // The element keeps the last stylesheet, which holds its own rules, and
+    // the others go before it, in its namespace (`styleFor`).
+    const text = styleElementText(texts.pop() ?? "");
+    for (const before of texts) style.before(styleFor(style, style.namespaceURI, before));
     // Escaped before comparing, so that a style whose text needs only the escape is written too.
     if (text !== own) setStyleText(style, text);
   }
+}
+
+/**
+ * A `<style>` for one of the stylesheets that the copy puts in place of a link
+ * or another `<style>`, which applies as the element does: with its `media`,
+ * and its `title`, which keeps it in the element's set of alternative
+ * stylesheets. Those before an SVG `<style>` are SVG ones, so that parsing the
+ * copy again reads them as it reads the page's.
+ */
+function styleFor(element: Element, namespace: string | null, text: string): Element {
+  const style = element.ownerDocument.createElementNS(namespace, "style");
+  for (const name of ["media", "title"]) {
+    const value = element.getAttribute(name);
+    if (value !== null) style.setAttribute(name, value);
+  }
+  setStyleText(style, text);
+  return style;
 }
 
 /** How the view reads the vault's files to copy them into a page (#11). */

@@ -429,8 +429,14 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
-  describe("with stylesheet imports (#136, #139, #144, #155)", function () {
+  describe("with stylesheet imports (#136, #139, #144, #151, #152, #155)", function () {
     const green = "rgb(46, 125, 50)";
+    const red = "rgb(198, 40, 40)";
+    // A web stylesheet that Obsidian's policy refuses stands in for Google
+    // Fonts, the one that it allows, so that the tests need no network: an
+    // import's CSSImportRule shows whether it counts. Chromium refuses the
+    // port too.
+    const web = "http://127.0.0.1:9";
     // Each case's paragraph, and the styles that its stylesheets give it.
     const styles = [
       // #139: imported sheets that end inside a string, a comment, an unquoted
@@ -450,6 +456,21 @@ describe("A page's local files in Obsidian", function () {
       `<link rel="stylesheet" href="Import rules/bom.css">`,
       // #144: an import into a cascade layer, with a comment before "layer".
       `<style>@import "Import rules/layered.css" /**/ layer;</style>`,
+      // #151: layers in the order of their imports, also one whose file is
+      // missing, which declares its layer where it is; one whose conditions
+      // do not hold, which does not; and support conditions and a scope.
+      `<style>@import "Import rules/order a.css" layer(ia); @import "Import rules/order b.css" layer(ib);</style>`,
+      `<style>@import "Import rules/missing.css" layer(im); @import "Import rules/declared.css" layer(ig); @layer im { #declared { color: ${red} } }</style>`,
+      `<style>@import "Import rules/late.css" layer(late) print; @layer early { #conditional { color: ${red} } } @layer late { #conditional { color: ${green} } }</style>`,
+      `<style>@import "Import rules/supported.css" supports(display: grid);</style>`,
+      `<style>@import "Import rules/unsupported.css" supports(display: nonsense);</style>`,
+      `<style>@import "Import rules/scoped.css" scope(.scope);</style>`,
+      // #152: imports that stay imports count after an inlined stylesheet's
+      // rules, and inside a stylesheet imported with a media query list, whose
+      // "<!--" and "-->" between rules start none.
+      `<style>@import "Import rules/local.css"; @import url("${web}/kept.css");</style>`,
+      `<style>@import "Import rules/web fonts.css" screen;</style>`,
+      `<style>@import "Import rules/markers.css" screen;</style>`,
       // #155: the page's own stylesheets end where CSS ends them too. A linked
       // stylesheet and a <style> that end in an import without its ";" import
       // its file, and an unquoted URL at the end of a linked stylesheet is
@@ -458,12 +479,14 @@ describe("A page's local files in Obsidian", function () {
       `<style>@import "Import rules/style tail.css"</style>`,
       `<link rel="stylesheet" href="Import rules/ends in url.css">`,
     ].join("\n");
-    const paragraphs = [
-      ...["string", "comment", "url", "block", "ghost", "placed", "bom", "layered"],
-      ...["linktail", "styletail", "urltail"],
-    ]
-      .map((id) => `<p id="${id}">${id}</p>`)
-      .join("");
+    const paragraphs =
+      [
+        ...["string", "comment", "url", "block", "ghost", "placed", "bom", "layered"],
+        ...["linktail", "styletail", "urltail", "ordered", "declared", "conditional"],
+        ...["supported", "unsupported", "local", "webfonts", "markers"],
+      ]
+        .map((id) => `<p id="${id}">${id}</p>`)
+        .join("") + `<div class="scope"><p id="scoped">scoped</p></div>`;
     const files: Record<string, string> = {
       "Import rules/string.css": '"',
       "Import rules/comment.css": "/*",
@@ -478,6 +501,16 @@ describe("A page's local files in Obsidian", function () {
       "Import rules/link tail.css": `#linktail { color: ${green} }`,
       "Import rules/style tail.css": `#styletail { color: ${green} }`,
       "Import rules/ends in url.css": "#urltail { background-image: url(target.png",
+      "Import rules/order a.css": `#ordered { color: ${red} }`,
+      "Import rules/order b.css": `#ordered { color: ${green} }`,
+      "Import rules/declared.css": `#declared { color: ${green} }`,
+      "Import rules/late.css": `#conditional { color: ${red} }`,
+      "Import rules/supported.css": `#supported { color: ${green} }`,
+      "Import rules/unsupported.css": `#unsupported { color: ${green} }`,
+      "Import rules/scoped.css": `#scoped { color: ${green} }`,
+      "Import rules/local.css": `#local { color: ${green} }`,
+      "Import rules/web fonts.css": `@import url("${web}/fonts.css"); #webfonts { color: ${green} }`,
+      "Import rules/markers.css": `<!-- #markers { color: ${green} } -->`,
       "Import rules.html":
         `${styles}<p id="plain">plain</p>${paragraphs}` +
         `<div id="host"><template shadowrootmode="open">${styles}${paragraphs}</template></div>`,
@@ -501,7 +534,9 @@ describe("A page's local files in Obsidian", function () {
 
     /**
      * The colors, generated content, and background images of the page's
-     * paragraphs, and its shadow root's. Run inside the frame.
+     * paragraphs, and its shadow root's, and the imports that count in each:
+     * the file names of their URLs, with their media query lists. Run inside
+     * the frame.
      */
     function read() {
       const tree = (root: Document | ShadowRoot) =>
@@ -515,11 +550,31 @@ describe("A page's local files in Obsidian", function () {
             },
           ]),
         );
-      const sheets = [...document.querySelectorAll("style")].map((s) => s.textContent ?? "");
+      const imports = (root: Document | ShadowRoot) => {
+        const found: string[] = [];
+        const visit = (sheet: CSSStyleSheet) => {
+          let rules: CSSRuleList;
+          try {
+            rules = sheet.cssRules;
+          } catch {
+            // Another origin's stylesheet, whose rules a page cannot read.
+            return;
+          }
+          for (const rule of rules) {
+            if (!(rule instanceof CSSImportRule)) continue;
+            const media = rule.media.mediaText;
+            found.push(`${rule.href.replace(/^.*\//, "")}${media ? ` ${media}` : ""}`);
+            if (rule.styleSheet) visit(rule.styleSheet);
+          }
+        };
+        for (const sheet of root.styleSheets) visit(sheet);
+        return found.sort();
+      };
+      const shadow = document.querySelector("#host")!.shadowRoot!;
       return {
         page: tree(document),
-        shadow: tree(document.querySelector("#host")!.shadowRoot!),
-        layered: sheets.find((text) => text.includes("layer;")) ?? null,
+        shadow: tree(shadow),
+        imports: [imports(document), imports(shadow)],
       };
     }
 
@@ -551,43 +606,98 @@ describe("A page's local files in Obsidian", function () {
         urltail: /\/Import%20rules\/target\.png"\)$/.test(root.urltail.background)
           ? "the stylesheet's"
           : root.urltail.background,
+        ordered: root.ordered.color,
+        declared: root.declared.color,
+        conditional: root.conditional.color,
+        supported: root.supported.color === plain ? "not applied" : root.supported.color,
+        unsupported: root.unsupported.color === plain ? "not applied" : root.unsupported.color,
+        scoped: root.scoped.color === plain ? "not applied" : root.scoped.color,
+        local: root.local.color,
+        webfonts: root.webfonts.color,
+        markers: root.markers.color,
       }));
     }
 
-    const expected = {
-      string: { color: green, after: '"url(Saved/2026-01-15/figure.png)"' },
-      url: { color: green, after: '"x) url(Saved/2026-01-15/figure.png)"' },
-      comment: green,
-      block: green,
-      ghost: "not applied",
-      placed: green,
-      bom: green,
-      // The layered import stays an import, which Obsidian's policy does not
-      // load into the page, as with any import of a vault stylesheet.
-      layered: "not applied",
-      linktail: green,
-      styletail: green,
-      urltail: "the stylesheet's",
-    };
+    // Whether this host's Chromium applies an import's support conditions,
+    // which Chromium 114 never does (#151).
+    let importSupports = false;
+    before(async function () {
+      importSupports = await browser.execute(() => "supportsText" in CSSImportRule.prototype);
+    });
+
+    /** What Chromium shows, and the viewer too, on this host. */
+    function expected() {
+      return {
+        string: { color: green, after: '"url(Saved/2026-01-15/figure.png)"' },
+        url: { color: green, after: '"x) url(Saved/2026-01-15/figure.png)"' },
+        comment: green,
+        block: green,
+        ghost: "not applied",
+        placed: green,
+        bom: green,
+        layered: green,
+        linktail: green,
+        styletail: green,
+        urltail: "the stylesheet's",
+        ordered: green,
+        declared: green,
+        conditional: green,
+        supported: importSupports ? green : "not applied",
+        unsupported: "not applied",
+        // No version of Chromium in Obsidian applies an import with a scope.
+        scoped: "not applied",
+        local: green,
+        webfonts: green,
+        markers: green,
+      };
+    }
+
+    /**
+     * The imports that count in the viewer, in the document and in its shadow
+     * root alike: the web ones, the inner one with its importer's media query
+     * list (#152), and the vault ones that stay imports, which Obsidian's
+     * policy does not load into the page: the missing file, the scoped
+     * import, and on Chromium 114, which reads support conditions as a media
+     * query, the ones with support conditions (#151).
+     */
+    function counted() {
+      const imports = [
+        "fonts.css screen",
+        "kept.css",
+        "missing.css",
+        "scoped.css scope(.scope)",
+        ...(importSupports
+          ? []
+          : [
+              "supported.css supports(display: grid)",
+              "unsupported.css supports(display: nonsense)",
+            ]),
+      ].sort();
+      return [imports, imports];
+    }
 
     it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
       const chromium = await inServedPage(files, "Import rules.html", () => browser.execute(read));
-      // Chromium applies the layered import, which the viewer leaves an import (#151).
-      const shows = { ...expected, layered: green };
-      expect(cases(chromium)).toEqual([shows, shows]);
+      // Served, the inner web import counts inside its importer's stylesheet.
+      const web = (imports: string[]) =>
+        imports.filter((name) => name === "fonts.css" || name === "kept.css");
+      expect({ cases: cases(chromium), imports: chromium.imports.map(web) }).toEqual({
+        cases: [expected(), expected()],
+        imports: [
+          ["fonts.css", "kept.css"],
+          ["fonts.css", "kept.css"],
+        ],
+      });
     });
 
     it("applies only the imports that CSS applies, and the rules after them", async function () {
       await openInActiveTab("Import rules.html");
       await waitForPage();
       const result = await shown();
-      expect({
-        cases: cases(result),
-        layered:
-          /^@import url\("app:\/\/[^"]+\/Import%20rules\/layered\.css"\) \/\*\*\/ layer;$/.test(
-            result.layered ?? "",
-          ),
-      }).toEqual({ cases: [expected, expected], layered: true });
+      expect({ cases: cases(result), imports: result.imports }).toEqual({
+        cases: [expected(), expected()],
+        imports: counted(),
+      });
     });
 
     it("copies no file that only string text names, with scripts on", async function () {
@@ -596,7 +706,11 @@ describe("A page's local files in Obsidian", function () {
         await openInActiveTab("Import rules.html");
         await clickToolbarButton("Scripts OFF");
         await waitForPage();
-        expect(cases(await shown())).toEqual([expected, expected]);
+        const result = await shown();
+        expect({ cases: cases(result), imports: result.imports }).toEqual({
+          cases: [expected(), expected()],
+          imports: counted(),
+        });
       } finally {
         await clickToolbarButton("Scripts ON");
         await copyLocalFiles(false);
