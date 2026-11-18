@@ -113,9 +113,10 @@ the page's own link or `<style>` import of a stylesheet copied whole gets that c
 only its text, each time, so that 550 components that link a stylesheet and 550 that import it,
 each kind more than the count allows, show whole. A repeat of one that cannot be read counts
 nothing, so that a stylesheet after 1,000 links and 1,000 imports of a missing or unreadable one
-is still copied. A link and an import of the same stylesheet stay apart, as only the import is
-closed at its end, and a repeated import of a stylesheet with a stray `}` stays an import in media
-conditions. One that the count or the text limit cut short is prepared again, and with **Local
+is still copied. A link and an import of the same stylesheet repeat each other, as both are closed
+at their end (#155), and a repeated import of a stylesheet with a stray `}` stays an import in
+media conditions, also after a link of it. One that the count or the text limit cut short is
+prepared again, and with **Local
 files with scripts on** the copy limits count the files of each place. `document.stress.ts`
 prepares eight stylesheets that each import the
 next ten times, eleven million stylesheets without the limits, with small and with 20 KB
@@ -156,6 +157,21 @@ with a `}` outside any block, also one in a stylesheet that it imports, stays an
 string, a comment, an unquoted `url(`, and a block apply, and that their strings stay strings with
 scripts on and files copied.
 
+**Unreleased (#155):** the page's own stylesheets are closed the same way. The cases in
+`document.test.ts` import the file of a last import without its `;` in a `<style>` and a linked
+stylesheet, the document's and a shadow root's alike, with and without copying files, and in
+`inlineStylesheet`. An unquoted URL at the end of a linked stylesheet resolves against that
+stylesheet, and is copied with **Local files with scripts on**; one at the end of a `<style>` is
+copied, and located by name. The copy keeps a `<style>`'s closed text, and one that CSS leaves
+closed as it is. A link and an import of the same stylesheet get one text, read and counted once,
+which keeps its stray `}` for an import with media conditions. `resources.e2e.ts` checks in
+Obsidian 1.5.3 and the latest, with scripts off and with them on and files copied, that a linked
+stylesheet and a `<style>` that end in such an import apply its file, and that the URL at the end
+of a linked stylesheet is the stylesheet's. The same spec serves its whole page of imports over
+HTTP to a frame of Obsidian's window without a sandbox, where neither the plugin nor Obsidian's
+policy stands between Chromium and the page, and checks that Chromium shows each case as the
+viewer does, apart from the import into a layer, which the viewer leaves an import (#151).
+
 `<style>` and `<link>` coverage (#143): `document.test.ts` checks, in the document and in a shadow
 root, with and without copying files, that the plugin reads and copies only for an HTML or SVG
 `<style>`'s own text nodes, joined, and for HTML stylesheet links, also inside SVG's
@@ -168,6 +184,23 @@ with them on and copying files: an SVG `<style>`'s own text, joined across a chi
 nothing inside that element, in a MathML `<style>`, or from a `<link>` inside SVG, to which Chromium
 gives no stylesheet. It also checks that the copy holds neither those stylesheets' text nor their
 files.
+
+**Unreleased (#147):** `document.test.ts` checks, in the document and in a shadow root, with and
+without copying files, that the plugin prepares a `<style>`, HTML or SVG, only with no `type`, an
+empty one, or `text/css` in any ASCII case, and one with a `disabled` attribute as any other. A link
+becomes a `<style>` only without a `disabled` attribute, whatever its value, and with no `type` or
+one whose part before a `;`, trimmed of the whitespace that Chromium trims, is empty or `text/css`.
+The other elements stay exactly as written, and nothing is read or copied for them; a page whose
+only stylesheets are such elements gets the reading style. `resources.e2e.ts` builds a page with 17
+types on a `<style>` and a link, disabled links, and four types on an SVG `<style>`, in the document
+and in a shadow root. It serves the page over HTTP to a frame of Obsidian's window without a
+sandbox and checks that what Chromium applies there matches #147's measurements. In the viewer, in
+Obsidian 1.5.3 and the latest, with scripts off and with them on and files copied, the page shows
+exactly what Chromium applied, the viewer reads only the stylesheets of the elements that apply,
+keeps the others as written, and copies only the images of the `<style>` elements that apply.
+Chromium 114, in Obsidian 1.5.3, applies an SVG `<style>` of type `TEXT/CSS` only in lowercase,
+and Chromium 150, in 1.15.1, as an HTML one; the spec accepts either for that case, and the viewer
+prepares it on both, so on 1.5.3 it reads that `<style>`'s import, which applies nothing there.
 
 ## Shown to fail
 
@@ -396,6 +429,42 @@ The test in `resources.e2e.ts` was not run against the preparation before the li
 keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
 preparation's measurements in Obsidian, with up to five imports a stylesheet.
 
+**Unreleased (#147):** On 2026-11-18, the preparation of `<style>` and `<link>` elements as `main`
+had it at `eb92df5` failed both viewer tests of types in `resources.e2e.ts` in Obsidian 1.5.3 and
+1.15.1. There, the links of other types and the disabled links applied, as `<style>` elements put in
+their place, the copy kept none of the elements that do not apply as written, the viewer read 20
+stylesheets of elements that apply nothing, and with scripts on it copied 44 images where the
+`<style>` elements that apply name 16. Both served pages showed what the tests expect. In an
+earlier run of the spec, with an SVG `<style>`'s type compared case-sensitively, an SVG `<style>`
+of type `TEXT/CSS` in 1.15.1 applied its own rule but not its import, which Chromium applies. Each
+of these breakages failed the check named in `document.test.ts`:
+
+- Preparing every `<style>`, whatever its type: the `<style>` test, the SVG `<style>` test, and the
+  reading style test of #147.
+- Comparing an SVG `<style>`'s type case-sensitively: the SVG `<style>` test.
+- Leaving out a link's `disabled` attribute, or its type: the link test and the reading style test
+  of #147.
+- Trimming nothing from a link type's essence, or JavaScript's whitespace, which includes U+00A0:
+  the link test.
+- Counting any `<style>` or stylesheet link as the page's own styles: the reading style tests of
+  #143 and #147.
+
+**Unreleased (#155):** On 2026-11-18, in the same `resources.e2e.ts` run, a linked stylesheet and a
+`<style>` that end in an import without its `;` did not apply its file, and the unquoted URL at the
+end of a linked stylesheet resolved against the page, in Obsidian 1.5.3 and 1.15.1, with scripts
+off and on. Each of these breakages failed the check named in `document.test.ts`:
+
+- Not closing a linked stylesheet: the tests of a last import, of the URL at its end, of one text
+  for a link and an import, and of a linked stylesheet's stray `}`.
+- Not closing a `<style>`: the tests of a last import, of the URL at its end copied and located, of
+  the closed text, and the #143 test of an SVG `<style>`'s child elements.
+- Keeping a link and an import of the same stylesheet apart: the test that counts them once.
+- Dropping a stylesheet's own stray `}` from its prepared result: the stray `}` tests of #139,
+  #154, and #155.
+
+Since #155, a link and an import of the same URL share one kept text, so the #154 entry above for
+one kept text describes a breakage of that time, not of the current checkout.
+
 ## Limits
 
 - Which tab a link opens in (#141) is tested in Obsidian for plain and Ctrl clicks in the main area,
@@ -411,6 +480,9 @@ preparation's measurements in Obsidian, with up to five imports a stylesheet.
 - Obsidian 1.5.0 to 1.5.2, which the manifest allows, were Insider builds that need an account to
   download; 1.5.3 is the oldest version tested. The versions between 1.5.3 and the latest are not
   tested.
+- **Unreleased (#147):** which `<style>` and `<link>` elements Chromium applies was measured by
+  their `type` and a link's `disabled` attribute. A link's `rel` values beyond `stylesheet` and
+  `alternate`, its `media` and `title`, and a `type` that a script changes are not measured.
 - The bundle check in `policy.test.ts` sees only the plugin's own code. Obsidian's TextFileView,
   which the view extends, saves a view's data to its file from Obsidian's own code. The unit tests
   model that saving as Obsidian 1.5.3 and 1.15.1 implement it, and `read-only.e2e.ts` checks in

@@ -214,17 +214,23 @@ describe("<style> text that Chromium applies (#143)", () => {
   }
 
   it("reads and copies nothing that only an SVG <style>'s child elements or a MathML <style> name", async () => {
-    for (const html of [
-      '<svg><style><desc>@import "ghost.css";</desc>circle { fill: red }<desc>a { b: url(ghost.png) }</desc></style></svg>',
-      '<math><style>@import "ghost.css"; a { b: url(ghost.png) }</style></math>',
+    for (const [html, kept = html] of [
+      [
+        '<svg><style><desc>@import "ghost.css";</desc>circle { fill: red }<desc>a { b: url(ghost.png) }</desc></style></svg>',
+      ],
+      ['<math><style>@import "ghost.css"; a { b: url(ghost.png) }</style></math>'],
       // The child element's quote is not the <style>'s text, so the string stays a string (#91).
-      '<svg><style>a{}<desc>"</desc> b::after { content: "url(ghost.png)" } c { d: "</style></svg>',
+      // The copy closes that string and its block, as CSS does at the end of the text (#155).
+      [
+        '<svg><style>a{}<desc>"</desc> b::after { content: "url(ghost.png)" } c { d: "</style></svg>',
+        '<svg><style>a{} b::after { content: "url(ghost.png)" } c { d: ""}<desc>"</desc></style></svg>',
+      ],
     ]) {
       for (const place of places) {
         for (const { copying, reads, copies, html: copy } of await prepared(place(html))) {
           const what = `${place(html)}, copying: ${copying}`;
           assert.deepEqual({ reads, copies }, { reads: [], copies: [] }, what);
-          assert.ok(copy.includes(html), what);
+          assert.ok(copy.includes(kept), what);
         }
       }
     }
@@ -296,6 +302,167 @@ describe("<style> text that Chromium applies (#143)", () => {
       for (const { reads, root } of await prepared(place(html))) {
         assert.deepEqual(reads, ["Saved/real.css"]);
         assert.equal(root.querySelector("foreignObject > style")!.textContent, "REAL{}");
+      }
+    }
+  });
+});
+
+describe("<style> and <link> elements that Chromium applies, by type and disabled (#147)", () => {
+  // As #147 measured in Obsidian 1.5.3 and 1.15.1, and resources.e2e.ts checks
+  // against Chromium: a <style> applies only with exactly text/css, and a link
+  // loads with a MIME type whose essence is empty or text/css, unless disabled.
+  const shadow = (html: string) => `<div><template shadowrootmode="open">${html}</template></div>`;
+  const places = [(html: string) => html, shadow];
+  const typed = (type: string | null) => (type === null ? "" : ` type="${type}"`);
+  const emSpace = String.fromCodePoint(0x2003);
+  const noBreakSpace = String.fromCodePoint(0xa0);
+
+  /** Prepares a page in the document and in a shadow root, without and with copying files. */
+  async function prepared(html: string) {
+    const results = [];
+    for (const place of places) {
+      for (const copying of [false, true]) {
+        const ctx = context({ "Saved/real.css": "REAL{}" });
+        const copies: string[] = [];
+        const copyFiles: LocalFiles = {
+          size: () => 1,
+          async readBinary(path) {
+            copies.push(path);
+            return new Uint8Array([1]).buffer;
+          },
+        };
+        const result = await preparePage(place(html), ctx, copying ? { copyFiles } : {});
+        const page = parse(result.html);
+        const root = page.querySelector("template")?.content ?? page;
+        const what = `${place(html)}, copying: ${copying}`;
+        results.push({ what, copying, reads: ctx.reads, copies, html: result.html, root });
+      }
+    }
+    return results;
+  }
+
+  it("prepares a <style> whose type is CSS, and leaves any other as the page has it", async () => {
+    const css = '@import "real.css"; p { b: url(real.png) }';
+    for (const type of [null, "", "text/css", "TEXT/CSS", "Text/Css"]) {
+      for (const { what, copying, reads, copies, root } of await prepared(
+        `<style${typed(type)}>${css}</style>`,
+      )) {
+        const url = copying ? "data:image/png;base64,AQ==" : `${VAULT}Saved/real.png`;
+        assert.deepEqual(
+          { reads, copies, text: root.querySelector("style")!.textContent },
+          {
+            reads: ["Saved/real.css"],
+            copies: copying ? ["Saved/real.png"] : [],
+            text: `REAL{} p { b: url("${url}") }`,
+          },
+          what,
+        );
+      }
+    }
+    for (const type of [
+      "text/css; charset=utf-8",
+      "text/css;",
+      " text/css",
+      "text/css ",
+      "\ttext/css\n",
+      `${emSpace}text/css`,
+      " ",
+      ";",
+      "text/x-scss",
+      "text/plain",
+      "text/css2",
+    ]) {
+      // Its text stays as written, for the page's scripts to read, with an
+      // unquoted URL at its end left open.
+      const style = `<style${typed(type)}>${css} q { r: url(open.png</style>`;
+      for (const { what, reads, copies, html } of await prepared(style)) {
+        assert.deepEqual({ reads, copies }, { reads: [], copies: [] }, what);
+        assert.ok(html.includes(style), what);
+      }
+    }
+  });
+
+  it("prepares an SVG <style> by the same type rule as an HTML one", async () => {
+    // As Chromium 150 (Obsidian 1.15.1) applies it. Chromium 114 (Obsidian
+    // 1.5.3) applies TEXT/CSS on an SVG <style> only in lowercase.
+    const css = '@import "real.css"; circle { fill: red }';
+    for (const [type, applies] of [
+      [null, true],
+      ["", true],
+      ["text/css", true],
+      ["TEXT/CSS", true],
+      ["text/css; charset=utf-8", false],
+      [" text/css", false],
+    ] as const) {
+      const svg = `<svg><style${typed(type)}>${css}</style></svg>`;
+      for (const { what, reads, html } of await prepared(svg)) {
+        assert.deepEqual(reads, applies ? ["Saved/real.css"] : [], what);
+        assert.equal(html.includes(svg), !applies, what);
+      }
+    }
+  });
+
+  it("ignores a <style>'s disabled attribute, which applies it as any other", async () => {
+    for (const { what, reads, root } of await prepared(
+      '<style disabled>@import "real.css";</style>',
+    )) {
+      assert.deepEqual(reads, ["Saved/real.css"], what);
+      assert.equal(root.querySelector("style")!.textContent, "REAL{}", what);
+    }
+  });
+
+  it("replaces a link whose type is CSS, and keeps a disabled one or any other as it is", async () => {
+    for (const type of [
+      null,
+      "",
+      "text/css",
+      "TEXT/CSS",
+      "text/css; charset=utf-8",
+      "text/css;charset=utf-8",
+      " TEXT/CSS ; a=b",
+      "text/css;",
+      " text/css",
+      "text/css ",
+      " ",
+      ";",
+      "\ttext/css\n",
+      "\vtext/css",
+      `${emSpace}text/css${emSpace}`,
+    ]) {
+      const link = `<link rel="stylesheet"${typed(type)} href="real.css">`;
+      for (const { what, reads, root } of await prepared(link)) {
+        assert.deepEqual(
+          { reads, links: root.querySelectorAll("link").length },
+          { reads: ["Saved/real.css"], links: 0 },
+          what,
+        );
+        assert.equal(root.querySelector("style")!.outerHTML, "<style>REAL{}</style>", what);
+      }
+    }
+    for (const link of [
+      ...["text/x-scss", "text/plain", "text/css2", `${noBreakSpace}text/css`, "css"].map(
+        (type) => `<link rel="stylesheet"${typed(type)} href="real.css">`,
+      ),
+      // Only whether it has the attribute counts, whatever its value.
+      ...["", '=""', '="false"'].map(
+        (value) => `<link rel="stylesheet" type="text/css" href="real.css" disabled${value}>`,
+      ),
+    ]) {
+      for (const { what, reads, root } of await prepared(link)) {
+        assert.deepEqual(
+          {
+            reads,
+            links: root.querySelectorAll("link").length,
+            styles: root.querySelectorAll("style").length,
+          },
+          { reads: [], links: 1, styles: 0 },
+          what,
+        );
+        assert.equal(
+          root.querySelector("link")!.outerHTML,
+          parse(link).querySelector("link")!.outerHTML,
+          what,
+        );
       }
     }
   });
@@ -481,18 +648,64 @@ describe("stylesheet limits (#154)", () => {
     ]);
   });
 
-  it("keeps a link and an import of the same stylesheet apart", async () => {
-    // An imported stylesheet is closed at its end, so that the rules after its
-    // import stay outside its block; a linked one ends with its <style>.
-    const ctx = context({ "Saved/open.css": ".open { color: blue" });
+  it("gives a link and an import of the same stylesheet one text, closed at its end (#155)", async () => {
+    // The rules after the import stay outside the stylesheet's block. The
+    // document's link is prepared first, and its import before a shadow
+    // root's link, so each kind repeats the other.
+    const sheets = [
+      '<link rel="stylesheet" href="open.css">',
+      '<style>@import "open.css";</style>',
+    ];
+    for (const [first, second] of [sheets, [...sheets].reverse()]) {
+      const ctx = context({ "Saved/open.css": ".open { color: blue" });
+      const html = `${first}<div><template shadowrootmode="open">${second}</template></div>`;
+      const copy = parse(
+        await prepare(html.replace("</style>", "\n.after { color: red }</style>"), ctx),
+      );
+      const texts = [copy, copy.querySelector("template")!.content].flatMap((root) =>
+        [...root.querySelectorAll("style")].map((style) => style.textContent),
+      );
+      const imported = ".open { color: blue}\n.after { color: red }";
+      assert.deepEqual(
+        texts,
+        first === sheets[0]
+          ? [".open { color: blue}", imported]
+          : [imported, ".open { color: blue}"],
+      );
+      assert.deepEqual(ctx.reads, ["Saved/open.css"]);
+    }
+  });
+
+  it("counts a link and an import of the same stylesheet once (#155)", async () => {
+    // The link, its import's repeat, and the other imports take the whole
+    // count, so last.css fits only if the repeat takes nothing from it.
+    const names = Array.from({ length: STYLESHEET_COUNT_LIMIT - 2 }, (_, i) => `d${i}.css`);
+    const ctx = context({
+      ...Object.fromEntries(names.map((name) => [`Saved/${name}`, ".d {}"])),
+      "Saved/x.css": ".x {}",
+      "Saved/last.css": ".last {}",
+    });
+    const html = `<link rel="stylesheet" href="x.css">${importing([...names, "x.css", "last.css"])}`;
+    const styles = [...parse(await prepare(html, ctx)).querySelectorAll("style")];
+    assert.equal(styles[0].textContent, ".x {}");
+    assert.ok(
+      styles[1].textContent.endsWith("\n.x {}\n.last {}"),
+      styles[1].textContent.slice(-60),
+    );
+  });
+
+  it("keeps a linked stylesheet's stray } for a repeated import of it with media conditions", async () => {
+    // The link's stylesheet is kept with its stray "}", so the import that
+    // repeats it stays an import, as it would on its own.
+    const ctx = context({ "Saved/stray.css": "} .stray { color: blue }" });
     const html =
-      '<link rel="stylesheet" href="open.css">' +
-      '<style>@import "open.css";\n.after { color: red }</style>';
+      '<link rel="stylesheet" href="stray.css"><style>@import "stray.css" screen;</style>';
     const copy = parse(await prepare(html, ctx));
     assert.deepEqual(
       [...copy.querySelectorAll("style")].map((style) => style.textContent),
-      [".open { color: blue", ".open { color: blue}\n.after { color: red }"],
+      ["} .stray { color: blue }", `@import url("${VAULT}Saved/stray.css") screen;`],
     );
+    assert.deepEqual(ctx.reads, ["Saved/stray.css"]);
   });
 
   it("leaves a repeated import of a stylesheet with a stray } in media conditions an import", async () => {
@@ -828,6 +1041,89 @@ describe("the end of an imported stylesheet (#139)", () => {
       );
     // At the top level, it is part of a rule's prelude, as in the sheet itself.
     assert.equal(await inline('@import "outer.css"; p {}'), "} x {} p {}");
+  });
+});
+
+describe("the end of a page's own stylesheet (#155)", () => {
+  it("imports the file of a last import without its ;, in every place", async () => {
+    for (const { place, reads, text } of await everyPlace('@import "a.css"', {
+      "Saved/a.css": "A{}",
+    })) {
+      assert.deepEqual({ reads, text }, { reads: ["Saved/a.css"], text: "A{}" }, place);
+    }
+    const ctx = context({ "Saved/a.css": "A{}" });
+    assert.equal(await inlineStylesheet('@import "a.css"', ctx.pageUrl, ctx), "A{}");
+  });
+
+  it("resolves an unquoted URL at the end of a linked stylesheet against that stylesheet", async () => {
+    const link = '<link rel="stylesheet" href="css/a.css">';
+    for (const html of [link, `<div><template shadowrootmode="open">${link}</template></div>`]) {
+      for (const copying of [false, true]) {
+        const ctx = context({ "Saved/css/a.css": "p { background: url(img.png" });
+        const copies: string[] = [];
+        const copyFiles: LocalFiles = {
+          size: () => 1,
+          async readBinary(path) {
+            copies.push(path);
+            return new Uint8Array([1]).buffer;
+          },
+        };
+        const result = await preparePage(html, ctx, copying ? { copyFiles } : {});
+        const doc = parse(result.html);
+        const root = html.includes("<template") ? doc.querySelector("template")!.content : doc;
+        const url = copying ? "data:image/png;base64,AQ==" : `${VAULT}Saved/css/img.png`;
+        assert.deepEqual(
+          { copies, text: root.querySelector("style")!.textContent },
+          {
+            copies: copying ? ["Saved/css/img.png"] : [],
+            text: `p { background: url("${url}")}`,
+          },
+          `${html}, copying: ${copying}`,
+        );
+      }
+    }
+  });
+
+  it("copies the file of an unquoted URL at the end of a <style>", async () => {
+    const ctx = context({});
+    const copies: string[] = [];
+    const result = await preparePage("<style>p { background: url(img.png</style>", ctx, {
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          copies.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      },
+    });
+    assert.deepEqual(copies, ["Saved/img.png"]);
+    assert.equal(
+      parse(result.html).querySelector("style")!.textContent,
+      'p { background: url("data:image/png;base64,AQ==")}',
+    );
+  });
+
+  it("locates the file of an unquoted URL at the end of a <style> by name", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: (path) => path === "Images/img.png",
+      locate: (linktext) => (linktext === "img.png" ? "Images/img.png" : null),
+    };
+    const page = parse(await prepare("<style>p { background: url(img.png</style>", ctx));
+    assert.equal(
+      page.querySelector("style")!.textContent,
+      `p { background: url("${VAULT}Images/img.png")}`,
+    );
+  });
+
+  it("keeps the closed text of a <style> that CSS leaves open, and one that it does not as it is", async () => {
+    const page = parse(
+      await prepare("<style>p { color: red</style><style>q { color: blue }</style>", context({})),
+    );
+    assert.deepEqual(
+      [...page.querySelectorAll("style")].map((style) => style.textContent),
+      ["p { color: red}", "q { color: blue }"],
+    );
   });
 });
 
@@ -1379,6 +1675,23 @@ describe("preparePage", () => {
         });
         assert.equal(prepared.ownStyles, false, html);
         assert.notEqual(parse(prepared.html).getElementById(READING_STYLE_ID), null, html);
+      }
+    });
+
+    it("is added to a page whose only styles are of another type, or disabled links (#147)", async () => {
+      for (const [html, own] of [
+        ["<style type='text/x-scss'>p { margin: 0 }</style><p>x</p>", false],
+        ["<svg><style type='text/css;'>p { margin: 0 }</style></svg><p>x</p>", false],
+        [`<link rel="stylesheet" type="text/plain" href="style.css"><p>x</p>`, false],
+        [`<link rel="stylesheet" href="style.css" disabled><p>x</p>`, false],
+        ["<style type='TEXT/CSS'>p { margin: 0 }</style><p>x</p>", true],
+        [`<link rel="stylesheet" type="text/css; charset=utf-8" href="style.css"><p>x</p>`, true],
+      ] as const) {
+        const prepared = await preparePage(html, context({ "Saved/style.css": "p {}" }), {
+          readingStyle: READING,
+        });
+        assert.equal(prepared.ownStyles, own, html);
+        assert.equal(parse(prepared.html).getElementById(READING_STYLE_ID) === null, own, html);
       }
     });
 

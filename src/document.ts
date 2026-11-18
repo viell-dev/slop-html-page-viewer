@@ -141,13 +141,13 @@ class StylesheetBudget {
 
   /**
    * A stylesheet that the page links, or imports from one of its own `<style>`
-   * elements, by `key`: what `prepare` makes of it with `take`, or null to
+   * elements, by its URL: what `prepare` makes of it with `take`, or null to
    * leave the link or import as it is. Such a stylesheet is always prepared
-   * the same way, against its own URL and with its own file as its only
-   * ancestor for the depth and cycle checks, so the result depends only on
-   * `key`, unless the limits kept something out of it. The key holds the kind,
-   * a link or an import, with the URL: an imported stylesheet is closed at its
-   * end and a linked one is not, so their texts can differ.
+   * the same way (`fileSheet`), against its own URL, closed at its end, and
+   * with its own file as its only ancestor for the depth and cycle checks, so
+   * the result depends only on the URL, unless the limits kept something out
+   * of it. A link and an import of the same URL are prepared alike, so they
+   * share it.
    *
    * A result that the limits did not touch is kept: a prepared stylesheet, or
    * null for one that cannot be read, which the read cache gives every repeat
@@ -159,18 +159,18 @@ class StylesheetBudget {
    * these are kept: the imports inside stylesheets are what multiplies.
    */
   async sheet(
-    key: string,
+    url: string,
     prepare: () => Promise<PreparedSheet | null>,
   ): Promise<PreparedSheet | null> {
-    if (!this.kept.has(key)) {
+    if (!this.kept.has(url)) {
       const refused = this.refused;
       const sheet = await prepare();
       // `prepare` uses only `take` of the budget, so the same count of
       // refusals means that the limits left its result whole.
-      if (this.refused === refused) this.kept.set(key, sheet);
+      if (this.refused === refused) this.kept.set(url, sheet);
       return sheet;
     }
-    const kept = this.kept.get(key) ?? null;
+    const kept = this.kept.get(url) ?? null;
     if (kept === null || this.text + kept.text.length > STYLESHEET_TEXT_LIMIT) return null;
     this.text += kept.text.length;
     return kept;
@@ -493,13 +493,31 @@ function locateReferences(root: ParentNode, baseUrl: string, context: PageContex
 }
 
 /**
- * Returns a stylesheet's text with its imports of vault stylesheets replaced by
- * their text, within the limits of a page of its own (`StylesheetBudget`), and
- * every reference made absolute. Imports from elsewhere stay as they are, for
- * the browser to load or refuse, as do those past the limits. The plugin
- * prepares stylesheets only through `preparePage`; the tests and
- * `scripts/css-benchmark.mjs` use this to check and time a stylesheet's
- * preparation without a page around it.
+ * A stylesheet's text closed at its end, with its tokens, and whether it has a
+ * `}` outside any block (`cssEnd`). CSS ends each stylesheet on its own,
+ * closing what is still open there, such as a block, a string, or an import
+ * without its `;`. Closed, the text holds whole tokens that read as CSS reads
+ * them there: an unquoted URL at its end is a URL, and its last import counts.
+ * Put in an importing stylesheet, it ends where a rule may start, so it leaves
+ * the text after its import as the page has it. In a `<style>` of its own,
+ * the closers apply nothing that CSS would not close there anyway.
+ */
+function closedSheet(css: string): { text: string; tokens: CssToken[]; strayCloser: boolean } {
+  const tokens = cssTokens(css);
+  const end = cssEnd(css, tokens);
+  if (end.closers === "") return { text: css, tokens, strayCloser: end.strayCloser };
+  const text = css + end.closers;
+  return { text, tokens: cssTokens(text), strayCloser: end.strayCloser };
+}
+
+/**
+ * Returns a stylesheet's text, closed at its end (`closedSheet`), with its
+ * imports of vault stylesheets replaced by their text, within the limits of a
+ * page of its own (`StylesheetBudget`), and every reference made absolute.
+ * Imports from elsewhere stay as they are, for the browser to load or refuse,
+ * as do those past the limits. The plugin prepares stylesheets only through
+ * `preparePage`; the tests and `scripts/css-benchmark.mjs` use this to check
+ * and time a stylesheet's preparation without a page around it.
  */
 export async function inlineStylesheet(
   css: string,
@@ -507,14 +525,17 @@ export async function inlineStylesheet(
   context: PageContext,
 ): Promise<string> {
   const budget = new StylesheetBudget(context);
-  return (await inlineImports(css, sheetUrl, context, new Set(), cssTokens(css), budget)).text;
+  const { text, tokens } = closedSheet(css);
+  return (await inlineImports(text, sheetUrl, context, new Set(), tokens, budget)).text;
 }
 
 /**
- * An imported stylesheet prepared for the copy, closed at its end, or null to
- * leave its import as it is. `seen` holds the stylesheets that import it.
+ * A vault stylesheet that a link or an import names, prepared for the copy and
+ * closed at its end (`closedSheet`), or null to leave the link or import as it
+ * is. `seen` holds the stylesheets that import it, and is empty for the page's
+ * own links and the imports of its own `<style>` elements.
  */
-async function importedSheet(
+async function fileSheet(
   path: string,
   sheetUrl: string,
   context: PageContext,
@@ -523,25 +544,16 @@ async function importedSheet(
 ): Promise<PreparedSheet | null> {
   const read = await budget.take(path);
   if (read === null) return null;
-  // CSS ends each stylesheet on its own, closing what is still open there.
-  // Closed here, the text ends where a rule may start, with a whole token, so
-  // it leaves the text after its import as the page has it.
-  let imported = read;
-  let tokens = cssTokens(imported);
-  const end = cssEnd(imported, tokens);
-  if (end.closers !== "") {
-    imported += end.closers;
-    tokens = cssTokens(imported);
-  }
+  const sheet = closedSheet(read);
   const inner = await inlineImports(
-    imported,
+    sheet.text,
     sheetUrl,
     context,
     new Set([...seen, path]),
-    tokens,
+    sheet.tokens,
     budget,
   );
-  return { text: inner.text, strayCloser: end.strayCloser || inner.strayCloser };
+  return { text: inner.text, strayCloser: sheet.strayCloser || inner.strayCloser };
 }
 
 /**
@@ -582,12 +594,10 @@ async function inlineImports(
     const readable =
       path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
     if (target !== null && path !== null && readable && match.conditions !== "other") {
-      const prepare = () => importedSheet(path, target, context, seen, budget);
-      // An import in a page's own <style> is prepared the same way each time.
-      // Its key keeps it apart from a link of the same URL, as an import's
-      // text is closed at its end and a link's is not.
-      const sheet =
-        seen.size === 0 ? await budget.sheet(`@import ${target}`, prepare) : await prepare();
+      const prepare = () => fileSheet(path, target, context, seen, budget);
+      // An import in a page's own <style> is prepared the same way each time,
+      // as a link of the same URL is.
+      const sheet = seen.size === 0 ? await budget.sheet(target, prepare) : await prepare();
       if (sheet !== null) {
         if (match.conditions === "none") {
           text = sheet.text;
@@ -630,14 +640,38 @@ export function styleElementText(css: string): string {
   return css.replace(/<\/(style)/gi, "<\\/$1");
 }
 
+/** Text with its ASCII capitals in lowercase, for ASCII case-insensitive comparison. */
+function asciiLowercase(text: string): string {
+  return text.replace(/[A-Z]+/g, (capitals) => capitals.toLowerCase());
+}
+
 /**
- * The `<style>` elements whose text is a stylesheet: HTML ones, and SVG ones,
- * which SVG processes as HTML's. MathML has no `<style>`, so one there is an
- * unknown element, which Chromium applies nothing from.
+ * Whether a `<style>` element's `type` names CSS, which Chromium applies:
+ * absent or empty, or exactly `text/css` in any ASCII case, without
+ * parameters or spaces around it (#147). Other types keep a stylesheet
+ * language or a template in the page, which the page's scripts may read.
+ *
+ * Chromium 150 (Obsidian 1.15.1) reads an SVG `<style>`'s type as an HTML
+ * one's, but Chromium 114 (Obsidian 1.5.3) applies an SVG one only with a
+ * lowercase `text/css`. There, an SVG `<style>` with the type in other case
+ * is prepared though it applies nothing either way.
+ */
+function isCssStyle(style: Element): boolean {
+  const type = style.getAttribute("type");
+  return type === null || type === "" || asciiLowercase(type) === "text/css";
+}
+
+/**
+ * The `<style>` elements whose text is a stylesheet that Chromium applies:
+ * HTML ones, and SVG ones, which SVG processes as HTML's, of a CSS type
+ * (`isCssStyle`). MathML has no `<style>`, so one there is an unknown element,
+ * which Chromium applies nothing from. The others stay as the page has them.
  */
 function styleElements(root: ParentNode): Element[] {
   return [...root.querySelectorAll("style")].filter(
-    (style) => style.namespaceURI === HTML_NAMESPACE || style.namespaceURI === SVG_NAMESPACE,
+    (style) =>
+      (style.namespaceURI === HTML_NAMESPACE || style.namespaceURI === SVG_NAMESPACE) &&
+      isCssStyle(style),
   );
 }
 
@@ -674,22 +708,56 @@ function setStyleText(style: Element, css: string): void {
 }
 
 /**
- * Whether an element is a stylesheet link. Only HTML has `<link>`: inside SVG
- * or MathML, the HTML parser makes one an element of theirs, which loads
- * nothing. An HTML `<style>` put in its place would be parsed as theirs when
- * the copy is parsed again, with its text read as markup.
+ * The whitespace around a link type's essence that Chromium trims: ASCII
+ * whitespace with U+000B, and the characters of Unicode's whitespace
+ * bidirectional class. In Obsidian 1.5.3 and 1.15.1, a link loads with
+ * U+000B or U+2003 EM SPACE before `text/css`, but not with U+00A0 (#147).
+ */
+const LINK_TYPE_SPACE =
+  /^[\t\n\v\f\r \u1680\u2000-\u200a\u2028\u205f\u3000]+|[\t\n\v\f\r \u1680\u2000-\u200a\u2028\u205f\u3000]+$/g;
+
+/**
+ * Whether a link's `type` names CSS, which Chromium loads a stylesheet link
+ * for: absent, or a MIME type whose essence, the text before its first `;`
+ * with the whitespace around it trimmed, is empty or ASCII case-insensitively
+ * `text/css`. Parameters and spaces count, unlike on a `<style>`.
+ */
+function isCssLink(link: Element): boolean {
+  const type = link.getAttribute("type");
+  if (type === null) return true;
+  const essence = asciiLowercase(type.split(";", 1)[0].replace(LINK_TYPE_SPACE, ""));
+  return essence === "" || essence === "text/css";
+}
+
+/**
+ * Whether an element is a stylesheet link that Chromium loads. Only HTML has
+ * `<link>`: inside SVG or MathML, the HTML parser makes one an element of
+ * theirs, which loads nothing. An HTML `<style>` put in its place would be
+ * parsed as theirs when the copy is parsed again, with its text read as
+ * markup. A `disabled` link, or one of another type (`isCssLink`), loads
+ * nothing either, and stays as the page has it. A script that enables a
+ * disabled link later cannot load it in the frame, as Obsidian's policy
+ * allows only inline styles there.
  */
 function isStylesheetLink(element: Element): element is HTMLLinkElement {
   if (element.namespaceURI !== HTML_NAMESPACE) return false;
   const rel = (element.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
-  return rel.includes("stylesheet") && !rel.includes("alternate") && element.hasAttribute("href");
+  return (
+    rel.includes("stylesheet") &&
+    !rel.includes("alternate") &&
+    element.hasAttribute("href") &&
+    !element.hasAttribute("disabled") &&
+    isCssLink(element)
+  );
 }
 
 /**
  * Replaces a document's or a template content's stylesheet links to `.css`
  * files in the vault with their text, and inlines the imports of its
- * `<style>` elements, as Obsidian's policy allows only inline styles. Links
- * and imports past the page's limits stay as they are.
+ * `<style>` elements, as Obsidian's policy allows only inline styles. Only
+ * the `<style>` and `<link>` elements that Chromium applies are prepared
+ * (`styleElements`, `isStylesheetLink`), each closed at its end as CSS closes
+ * it. Links and imports past the page's limits stay as they are.
  */
 async function inlineStylesheets(
   root: ParentNode,
@@ -707,13 +775,9 @@ async function inlineStylesheets(
     const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
     const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
     if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
-    // Kept apart from an import of the same URL, whose text is closed at its end.
-    const sheet = await budget.sheet(`link ${sheetUrl}`, async () => {
-      const css = await budget.take(path);
-      return css === null
-        ? null
-        : inlineImports(css, sheetUrl, context, new Set([path]), cssTokens(css), budget);
-    });
+    const sheet = await budget.sheet(sheetUrl, () =>
+      fileSheet(path, sheetUrl, context, new Set(), budget),
+    );
     if (sheet === null) continue;
     // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const style = link.ownerDocument.createElement("style");
@@ -726,15 +790,18 @@ async function inlineStylesheets(
   }
 
   for (const style of originalStyles) {
-    const css = styleText(style);
-    const tokens = cssTokens(css);
+    const own = styleText(style);
+    // Closed as a stylesheet file is, so that its last import and URL read as
+    // CSS reads them there. The copy keeps the closed text, which the copying
+    // of files then reads as well.
+    const { text: css, tokens } = closedSheet(own);
     const text = styleElementText(
       cssImports(tokens).length > 0
         ? (await inlineImports(css, baseUrl, context, new Set(), tokens, budget)).text
         : locateCssUrls(css, baseUrl, context, tokens),
     );
     // Escaped before comparing, so that a style whose text needs only the escape is written too.
-    if (text !== css) setStyleText(style, text);
+    if (text !== own) setStyleText(style, text);
   }
 }
 
@@ -1152,7 +1219,11 @@ function openShadowRoots(found: readonly HTMLTemplateElement[]): void {
   }
 }
 
-/** Whether a page has a stylesheet of its own: a <style> or a stylesheet link. */
+/**
+ * Whether a page has a stylesheet of its own that Chromium applies: a <style>
+ * or a stylesheet link, as preparation finds them. A page whose only ones do
+ * not apply shows as it would without them.
+ */
 function hasOwnStyles(doc: Document): boolean {
   return styleElements(doc).length > 0 || [...doc.querySelectorAll("link")].some(isStylesheetLink);
 }

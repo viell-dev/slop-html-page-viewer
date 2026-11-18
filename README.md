@@ -81,8 +81,24 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   stylesheet names files only with its `url()`s and its imports, and only the imports at its start
   count, after nothing but `@charset`, `@supports-condition` rules, other imports, and `@layer`
   statements before the first import. Text inside CSS strings and comments, such as `content: "url(icon.png)"`, stays as the
-  page has it. The viewer does not yet check a `<style>` or `<link>` element's `type`, or a link's
-  `disabled` attribute ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
+  page has it. Version 0.6.0 reads the stylesheets of these elements whatever their `type`, and of
+  a disabled link.
+
+  **Unreleased (#147):** the viewer reads only the `<style>` and `<link>` elements that Chromium
+  applies, and leaves the others as the page has them, reading and copying nothing for them. A
+  `<style>` applies with no `type`, an empty one, or `text/css` in any case, without parameters or
+  spaces. A link applies unless it has a `disabled` attribute, with no `type`, or one whose part
+  before any `;` is empty or `text/css`, such as `text/css; charset=utf-8`. Other types, such as
+  `text/x-scss`, keep another stylesheet language in the page for its scripts. A page whose only
+  stylesheets are such elements shows as a page without styles of its own. A disabled link that
+  the page's scripts enable later stays without its stylesheet, as the viewer's frame loads no
+  linked stylesheets but Google Fonts
+  ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
+
+  **Unreleased (#155):** each of the page's own stylesheets ends where CSS ends it, as an imported
+  one does: an import without its `;` at the end of a `<style>` or a linked stylesheet counts, and
+  an unquoted URL at the end of a linked stylesheet is that stylesheet's, resolved from its folder
+  ([#155](https://github.com/viell-dev/slop-html-page-viewer/issues/155)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
@@ -166,8 +182,9 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   and imports of vault stylesheets, and copies at most 16 million characters of the stylesheets'
   text, counting a stylesheet's own text when it follows a link or import of it. Each link and
   import that it follows counts, also when its stylesheet is missing, too large, or then left as an
-  import. A repeat of a link in the page, or of an import in one of its own `<style>` elements,
-  gets what the first one got, once the limits have left that whole, and is not followed again: a
+  import. A repeated link of a stylesheet in the page, or import of it in one of the page's own
+  `<style>` elements, gets what the first link or import of it got, once the limits have left that
+  whole, and is not followed again: a
   repeat of a stylesheet copied whole counts only the text that it adds to the copy, with its
   imports in it and its URLs made absolute, and a repeat of one that is missing or cannot be read
   counts nothing. So a page of components that each link the same stylesheet shows whole. The
@@ -248,6 +265,8 @@ hotkey of its own; one can be set in **Settings → Hotkeys**.
   Fonts, and a local stylesheet applies only from a `.css` file. A stylesheet that cannot be read is
   left out, as a missing one is, and some imports do not apply; see [Limits](#limits).
   **Unreleased (#154):** neither do the stylesheets past a page's limits.
+  **Unreleased (#147):** nor does a disabled stylesheet link that the page's scripts enable; see
+  [What it does](#what-it-does).
 - **The view says it is unable to prepare a page**: the viewer could not make the copy of the page
   that it shows, and says why rather than show the file without the copy's protections. The source
   view still shows the file, and **Refresh preview** tries again. Report a defect with the message.
