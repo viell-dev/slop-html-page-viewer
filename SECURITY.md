@@ -75,6 +75,20 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   they named nothing, so the viewer read and copied less than CSS names, never more
   ([#155](https://github.com/viell-dev/slop-html-page-viewer/issues/155)).
 
+  **Unreleased (#151):** the viewer also reads and copies the stylesheets of imports into cascade
+  layers, and of imports with support conditions where Obsidian's Chromium applies those, which
+  0.6.0 leaves as imports without reading them. Their reads pass the same vault-path, `.css`,
+  depth, cycle, and page-limit checks as other imports'. Imports with a scope, which no Chromium
+  in Obsidian applies, still cause no reads
+  ([#151](https://github.com/viell-dev/slop-html-page-viewer/issues/151)).
+
+  **Unreleased (#152):** an import that the copy keeps as an import counts after copied rules too,
+  in a `<style>` element of its own, and inside a copied stylesheet, with the conditions of that
+  stylesheet's import. A page then loads a Google Fonts import that 0.6.0 put where CSS ignores it,
+  as it loads one before any copied rules; Obsidian's policy still refuses other web and vault
+  stylesheets. Nothing more is read or copied for it
+  ([#152](https://github.com/viell-dev/slop-html-page-viewer/issues/152)).
+
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
   files, that only CSS strings or comments named, or that imports named which never apply: one
   after a style rule, and one into a cascade layer written with a comment or an escape before

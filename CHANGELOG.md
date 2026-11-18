@@ -38,6 +38,15 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   gone, while the bar still counted the matches (#162). The find bar's own scroll of the source to
   its start, to a match on its first lines, is no longer undone by a layout change or a resize that
   comes before Chromium reports it (#167).
+- A page's imports of vault stylesheets into cascade layers, such as `@import "base.css" layer;`,
+  now apply, in the layer order that their imports give. So do imports with support conditions,
+  such as `supports(display: grid)`, on Obsidian versions whose Chromium applies them; Obsidian
+  1.5.3's never does. Imports with a scope still do not apply, as in Chromium (#151).
+- An import of Google Fonts, or of any stylesheet that stays an import, now applies after a
+  page's imports of vault stylesheets, also inside a stylesheet imported with conditions, such as
+  `@import "fonts.css" screen;`. The viewer puts it in a `<style>` element of its own, with the
+  rules after it, which keeps each rule's place in the cascade. `<!--` and `-->` in an imported
+  stylesheet no longer keep its rules from applying inside the conditions of its import (#152).
 - After a tab moves to another window, Enter pressed right after typing in the find bar goes on
   from the match that it shows, instead of the search of what was typed taking the bar back to the
   first match a moment later. After the tab moves out of a window that then closes, the find bar

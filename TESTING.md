@@ -186,6 +186,43 @@ too. `document.test.ts` checks that only a media query list becomes `@media`, an
 stay imports and read nothing. `resources.e2e.ts` checks in Obsidian that an import into a layer
 with a comment before `layer` stays an import in the copy, which Obsidian does not load (#151).
 
+**Unreleased (#151):** `css.test.ts` reads an import's layer, its support conditions, and its media
+query list, in that order: the `layer` keyword or `layer()` with identifiers joined by dots, written
+with spaces, comments, and escapes too. It finds no block form for a scope, for the layer names
+that Chromium 114 and 150 read as part of the media query list, such as `layer(a .b)` and
+`layer()`, or for empty support conditions. `document.test.ts` checks that imports into layers
+become `@layer` blocks, and imports with support conditions `@supports` blocks, inside `@media` for
+their media conditions, with the conditions outside the layer, and that an imported stylesheet's
+own imports nest inside. Imports with support conditions stay imports, reading nothing, where the
+window's `CSSImportRule` has no `supportsText`, and scoped imports everywhere; a stylesheet with a
+`}` outside any block stays an import with each condition. `resources.e2e.ts` checks in Obsidian
+1.5.3 and the latest, with scripts off and on, against what Chromium shows of the same page served
+outside Obsidian: layered imports apply in their order; the import of a missing file still
+declares its layer where it is; a layer whose import's conditions do not hold comes where it is
+next declared; an import with support conditions applies on 1.15.1 and not on 1.5.3, as in each
+one's Chromium; one whose conditions do not hold does not apply; and neither does a scoped import.
+The import into a layer with a comment before `layer` now applies there, so the viewer shows each
+case of that page as Chromium does.
+
+**Unreleased (#152):** `css.test.ts` checks which text keeps later imports from counting: none for
+`@charset`, `@supports-condition`, and what CSS discards between rules; those after an import for
+`@layer` statements; all of them for any other rule. It also finds the `<!--` and `-->` between
+top-level rules, and none in a rule. `document.test.ts` checks that an import that stays an import,
+of the web, of a missing file, or past the cycle limit, starts a stylesheet of its own after an
+inlined stylesheet's rules, also from inside an inlined stylesheet and after an `@layer` statement
+that follows an import, but not after only what imports may follow. A stylesheet imported with
+conditions adds them to its kept imports, nesting layers and joining support conditions, and
+leaves one in its blocks where one import cannot have both. A `<style>` or a link puts each
+stylesheet in a `<style>` with its `media` and `title`, an SVG one for an SVG `<style>`, which
+keeps the last, in every place a page has a stylesheet, copying files alike; a repeated link gets
+the same stylesheets, read once. A stylesheet file's markers become spaces, and the page's own
+stay. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest, with scripts off and on, that a
+web import after an inlined stylesheet and one inside a stylesheet imported with `screen` have
+their `CSSImportRule`, the inner one with `screen`, as Chromium has them for the same page, and
+that an imported stylesheet's rules between `<!--` and `-->` apply inside `@media`. A web
+stylesheet that Obsidian's policy refuses stands in there for Google Fonts, which it allows, so
+that the test needs no network.
+
 Imported stylesheet end coverage (#139): `css.test.ts` checks what closes a stylesheet that ends
 inside a comment, a string, an unquoted URL, an escape, blocks, or a rule that has not ended, that
 nothing is open once it is closed, and which `}` are outside any block. The cases in
@@ -210,7 +247,7 @@ stylesheet and a `<style>` that end in such an import apply its file, and that t
 of a linked stylesheet is the stylesheet's. The same spec serves its whole page of imports over
 HTTP to a frame of Obsidian's window without a sandbox, where neither the plugin nor Obsidian's
 policy stands between Chromium and the page, and checks that Chromium shows each case as the
-viewer does, apart from the import into a layer, which the viewer leaves an import (#151).
+viewer does.
 
 `<style>` and `<link>` coverage (#143): `document.test.ts` checks, in the document and in a shadow
 root, with and without copying files, that the plugin reads and copies only for an HTML or SVG
@@ -530,6 +567,37 @@ the check named in `document.test.ts`:
   again after each. Reusing stylesheets at every depth: the counting test, the test of preparing
   again after the text limit, and both fan-out stress tests.
 
+**Unreleased (#151):** On 2026-11-18, with `main`'s preparation at `7f22ed1`, the layered imports
+did not apply in Obsidian 1.5.3 and 1.15.1, and an import into a layer, with a comment before
+`layer`, stayed an import, where Chromium applied it. Each of these breakages failed the check
+named, in `resources.e2e.ts` on both hosts unless one is named:
+
+- Keeping imports into layers as imports: the viewer tests, where the layered imports did not
+  apply and a missing file's layer came after the layer of the import after it; and the block form
+  tests in `document.test.ts`.
+- Putting the layer outside the conditions: the viewer tests, where a layer whose import's media
+  query did not match came first; and `document.test.ts`.
+- Putting imports with support conditions in `@supports` blocks on every host: the viewer tests
+  on 1.5.3, where such an import applied, and `document.test.ts`.
+- Keeping them as imports on every host: `document.test.ts`.
+- Reading any text in `layer()` as a name, or one that starts with a number, keeping no scoped
+  import, or putting empty support conditions in a block: `css.test.ts` and `document.test.ts`.
+
+**Unreleased (#152):** On 2026-11-18, with `main`'s preparation at `7f22ed1`, the copy had no
+`CSSImportRule` for a web import after an inlined stylesheet, or for one inside a stylesheet
+imported with `screen`, and an imported stylesheet's rules between `<!--` and `-->` did not apply
+inside `@media`. Each of these breakages failed the check named, in `resources.e2e.ts` on both
+hosts as well, unless only `document.test.ts` is named:
+
+- Keeping a kept import in the stylesheet before it: the viewer tests, which found no
+  `CSSImportRule` for it, and five tests in `document.test.ts`, two of #154 among them.
+- Adding no conditions to the kept imports of a stylesheet imported with them: the viewer tests,
+  and `document.test.ts`.
+- Adding them through an anonymous layer around the kept imports: `document.test.ts`.
+- Leaving a stylesheet file's markers as they are: the viewer tests, and `document.test.ts`.
+- Letting an `@layer` statement after an import leave later imports counting: `css.test.ts` and
+  `document.test.ts`.
+
 The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
 keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
 preparation's measurements in Obsidian, with up to five imports a stylesheet.
@@ -618,6 +686,16 @@ starts left neither test a step after it, and the screenshot was taken.
   Chrome 158 computes `margin-left` as 5px from the text as written and as 6px from the copy's
   closed text. A page's scripts see the closers too, in such a value, and as an empty rule for a
   selector left without its block. This was not measured in Obsidian.
+- **Unreleased (#151):** whether Obsidian's Chromium applies an import's support conditions is read
+  from its `CSSImportRule`, which has `supportsText` in Chromium 150 and not in 114. Only those two
+  were measured; the versions between them are not tested.
+- **Unreleased (#152):** no test loads Google Fonts, which needs the network: the host tests check
+  the `CSSImportRule` of a web stylesheet that Obsidian's policy refuses, which shows that its
+  import counts as one of Google Fonts would. An imported stylesheet's `@namespace` rule still
+  applies to the rules after it in the copy, or does not apply after another stylesheet's rules,
+  and no test covers it. A kept import with an anonymous layer around it, or with media
+  conditions inside others, stays in its blocks, where it never counts, which only
+  `document.test.ts` checks.
 - The bundle check in `policy.test.ts` sees only the plugin's own code. Obsidian's TextFileView,
   which the view extends, saves a view's data to its file from Obsidian's own code. The unit tests
   model that saving as Obsidian 1.5.3 and 1.15.1 implement it, and `read-only.e2e.ts` checks in

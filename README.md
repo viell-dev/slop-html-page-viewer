@@ -172,6 +172,32 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
     still apply: telling which rules are valid would take a CSS parser;
   - an import with media conditions of a stylesheet that has a `}` outside any block: wrapped in
     `@media`, as the viewer copies other such imports, that `}` would end the wrapper early.
+
+  **Unreleased (#151):** imports into cascade layers apply, copied into `@layer` blocks, which take
+  the places in the layer order that the imports give, and imports with support conditions apply
+  in `@supports` blocks where Obsidian's Chromium applies such imports. Obsidian 1.5.3's Chromium
+  114 never applies them, and neither does the viewer there. Imports with a scope, such as
+  `@import "card.css" scope(.card);`, still stay imports: no Chromium in Obsidian applies them. A
+  stylesheet with a `}` outside any block stays an import with any of these conditions
+  ([#151](https://github.com/viell-dev/slop-html-page-viewer/issues/151)).
+
+- **Copying an import can change what CSS reads in the stylesheets**
+  ([#152](https://github.com/viell-dev/slop-html-page-viewer/issues/152)). The viewer puts an
+  imported stylesheet's text where its import was, where CSS reads some of it as it would not in a
+  stylesheet of its own. An import after that text, such as one of Google Fonts, does not apply,
+  and neither does one inside the `@media` block that an import's media conditions put around it.
+  There, `<!--` and `-->` start a rule, which keeps it from applying. An imported stylesheet's
+  `@namespace` rule applies to the importing stylesheet's later rules too, and after another
+  imported stylesheet's rules, it does not apply at all.
+
+  **Unreleased (#152):** an import after copied rules starts a `<style>` element of its own,
+  together with the rules after it, so that it applies and every rule keeps its place in the
+  cascade. One inside a stylesheet imported with conditions gets those conditions in its own, as
+  `@import url(…) screen;`, unless one import cannot have both: with an anonymous layer around it,
+  an anonymous layer of its own inside a named one, or media conditions of its own inside others.
+  `<!--` and `-->` between an imported stylesheet's rules become spaces. `@namespace` rules still
+  apply as before.
+
 - **A page whose stylesheets import each other many times can keep the viewer preparing it for a
   long time**, and Obsidian may not respond meanwhile, also when it opens such a page again at its
   next start. The viewer follows each stylesheet's imports up to eight deep, but nothing bounds how
