@@ -23,6 +23,9 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 - **The archive corpus** (`test/e2e/corpus/`) opens every page of a synthetic vault of archived web
   pages in Obsidian, and compares the result with the frozen prototype build.
 
+`test/pixels.test.ts` checks that the tests' reader of WebDriver's PNG screenshots decodes RGB and
+RGBA rows with each of PNG's five row filters, and refuses an undefined one.
+
 `test/e2e-selection.test.ts` checks how `E2E_ONLY` narrows a run: it accepts spec file names,
 refuses unknown names and runner arguments, and lets only a run without `corpus.e2e.ts` leave out
 the corpus results, which a full run requires. `E2E_ONLY=viewer.e2e.ts npm run test:e2e:docker`
@@ -80,9 +83,13 @@ claiming publication completed; the library tests also assert that real state is
 
 Find regression coverage (#121, #122, #124): `find.test.ts` checks fallback and SVG exclusions,
 closed selected options, composed shadow content, range boundaries, and empty-query collection.
-`find.e2e.ts` compares paired screenshots with each word transparent, asserts the entire fixture
-fits the frame, and checks nested declarative roots, slots, painted highlights, and unchanged shadow
-structural selectors before, during, and after searching on both hosts. The #121 decision retains
+`find.e2e.ts` compares a screenshot of the whole page with one for each word made transparent,
+asserts the entire fixture fits the frame, and checks nested declarative roots, slots, painted
+highlights, and unchanged shadow structural selectors before, during, and after searching on both
+hosts. It captures the whole page again when the layout changes, which Chromium does when a table
+cell or a canvas with `content-visibility: hidden` changes colour, and fails if the page paints
+differently at the end (#160). Its searches go through the find bar's input and Enter key in one
+script call; the other find tests type theirs. The #121 decision retains
 `checkVisibility()` (SVG switch branches pin it) and avoids collection for empty queries;
 nonempty searches still walk the page.
 
@@ -474,6 +481,11 @@ off and on. Each of these breakages failed the check named in `document.test.ts`
 Since #155, a link and an import of the same URL share one kept text, so the #154 entry above for
 one kept text describes a breakage of that time, not of the current checkout.
 
+On 2026-11-18, find that matched text at zero opacity, find that left out text inside
+`display: contents`, and a fixture word meant to be hidden but painted each failed `find.e2e.ts`'s
+paint test in Obsidian 1.5.3 and 1.15.1 (#160). Decoding a PNG row's average or sub filter wrongly
+failed `pixels.test.ts`.
+
 ## Limits
 
 - Which tab a link opens in (#141) is tested in Obsidian for plain and Ctrl clicks in the main area,
@@ -552,6 +564,10 @@ one kept text describes a breakage of that time, not of the current checkout.
   attributes are not searched. Shadow matches stay within one tree; SVG `<use>` copies live in
   inaccessible browser shadow trees and are not searched (#122, #124).
 - The 15 s limit for a corpus page is a ceiling against a page that hangs, not a measure of speed.
+- A test in Obsidian that runs past its timeout fails, but its code goes on running. The paint test
+  in `find.e2e.ts` stops at its next step, and the next test waits until it has (#160). Any other
+  test that times out can still change what the tests after it see, so start from a spec's first
+  failure (#170).
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request
   records.
