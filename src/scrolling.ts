@@ -315,21 +315,42 @@ export interface KeptScrolling {
  * its start while its last scroll event left it elsewhere. One that is not
  * laid out, as in a hidden tab or a window that has yet to lay it out, has
  * nothing to scroll, and is left alone until a later `restore`.
+ *
+ * The reader's scrolling to the start looks the same until Chromium reports
+ * it, in the next animation frame, while a layout change or a resize can
+ * come first (#157). So after the reader's input in the element, its start
+ * is not taken for a lost place until that frame has passed, or the element
+ * has reported a scroll. A window without animation frames renders nothing,
+ * and its input does not count.
  */
 export function keepScrolling(element: HTMLElement): KeptScrolling {
   let top = element.scrollTop;
   let left = element.scrollLeft;
+  /** Whether a scroll of the reader's can still be unreported. */
+  let unreported = false;
   element.addEventListener(
     "scroll",
     () => {
       top = element.scrollTop;
       left = element.scrollLeft;
+      unreported = false;
     },
     { passive: true },
   );
+  const acted = (): void => {
+    const win = element.ownerDocument.defaultView;
+    if (!win?.requestAnimationFrame) return;
+    unreported = true;
+    // Chromium reports a frame's scrolling before its animation frame callbacks.
+    win.requestAnimationFrame(() => {
+      unreported = false;
+    });
+  };
+  for (const type of READER_INPUT)
+    element.addEventListener(type, acted, { capture: true, passive: true });
   return {
     restore: () => {
-      if (!element.isConnected || element.clientHeight === 0) return;
+      if (unreported || !element.isConnected || element.clientHeight === 0) return;
       if (element.scrollTop !== 0 || element.scrollLeft !== 0 || (top === 0 && left === 0)) return;
       scrollInstantly(element, element, { top, left });
     },

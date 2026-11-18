@@ -243,8 +243,9 @@ class HtmlPageViewerView extends TextFileView {
     this.registerEvent(this.app.workspace.on("css-change", () => this.updateTheme()));
     // After the tab moves to another tab group or window, Obsidian 1.5.3 shows
     // the source of the source view and the split view from its top. In
-    // another tab group, the source view learns of the move only from the
-    // layout change that follows (#135); the split view also from its frame.
+    // another tab group, the layout change that follows is all that the view
+    // learns of the move (#135). Obsidian 1.5.3 sends it in a microtask after
+    // the script that moves the tab, so before the reader can scroll (#157).
     this.registerEvent(
       this.app.workspace.on("layout-change", () => this.sourceScrolling?.restore()),
     );
@@ -944,11 +945,7 @@ class HtmlPageViewerView extends TextFileView {
     doc.defaultView?.addEventListener("pagehide", () => {
       showing.abort();
       if (placed) frame.place = scrollPlace(doc);
-      if (this.iframe !== iframe) return;
-      this.startReaderWatch();
-      // Once the script that moves the tab has run, Obsidian has inserted the
-      // source again, which Chromium shows from its top (#135).
-      queueMicrotask(() => this.sourceScrolling?.restore());
+      if (this.iframe === iframe) this.startReaderWatch();
     });
     // Search the page, follow its scrolling in the split view, and show it
     // where the previous document was, as soon as its text is there, before
@@ -960,7 +957,10 @@ class HtmlPageViewerView extends TextFileView {
     const parsed = (): void => {
       this.restyle(doc);
       const reader = this.stopReaderWatch();
-      this.runFind(reader === null);
+      // The view watches the reader only once the frame has dropped a page:
+      // without a watch, this is the frame's first document.
+      const firstDocument = reader === null;
+      this.runFind(firstDocument);
       const follower =
         this.mode === "split" ? this.syncScrolling(iframe, doc, showing.signal) : null;
       placeNextDocument(doc, frame.place, reader, follower, [this.contentEl], showing.signal);

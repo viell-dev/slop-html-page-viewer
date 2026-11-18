@@ -463,15 +463,17 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
       new AbortController().signal,
     );
 
-  it("lets the page follow a scroll of the source that the reader made while no page showed", async () => {
-    const next = await nextDocument();
-    next.scrollSource(300);
-    show(next, { acted: true, scrolled: true });
-    next.frame();
-    assert.deepEqual(next.scrolls.page, [600], "the page follows the source, unplaced");
-    next.load();
-    assert.deepEqual(next.scrolls.page, [600], "and is not placed when it loads");
-  });
+  for (const place of [PLACE, null]) {
+    it(`lets the page follow a scroll of the source that the reader made while no page showed, ${place ? "from a place" : "from its top"}`, async () => {
+      const next = await nextDocument();
+      next.scrollSource(300);
+      show(next, { acted: true, scrolled: true }, place);
+      next.frame();
+      assert.deepEqual(next.scrolls.page, [600], "the page follows the source, unplaced");
+      next.load();
+      assert.deepEqual(next.scrolls.page, [600], "and is not placed when it loads");
+    });
+  }
 
   it("lets a scroll of the source lead that the reader made before the page showed, and that comes after it", async () => {
     // As with keys or the scroll bar: the reader's input before the page

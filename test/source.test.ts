@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { describe, it } from "node:test";
-import { button, frame, Harness, type HtmlView, loadFrame } from "./support/harness";
+import { button, frame, Harness, type HtmlView } from "./support/harness";
 
 async function showSource(data: string): Promise<HtmlView> {
   const harness = await Harness.load();
@@ -370,17 +370,6 @@ describe("the source view's place after its tab moves (#135)", () => {
     assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
   });
 
-  it("puts the split view's source back once the script that drops its page has run (#157)", async () => {
-    const { view, scroll, drop, scrolledTo } = await movedSource("Split");
-    const page = await loadFrame(view);
-    scroll(571);
-    drop();
-    page.defaultView!.dispatchEvent(new page.defaultView!.Event("pagehide"));
-    assert.deepEqual(scrolledTo, [], "not while the page is dropped");
-    await Promise.resolve();
-    assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
-  });
-
   it("starts a source shown again from its top", async () => {
     const { harness, view, scroll, scrolledTo } = await movedSource();
     scroll(571);
@@ -388,5 +377,83 @@ describe("the source view's place after its tab moves (#135)", () => {
     button(view, "Source").click();
     harness.app.workspace.trigger("layout-change");
     assert.deepEqual(scrolledTo, []);
+  });
+  /**
+   * Animation frames for the view's window, which jsdom does not have, that
+   * run only when `frame` says, until `end`. Chromium reports a frame's
+   * scrolling before its animation frame callbacks.
+   */
+  function animationFrames(): { frame: () => void; end: () => void } {
+    const callbacks: FrameRequestCallback[] = [];
+    Object.defineProperty(window, "requestAnimationFrame", {
+      configurable: true,
+      value: (callback: FrameRequestCallback) => callbacks.push(callback),
+    });
+    return {
+      frame: () => {
+        for (const callback of callbacks.splice(0)) callback(0);
+      },
+      end: () => {
+        delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+      },
+    };
+  }
+
+  for (const mode of ["Source", "Split"]) {
+    for (const trigger of ["layout-change", "resize"] as const) {
+      it(`leaves the ${mode === "Split" ? "split" : "source"} view's source at its start where the reader scrolls it, when a ${trigger === "resize" ? "resize" : "layout change"} comes before Chromium reports it (#157)`, async () => {
+        const { harness, view, scroll, drop, scrolledTo } = await movedSource(mode);
+        const frames = animationFrames();
+        try {
+          scroll(571);
+          const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+          // The reader turns the wheel up to the start, in one step; Chromium
+          // reports the scroll only in its next frame.
+          source.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: -600 }));
+          drop();
+          if (trigger === "resize") view.onResize();
+          else harness.app.workspace.trigger("layout-change");
+          assert.deepEqual(scrolledTo, [], "not sent back while the scroll is unreported");
+          scroll(0);
+          frames.frame();
+          harness.app.workspace.trigger("layout-change");
+          view.onResize();
+          assert.deepEqual(scrolledTo, [], "and it is at its start once reported");
+        } finally {
+          frames.end();
+        }
+      });
+    }
+  }
+
+  it("goes back after the reader's input that scrolled nothing, once Chromium's next frame has passed (#157)", async () => {
+    const { harness, view, scroll, drop, scrolledTo } = await movedSource();
+    const frames = animationFrames();
+    try {
+      scroll(571);
+      const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+      source.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+      frames.frame();
+      drop();
+      harness.app.workspace.trigger("layout-change");
+      assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
+    } finally {
+      frames.end();
+    }
+  });
+
+  it("goes back after the reader's input once the element has reported a scroll since (#157)", async () => {
+    const { harness, view, scroll, drop, scrolledTo } = await movedSource();
+    const frames = animationFrames();
+    try {
+      const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+      source.dispatchEvent(new window.Event("keydown", { bubbles: true }));
+      scroll(571);
+      drop();
+      harness.app.workspace.trigger("layout-change");
+      assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
+    } finally {
+      frames.end();
+    }
   });
 });
