@@ -272,6 +272,19 @@ describe("placing a moved page again when it loads (#126)", () => {
     }
   }
 
+  it("places it again when it loads after a modifier key only, which scrolls nothing (#167)", async () => {
+    const { doc, scrolls } = await loadingPage();
+    const view = viewElement();
+    showPlace(doc, PLACE, [view], new AbortController().signal);
+    for (const target of [doc.querySelector("h2")!, view.firstElementChild!]) {
+      const realm = target.ownerDocument.defaultView!;
+      for (const key of ["Control", "Shift", "Alt", "Meta"])
+        target.dispatchEvent(new realm.KeyboardEvent("keydown", { bubbles: true, key }));
+    }
+    doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
+    assert.deepEqual(scrolls, [1100, 1100]);
+  });
+
   it("leaves it alone after the frame drops the document", async () => {
     const { doc, scrolls } = await loadingPage();
     const showing = new AbortController();
@@ -354,6 +367,24 @@ describe("the reader's scrolling while the view shows no page (#157)", () => {
     await nextTask();
     element.dispatchEvent(new element.ownerDocument.defaultView!.Event("keydown"));
     assert.deepEqual(watch.stop(), { acted: true, scrolled: false });
+  });
+
+  it("passes over a modifier key, which scrolls nothing, and counts the key that it changes (#167)", async () => {
+    const { view: element, source, nextTask } = view();
+    const watch = watchReader(element, source);
+    await nextTask();
+    const realm = source.ownerDocument.defaultView!;
+    source.dispatchEvent(new realm.KeyboardEvent("keydown", { bubbles: true, key: "Control" }));
+    scroll(source);
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
+
+    const next = watchReader(element, source);
+    await nextTask();
+    source.dispatchEvent(
+      new realm.KeyboardEvent("keydown", { bubbles: true, key: "Home", ctrlKey: true }),
+    );
+    scroll(source);
+    assert.deepEqual(next.stop(), { acted: true, scrolled: true });
   });
 
   it("passes over a scroll without the reader's input, as Obsidian 1.15.1 makes after a move", () => {

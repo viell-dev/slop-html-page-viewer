@@ -587,6 +587,90 @@ async function movedSource(): Promise<{ top: number; inWindow: boolean } | null>
   });
 }
 
+/** The find bar of the tab whose source a test marked with `data-e2e-moved`. */
+interface MovedFind {
+  /** What the bar's count says. */
+  count: string | null;
+  /** How far the source is scrolled down. */
+  top: number;
+  inWindow: boolean;
+  /**
+   * How many ranges of the highlights of every match, and of the current
+   * one, in the window that shows the source, are in the source and show
+   * there: not collapsed, and with a box.
+   */
+  matches: number;
+  current: number;
+  /** Whether the source shows the current match, within its height. */
+  currentShown: boolean;
+  /** How many ranges the highlight of every match holds in Obsidian's main window. */
+  inMain: number;
+}
+
+/** The find bar of the tab whose source a test marked, in whichever window it is. */
+async function movedFind(): Promise<MovedFind | null> {
+  return browser.executeObsidian(({ app }) => {
+    const found: MovedFind[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      const source = leaf.view.containerEl.querySelector<HTMLElement>(
+        ".html-page-viewer__source[data-e2e-moved]",
+      );
+      if (!source) return;
+      type Highlights = Map<string, Set<Range>>;
+      const registry = (win: Window | null): Highlights =>
+        (win as unknown as { CSS: { highlights: Highlights } }).CSS.highlights;
+      const showing = (name: string): Range[] =>
+        [...(registry(source.ownerDocument.defaultView).get(name) ?? [])].filter(
+          (range) =>
+            source.contains(range.startContainer) &&
+            !range.collapsed &&
+            range.getBoundingClientRect().height > 0,
+        );
+      const current = showing("html-page-viewer-current")[0];
+      const box = current?.getBoundingClientRect();
+      const frame = source.getBoundingClientRect();
+      found.push({
+        count:
+          leaf.view.containerEl.querySelector(".html-page-viewer__find-count")?.textContent ?? null,
+        top: source.scrollTop,
+        inWindow: source.ownerDocument !== document,
+        matches: showing("html-page-viewer-match").length,
+        current: showing("html-page-viewer-current").length,
+        currentShown: box !== undefined && box.top >= frame.top && box.bottom <= frame.bottom,
+        inMain: registry(window).get("html-page-viewer-match")?.size ?? 0,
+      });
+    });
+    return found[0] ?? null;
+  });
+}
+
+/**
+ * Has the active tab's find bar find `text` in one task, as Enter does, and
+ * has Obsidian send `trigger` in that task, before Chromium reports the find
+ * bar's scroll of the source in its next frame: a layout change, or a resize
+ * of the view. Then waits for two frames.
+ */
+async function findBefore(text: string, trigger: "layout-change" | "resize"): Promise<void> {
+  await browser.executeObsidian(
+    ({ app }, text, trigger) => {
+      const leaf = app.workspace.getMostRecentLeaf()!;
+      const input = leaf.view.containerEl.querySelector<HTMLInputElement>(
+        ".html-page-viewer__find input",
+      )!;
+      input.value = text;
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+      );
+      if (trigger === "resize") (leaf.view as unknown as { onResize(): void }).onResize();
+      else app.workspace.trigger("layout-change");
+    },
+    text,
+    trigger,
+  );
+  await nextFrames();
+  await nextFrames();
+}
+
 /** Switches Obsidian's base theme, as its appearance settings do. */
 async function setDark(dark: boolean): Promise<void> {
   await browser.executeObsidian(({ app }, dark) => {
@@ -948,7 +1032,92 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
       await scrollSourceToStartBefore(trigger);
       expect(await sourceTop()).toBe(0);
     });
+
+    // The find bar's scroll of the source is the view's own, not the
+    // reader's, and the view keeps where it put the source.
+    for (const mode of ["split", "source"] as const) {
+      it(`leaves the ${mode} view's source at its start where the find bar scrolls it, when ${what} comes before Chromium reports it (#167)`, async function () {
+        if (mode === "split") {
+          await openLongPageSplit();
+        } else {
+          await openInActiveTab("Saved/Long page.html");
+          await clickToolbarButton("Source");
+        }
+        await browser.$(`${ACTIVE} .html-page-viewer__source`).click();
+        await browser.keys(["Control", "f"]);
+        if (mode === "source")
+          await browser.execute((active) => {
+            document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!.scrollTop =
+              400;
+          }, ACTIVE);
+        await nextFrames();
+        expect(await sourceTop()).toBeGreaterThan(300);
+        // Only the source's first line has the text, which the find bar
+        // brings to the source's middle, so to its start.
+        await findBefore("doctype", trigger);
+        expect(await sourceTop()).toBe(0);
+        if (mode === "split")
+          await browser.waitUntil(async () => (await pageState(false))?.scrollY === 0, {
+            timeout: 5000,
+            timeoutMsg: "the page did not follow the source to its start",
+          });
+      });
+    }
   }
+
+  // A hotkey or a macro that moves the tab can send its modifier key to the
+  // source in the frame of the move. A modifier key scrolls nothing, so the
+  // source lost its place, as Obsidian 1.5.3 shows it from its start.
+  it("keeps the source view's place in another tab group, when a modifier key in its source comes in the same task as the move (#167)", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await clickToolbarButton("Source");
+    const before = await browser.execute((active) => {
+      const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!;
+      source.dataset.e2eMoved = "";
+      source.scrollTop = 400;
+      return source.scrollTop;
+    }, ACTIVE);
+    await nextFrames();
+    // The calls of moveActiveTab("group"), after the key.
+    await browser.executeObsidian(({ app }) => {
+      const leaf = app.workspace.getMostRecentLeaf()!;
+      leaf.view.containerEl.querySelector(".html-page-viewer__source")!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Control",
+          ctrlKey: true,
+        }),
+      );
+      interface Parent {
+        children: unknown[];
+        removeChild(child: unknown): void;
+        insertChild(index: number, child: unknown): void;
+        selectTabIndex(index: number): void;
+      }
+      const moved = leaf as unknown as { parent: Parent; setDimension(size: null): void };
+      const split = app.workspace.getLeaf("split", "vertical") as unknown as { parent: Parent };
+      moved.parent.removeChild(leaf);
+      moved.setDimension(null);
+      split.parent.insertChild(-1, leaf);
+      split.parent.selectTabIndex(split.parent.children.indexOf(leaf));
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+    });
+    let after: { top: number; inWindow: boolean } | null = null;
+    try {
+      await browser.waitUntil(
+        async () => {
+          after = await movedSource();
+          return after !== null && Math.abs(after.top - before) <= 1;
+        },
+        { timeout: 5000 },
+      );
+    } catch {
+      throw new Error(`The moved source did not go back to ${before}: ${JSON.stringify(after)}`);
+    }
+    await browser.pause(500);
+    expect(Math.abs((await movedSource())!.top - before)).toBeLessThanOrEqual(1);
+  });
 
   // Chromium shows an element that Obsidian took out of the page and inserted
   // again from its top. Obsidian 1.15.1 scrolls it back itself; on 1.5.3 the
@@ -984,6 +1153,75 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
       expect(after!.inWindow).toBe(to === "window");
       await browser.pause(500);
       expect(Math.abs((await movedSource())!.top - before)).toBeLessThanOrEqual(1);
+    });
+
+    // Obsidian's move collapses the ranges of the find bar's matches, and a
+    // new window paints only its own highlights. The view finds them again,
+    // without scrolling the source to the current one.
+    it(`shows the source view's find matches again in ${to === "group" ? "another tab group" : "a new window"}, where its source was (#162)`, async function () {
+      await openInActiveTab("Saved/Long page.html");
+      await clickToolbarButton("Source");
+      await browser.$(`${ACTIVE} .html-page-viewer__source`).click();
+      await browser.keys(["Control", "f"]);
+      // Paragraphs 4 and 40 to 49.
+      await browser.$(`${ACTIVE} .html-page-viewer__find input`).setValue("Paragraph 4");
+      await browser.keys("Enter");
+      const before = await browser.execute((active) => {
+        const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!;
+        source.dataset.e2eMoved = "";
+        source.scrollTop = source.scrollHeight - source.clientHeight - 30;
+        return source.scrollTop;
+      }, ACTIVE);
+      // Paragraph 4 is on line 12, far above where the source is now.
+      expect(before).toBeGreaterThan(300);
+      await nextFrames();
+      expect(await movedFind()).toMatchObject({
+        count: "1 of 11",
+        matches: 11,
+        current: 1,
+        currentShown: false,
+      });
+
+      await moveActiveTab(to);
+      let after: MovedFind | null = null;
+      try {
+        await browser.waitUntil(
+          async () => {
+            after = await movedFind();
+            return (
+              after?.matches === 11 && after.current === 1 && Math.abs(after.top - before) <= 1
+            );
+          },
+          { timeout: 5000 },
+        );
+      } catch {
+        throw new Error(
+          `The moved source did not show its matches again: ${JSON.stringify(after)}`,
+        );
+      }
+      await browser.pause(500);
+      after = (await movedFind())!;
+      expect(after).toMatchObject({ count: "1 of 11", inWindow: to === "window" });
+      expect(Math.abs(after.top - before)).toBeLessThanOrEqual(1);
+      if (to === "window") expect(after.inMain).toBe(0);
+
+      // Enter goes on to the next match, and shows it.
+      await browser.executeObsidian(({ app }) => {
+        app.workspace.iterateAllLeaves((leaf) => {
+          if (!leaf.view.containerEl.querySelector(".html-page-viewer__source[data-e2e-moved]"))
+            return;
+          leaf.view.containerEl
+            .querySelector(".html-page-viewer__find input")!
+            .dispatchEvent(
+              new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+            );
+        });
+      });
+      await browser.waitUntil(async () => (await movedFind())?.currentShown === true, {
+        timeout: 5000,
+        timeoutMsg: "Enter did not show the next match",
+      });
+      expect(await movedFind()).toMatchObject({ count: "2 of 11", matches: 11, current: 1 });
     });
   }
 

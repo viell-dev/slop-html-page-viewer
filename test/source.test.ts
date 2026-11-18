@@ -405,6 +405,8 @@ describe("the source view's place after its tab moves (#135)", () => {
   // gives the late report of its scroll that these stand in for.
   const readerInput: Record<string, () => Event> = {
     keydown: () => new window.KeyboardEvent("keydown", { bubbles: true, key: "Home" }),
+    "keydown with Control held": () =>
+      new window.KeyboardEvent("keydown", { bubbles: true, key: "Home", ctrlKey: true }),
     pointerdown: () => new window.Event("pointerdown", { bubbles: true }),
     touchstart: () => new window.Event("touchstart", { bubbles: true }),
     wheel: () => new window.WheelEvent("wheel", { bubbles: true, deltaY: -600 }),
@@ -452,6 +454,82 @@ describe("the source view's place after its tab moves (#135)", () => {
       assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
     } finally {
       frames.end();
+    }
+  });
+
+  it("goes back after a modifier key in it, which scrolls nothing, as a hotkey that moves the tab sends in the same frame (#167)", async () => {
+    for (const key of ["Control", "Shift", "Alt", "AltGraph", "Meta"]) {
+      const { harness, view, scroll, drop, scrolledTo } = await movedSource();
+      const frames = animationFrames();
+      try {
+        scroll(571);
+        const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+        source.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key }));
+        drop();
+        harness.app.workspace.trigger("layout-change");
+        assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }], key);
+      } finally {
+        frames.end();
+      }
+    }
+  });
+
+  /**
+   * Has the view's find bar scroll the source to `match` in one step, as
+   * Chromium does at once and reports in its next frame, and returns the
+   * find bar's field. jsdom scrolls nothing into view.
+   */
+  function findScrolling(view: HtmlView, match: string, to: () => void): HTMLInputElement {
+    Object.defineProperty(window.Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: to,
+    });
+    button(view, "Find in page").click();
+    const field = view.contentEl.querySelector<HTMLInputElement>(".html-page-viewer__find input")!;
+    field.value = match;
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+    return field;
+  }
+
+  function endFindScrolling(field: HTMLInputElement): void {
+    delete (window.Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+  }
+
+  for (const mode of ["Source", "Split"]) {
+    for (const trigger of ["layout-change", "resize"] as const) {
+      it(`leaves the ${mode === "Split" ? "split" : "source"} view's source at its start where the find bar scrolls it, when a ${trigger === "resize" ? "resize" : "layout change"} comes before Chromium reports it (#167)`, async () => {
+        const { harness, view, scroll, drop, scrolledTo } = await movedSource(mode);
+        scroll(571);
+        // The first line's match is at the source's start.
+        const field = findScrolling(view, "One", drop);
+        try {
+          if (trigger === "resize") view.onResize();
+          else harness.app.workspace.trigger("layout-change");
+          assert.deepEqual(scrolledTo, [], "not sent back while the scroll is unreported");
+          scroll(0);
+          harness.app.workspace.trigger("layout-change");
+          view.onResize();
+          assert.deepEqual(scrolledTo, [], "and it is at its start once reported");
+        } finally {
+          endFindScrolling(field);
+        }
+      });
+    }
+  }
+
+  it("keeps its place where the find bar scrolls a source that is not laid out, which scrolls nothing (#167)", async () => {
+    const { view, scroll, drop, resize, scrolledTo } = await movedSource();
+    scroll(571);
+    drop();
+    resize(0);
+    const field = findScrolling(view, "One", () => undefined);
+    try {
+      resize(400);
+      view.onResize();
+      assert.deepEqual(scrolledTo, [{ top: 571, left: 0, behavior: "instant" }]);
+    } finally {
+      endFindScrolling(field);
     }
   });
 

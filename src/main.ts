@@ -246,9 +246,7 @@ class HtmlPageViewerView extends TextFileView {
     // another tab group, the layout change that follows is all that the view
     // learns of the move (#135). Obsidian 1.5.3 sends it in a microtask after
     // the script that moves the tab, so before the reader can scroll (#157).
-    this.registerEvent(
-      this.app.workspace.on("layout-change", () => this.sourceScrolling?.restore()),
-    );
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.restoreAfterMove()));
     // Obsidian's settings change through the vault's config. Obsidian 1.14
     // names the setting that changed; 1.5 names none.
     this.registerEvent(
@@ -302,7 +300,23 @@ class HtmlPageViewerView extends TextFileView {
     super.onResize();
     // A new window that the tab moved to lays the view's source out only
     // after the layout change that follows, and then resizes the view (#135).
+    this.restoreAfterMove();
+  }
+
+  /**
+   * Shows the source where it was, and the find bar's matches in it, if the
+   * tab's move lost them (#135, #162). The matches are found again without
+   * scrolling to the current one, which would take the source away from its
+   * place. The frame's page is searched again when the frame shows its next
+   * document.
+   */
+  private restoreAfterMove(): void {
     this.sourceScrolling?.restore();
+    if (
+      this.mode !== "rendered" &&
+      this.findHighlighter?.lostIn(this.contentEl.ownerDocument.defaultView)
+    )
+      this.runFind(false);
   }
 
   getDisplayText(): string {
@@ -706,7 +720,12 @@ class HtmlPageViewerView extends TextFileView {
     } else {
       this.setFindCount(`${this.find.index + 1} of ${count}${this.findMore ? "+" : ""}`);
     }
-    if (current && reveal) scrollToRange(current);
+    if (current && reveal) {
+      scrollToRange(current);
+      // Outside the rendered view the match is in the source, which keeps
+      // where the find bar put it as its place (#167).
+      this.sourceScrolling?.placed();
+    }
   }
 
   private setFindCount(text: string): void {

@@ -162,6 +162,51 @@ export function placeTop(doc: Document, place: ScrollPlace): number | null {
 const READER_INPUT = ["keydown", "pointerdown", "touchstart", "wheel"] as const;
 
 /**
+ * Keys that change what other keys do, and never scroll by themselves: the
+ * key that they change sends a keydown of its own, as Home does with Control
+ * held. A hotkey's other key, which Obsidian takes, does not reach the view.
+ */
+const MODIFIER_KEYS = new Set([
+  "Alt",
+  "AltGraph",
+  "CapsLock",
+  "Control",
+  "Fn",
+  "FnLock",
+  "Hyper",
+  "Meta",
+  "NumLock",
+  "OS",
+  "ScrollLock",
+  "Shift",
+  "Super",
+  "Symbol",
+  "SymbolLock",
+]);
+
+/**
+ * Whether an event of READER_INPUT can scroll: every one but the keydown of a
+ * modifier key, as a hotkey or a macro sends right before the key that it
+ * changes (#167). The event can come from another window's realm, as after
+ * the tab moved to a new window, so its type says that it is a key.
+ */
+function canScroll(event: Event): boolean {
+  return event.type !== "keydown" || !MODIFIER_KEYS.has((event as KeyboardEvent).key);
+}
+
+/**
+ * Calls `listener` at the reader's input on `target` that can scroll, before
+ * the listeners of the elements inside it.
+ */
+function onReaderInput(target: EventTarget, listener: () => void, signal?: AbortSignal): void {
+  const input = (event: Event): void => {
+    if (canScroll(event)) listener();
+  };
+  for (const type of READER_INPUT)
+    target.addEventListener(type, input, { capture: true, passive: true, signal });
+}
+
+/**
  * Scrolls a document to a place, as soon as its text is there. Until the page
  * has loaded, its images can still move its content, or leave it too short to
  * reach the place, so it is placed again when it loads, unless the reader has
@@ -206,10 +251,7 @@ export function showPlace(
     },
     { signal: pending.signal },
   );
-  for (const target of [doc, ...others]) {
-    for (const type of READER_INPUT)
-      target.addEventListener(type, stop, { capture: true, passive: true, signal: pending.signal });
-  }
+  for (const target of [doc, ...others]) onReaderInput(target, stop, pending.signal);
 }
 
 /** What the reader did while `watchReader` watched. */
@@ -242,11 +284,13 @@ export function watchReader(view: HTMLElement, scrolling: HTMLElement | null): R
   view.ownerDocument.defaultView?.setTimeout(() => {
     counting = true;
   }, 0);
-  const act = (): void => {
-    if (counting) activity.acted = true;
-  };
-  for (const type of READER_INPUT)
-    view.addEventListener(type, act, { capture: true, passive: true, signal: watching.signal });
+  onReaderInput(
+    view,
+    () => {
+      if (counting) activity.acted = true;
+    },
+    watching.signal,
+  );
   scrolling?.addEventListener(
     "scroll",
     () => {
@@ -304,6 +348,13 @@ export interface KeptScrolling {
    * it again.
    */
   restore(): void;
+  /**
+   * Keeps where the element is now, after the view scrolled it itself, as the
+   * find bar does to show a match (#167). Chromium can report that scroll only
+   * in its next frame, and until then a scroll to the start looks like a lost
+   * place. An element that is not laid out keeps its place.
+   */
+  placed(): void;
 }
 
 /**
@@ -320,8 +371,10 @@ export interface KeptScrolling {
  * it, in the next animation frame, while a layout change or a resize can
  * come first (#157). So after the reader's input in the element, its start
  * is not taken for a lost place until that frame has passed, or the element
- * has reported a scroll. A window without animation frames renders nothing,
- * and its input does not count.
+ * has reported a scroll. A modifier key is not such input: it would keep a
+ * place lost to a move that a hotkey makes in the same frame (#167). A
+ * window without animation frames renders nothing, and its input does not
+ * count. Where the view scrolls the element itself, `placed` tells it so.
  */
 export function keepScrolling(element: HTMLElement): KeptScrolling {
   let top = element.scrollTop;
@@ -337,7 +390,7 @@ export function keepScrolling(element: HTMLElement): KeptScrolling {
     },
     { passive: true },
   );
-  const acted = (): void => {
+  onReaderInput(element, () => {
     const win = element.ownerDocument.defaultView;
     if (!win?.requestAnimationFrame) return;
     unreported = true;
@@ -345,14 +398,19 @@ export function keepScrolling(element: HTMLElement): KeptScrolling {
     win.requestAnimationFrame(() => {
       unreported = false;
     });
-  };
-  for (const type of READER_INPUT)
-    element.addEventListener(type, acted, { capture: true, passive: true });
+  });
+  /** Whether the element is laid out, and so shows where it is scrolled to. */
+  const laidOut = (): boolean => element.isConnected && element.clientHeight !== 0;
   return {
     restore: () => {
-      if (unreported || !element.isConnected || element.clientHeight === 0) return;
+      if (unreported || !laidOut()) return;
       if (element.scrollTop !== 0 || element.scrollLeft !== 0 || (top === 0 && left === 0)) return;
       scrollInstantly(element, element, { top, left });
+    },
+    placed: () => {
+      if (!laidOut()) return;
+      top = element.scrollTop;
+      left = element.scrollLeft;
     },
   };
 }
