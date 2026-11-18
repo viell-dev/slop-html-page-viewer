@@ -501,6 +501,59 @@ describe("following a scrolled side", () => {
     assert.deepEqual(source.scrolls, [350]);
   });
 
+  it("lets a side that the view placed lead, and passes over its report of that", () => {
+    const { source, page, following, frame } = follower();
+    page.set(600);
+    following.placed("page");
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [300]);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [], "the source's report of following is passed over");
+
+    // A user's scroll of the placed side itself leads from where it went.
+    page.set(1000);
+    following.placed("page");
+    page.set(1400);
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [300, 700]);
+  });
+
+  it("follows a user's scroll that comes before the report of a side that the view placed (#157)", () => {
+    const { source, page, following, frame } = follower();
+    page.set(600);
+    following.placed("page");
+    // In one frame, Chromium reports the source's scroll before the page's.
+    source.set(100);
+    following.scrolled("source");
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(page.scrolls, [200], "the page follows the user's scroll");
+    assert.deepEqual(source.scrolls, [], "the source is not sent back to the page");
+  });
+
+  it("passes over a side's report of scrolling that was not the user's", () => {
+    const { source, page, following, frame } = follower();
+    // As when the find bar's search scrolls the source before the view
+    // places a moved page: the source reports it in the frame after.
+    source.set(100);
+    following.passOver("source");
+    page.set(600);
+    following.placed("page");
+    following.scrolled("source");
+    following.scrolled("page");
+    frame();
+    assert.deepEqual(source.scrolls, [300], "the placed page leads");
+    assert.deepEqual(page.scrolls, []);
+
+    source.set(50);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [100], "a user's scroll after that is followed");
+  });
+
   it("passes over one report of a page that does not land where it was sent", () => {
     const { source, page, following, frame } = follower(side(1000), side(2000, 64));
     source.set(110);

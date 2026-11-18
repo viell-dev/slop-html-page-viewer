@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { JSDOM } from "jsdom";
-import { placeTop, type ScrollPlace, scrollPlace, showPlace } from "../src/scrolling";
+import { placeTop, type ScrollPlace, scrollPlace, showPlace, watchReader } from "../src/scrolling";
 
 /**
  * A page laid out as its elements' `data-top` and `data-height` say, in page
@@ -278,5 +278,97 @@ describe("placing a moved page again when it loads (#126)", () => {
     showPlace(doc, PLACE, [viewElement()], new AbortController().signal);
     doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
     assert.deepEqual(scrolls, [1100]);
+  });
+
+  it("places it once, and not again when it loads, after the reader acted before it was shown (#157)", async () => {
+    const { doc, scrolls } = await loadingPage();
+    showPlace(doc, PLACE, [viewElement()], new AbortController().signal, { acted: true });
+    doc.defaultView!.dispatchEvent(new doc.defaultView!.Event("load"));
+    assert.deepEqual(scrolls, [1100]);
+  });
+
+  it("says when placing it scrolls it, and not when it is there already (#157)", () => {
+    for (const [from, moves] of [
+      [0, 1],
+      [1100, 0],
+    ] as const) {
+      const doc = laidOut(PAGE, from);
+      const win = doc.defaultView!;
+      // The window goes where it is sent at once, as Chromium's does.
+      let scrollY: number = from;
+      Object.defineProperty(win, "scrollY", { configurable: true, get: () => scrollY });
+      win.scrollTo = ((options: ScrollToOptions) => {
+        scrollY = options.top ?? scrollY;
+      }) as typeof win.scrollTo;
+      Object.defineProperty(doc, "readyState", { configurable: true, value: "complete" });
+      let moved = 0;
+      showPlace(doc, PLACE, [viewElement()], new AbortController().signal, {
+        moved: () => (moved += 1),
+      });
+      assert.equal(scrollY, 1100);
+      assert.equal(moved, moves, `placed from ${from}`);
+    }
+  });
+});
+
+describe("the reader's scrolling while the view shows no page (#157)", () => {
+  /** The view and its split view's source, and a wait for the next task. */
+  function view(): { view: HTMLElement; source: HTMLElement; nextTask: () => Promise<void> } {
+    const element = viewElement();
+    const win = element.ownerDocument.defaultView!;
+    return {
+      view: element,
+      source: element.firstElementChild as HTMLElement,
+      nextTask: () => new Promise((resolve) => win.setTimeout(resolve, 0)),
+    };
+  }
+
+  function scroll(element: HTMLElement): void {
+    element.dispatchEvent(new element.ownerDocument.defaultView!.Event("scroll"));
+  }
+
+  for (const type of ["keydown", "pointerdown", "touchstart", "wheel"]) {
+    it(`counts a scroll of the source after a ${type} in the view`, async () => {
+      const { view: element, source, nextTask } = view();
+      const watch = watchReader(element, source);
+      await nextTask();
+      const realm = source.ownerDocument.defaultView!;
+      source.dispatchEvent(new realm.Event(type, { bubbles: true }));
+      scroll(source);
+      assert.deepEqual(watch.stop(), { acted: true, scrolled: true });
+    });
+  }
+
+  it("counts the reader's input without a scroll as acting only", async () => {
+    const { view: element, source, nextTask } = view();
+    const watch = watchReader(element, source);
+    await nextTask();
+    element.dispatchEvent(new element.ownerDocument.defaultView!.Event("keydown"));
+    assert.deepEqual(watch.stop(), { acted: true, scrolled: false });
+  });
+
+  it("passes over a scroll without the reader's input, as Obsidian 1.15.1 makes after a move", () => {
+    const { view: element, source } = view();
+    const watch = watchReader(element, source);
+    scroll(source);
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
+  });
+
+  it("passes over input that was still being dispatched when it started, as a hotkey that moved the tab", () => {
+    const { view: element, source } = view();
+    const watch = watchReader(element, source);
+    source.dispatchEvent(new source.ownerDocument.defaultView!.Event("keydown", { bubbles: true }));
+    scroll(source);
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
+  });
+
+  it("counts nothing after it stops", async () => {
+    const { view: element, source, nextTask } = view();
+    const watch = watchReader(element, source);
+    await nextTask();
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
+    source.dispatchEvent(new source.ownerDocument.defaultView!.Event("wheel", { bubbles: true }));
+    scroll(source);
+    assert.deepEqual(watch.stop(), { acted: false, scrolled: false });
   });
 });
