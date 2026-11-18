@@ -591,8 +591,9 @@ failed `pixels.test.ts`.
   the source's lines move when the styles arrive (#165).
 - **Unreleased (#162):** `move.e2e.ts` checks the find bar's matches after a move by the highlights
   that the source's window holds and the boxes of their ranges, not by the pixels painted.
-  `find.e2e.ts` checks what Chromium paints in a page. It moves the **Source** view; the split view
-  with scripts on, whose source the same code searches again, is tested only in `find.test.ts`.
+  `find.e2e.ts` checks what Chromium paints in a page. `move.e2e.ts` moves the **Source** view; the
+  split view with scripts on, whose source the same code searches again, is tested only in
+  `find.test.ts`.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`
