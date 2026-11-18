@@ -1,9 +1,1 @@
-[
-  {
-    "advisory": "GHSA-fc5q-39xc-vjpf",
-    "dependency": "picomatch",
-    "packages": [".", "test/e2e"],
-    "reason": "picomatch's ReDoS needs a glob pattern from an attacker. picomatch is only in the lint and end-to-end test tools, whose patterns all come from the repository's own configuration, and no release fixes it yet.",
-    "issue": "https://github.com/viell-dev/slop-html-page-viewer/issues/145"
-  }
-]
+[]
