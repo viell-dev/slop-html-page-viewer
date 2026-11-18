@@ -322,8 +322,21 @@ export class Highlighter {
   private current: Range | null = null;
   private readonly sheets = new Map<ShadowRoot, CSSStyleSheet>();
 
-  constructor(win: Window | null) {
+  constructor(private readonly win: Window | null) {
     this.api = highlightApi(win);
+  }
+
+  /**
+   * Whether the matches that it shows no longer show where their text is now,
+   * in `win`: as after Obsidian took the tab's elements out of the page and
+   * inserted them again, in another tab group or window (#162). Taking a node
+   * out of its document collapses every range in it, and a window paints only
+   * the ranges in its own highlights.
+   */
+  lostIn(win: Window | null): boolean {
+    return (
+      this.matches.length > 0 && (win !== this.win || this.matches.some((range) => range.collapsed))
+    );
   }
 
   private highlight(name: string, priority: number): Set<Range> | null {

@@ -32,6 +32,12 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   and an unquoted `url(` at the end of a linked stylesheet loads from the stylesheet's folder, as
   CSS ends each stylesheet on its own. A page's link and import of the same stylesheet then count
   once toward its stylesheet limits (#155).
+- In the **Source** view, and in the split view with scripts on, the find bar highlights its
+  matches again after its tab moves to another tab group or window, and the source stays as far as
+  it was scrolled. Before, the highlights were
+  gone, while the bar still counted the matches (#162). The find bar's own scroll of the source to
+  its start, to a match on its first lines, is no longer undone by a layout change or a resize that
+  comes before Chromium reports it (#167).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

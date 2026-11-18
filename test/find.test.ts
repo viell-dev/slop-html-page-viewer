@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, type TestContext } from "node:test";
+import { JSDOM } from "jsdom";
 import { CURRENT_HIGHLIGHT, findRanges, MATCH_HIGHLIGHT, pageRuns, sourceRuns } from "../src/find";
-import { button, Harness, type HtmlView, settle } from "./support/harness";
+import { button, Harness, type HtmlView, loadFrame, settle } from "./support/harness";
 
 function parse(html: string): Document {
   return new DOMParser().parseFromString(html, "text/html");
@@ -444,5 +445,164 @@ describe("the find bar", () => {
     await settle();
     button(view, "Find in page").click();
     assert.equal(count(view), "Find works in the source view while scripts are on.");
+  });
+
+  // Obsidian takes a moved tab's elements out of the page and inserts them
+  // again, in another tab group or window. That collapses every range in
+  // them, and a window paints only the ranges in its own highlights.
+  describe("after its tab moves (#162)", () => {
+    type ResizableView = HtmlView & { onResize(): void };
+
+    /** The view in a tab group of the document, with its find bar on the second of PAGE's three matches. */
+    async function finding(mode: string): Promise<{ harness: Harness; view: ResizableView }> {
+      // Earlier tests can leave their highlights in the window.
+      highlights().clear();
+      const harness = await Harness.load();
+      const view = harness.newView() as ResizableView;
+      const group = document.createElement("div");
+      document.body.append(group);
+      group.append(view.contentEl);
+      harness.open(view, "Notes.html", PAGE);
+      button(view, mode).click();
+      button(view, "Find in page").click();
+      input(view).value = "page";
+      press(input(view), "Enter");
+      press(input(view), "Enter");
+      assert.equal(count(view), "2 of 3");
+      return { harness, view };
+    }
+
+    /** Counts the find bar's scrolling to a match, which jsdom does not do. */
+    function scrollsToMatches(t: TestContext): { readonly count: number } {
+      let calls = 0;
+      Object.defineProperty(window.Element.prototype, "scrollIntoView", {
+        configurable: true,
+        value: () => (calls += 1),
+      });
+      t.after(() => {
+        delete (window.Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+      });
+      return {
+        get count() {
+          return calls;
+        },
+      };
+    }
+
+    /** Ends a test without leaving its highlights or elements for the next. */
+    function close(view: HtmlView): void {
+      const field = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__find input");
+      if (field) press(field, "Escape");
+      highlights().clear();
+      const group = view.contentEl.parentElement;
+      view.contentEl.remove();
+      if (group?.parentElement === document.body) group.remove();
+    }
+
+    for (const mode of ["Source", "Split"]) {
+      it(`shows them in the ${mode === "Split" ? "split" : "source"} view's source again in another tab group, without scrolling to the current one`, async (t) => {
+        const { harness, view } = await finding(mode);
+        const scrolls = scrollsToMatches(t);
+        try {
+          const before = view.contentEl.parentElement!;
+          const group = document.createElement("div");
+          document.body.append(group);
+          group.append(view.contentEl);
+          before.remove();
+          assert.deepEqual(highlighted(MATCH_HIGHLIGHT), ["", "", ""], "the move collapsed them");
+
+          harness.app.workspace.trigger("layout-change");
+          assert.deepEqual(highlighted(MATCH_HIGHLIGHT), ["page", "page", "Page"]);
+          assert.deepEqual(highlighted(CURRENT_HIGHLIGHT), ["page"]);
+          assert.equal(count(view), "2 of 3");
+          assert.equal(scrolls.count, 0);
+
+          // Matches that still show are not searched for again.
+          const source = view.contentEl.querySelector(".html-page-viewer__source")!;
+          const search = t.mock.method(source, "querySelectorAll");
+          harness.app.workspace.trigger("layout-change");
+          view.onResize();
+          assert.equal(search.mock.callCount(), 0);
+
+          press(input(view), "Enter");
+          assert.equal(count(view), "3 of 3");
+          assert.deepEqual(highlighted(CURRENT_HIGHLIGHT), ["Page"]);
+          assert.equal(scrolls.count, 1, "Enter still scrolls to the next match");
+        } finally {
+          close(view);
+        }
+      });
+    }
+
+    // Obsidian can take the view out of the page in one script and insert it
+    // in the new window in a later one, with a layout change between them,
+    // where the view finds the matches again in the old window.
+    for (const way of ["at once", "after a layout change on the way"]) {
+      it(`shows them in a new window's highlights, and leaves none in the old one's, moved ${way}`, async (t) => {
+        const { harness, view } = await finding("Source");
+        const scrolls = scrollsToMatches(t);
+        // A window of its own, with the highlights that dom.ts gives the tests' window.
+        const popout = new JSDOM("<!doctype html><html><head></head><body></body></html>", {
+          url: "app://obsidian.md/index.html",
+        }).window;
+        class Highlight extends Set<Range> {
+          priority = 0;
+        }
+        const registry = new Map<string, Set<Range>>();
+        Object.defineProperty(popout, "Highlight", { configurable: true, value: Highlight });
+        Object.defineProperty(popout.CSS, "highlights", { configurable: true, value: registry });
+        const shown = (name: string): string[] => [...(registry.get(name) ?? [])].map(String);
+        const before = view.contentEl.parentElement!;
+        try {
+          if (way !== "at once") {
+            view.contentEl.remove();
+            harness.app.workspace.trigger("layout-change");
+            assert.deepEqual(highlighted(MATCH_HIGHLIGHT), ["page", "page", "Page"]);
+          }
+          popout.document.body.append(view.contentEl);
+          before.remove();
+          assert.deepEqual(shown(MATCH_HIGHLIGHT), []);
+
+          // A new window lays the view out, and resizes it, after the layout change.
+          view.onResize();
+          assert.deepEqual(shown(MATCH_HIGHLIGHT), ["page", "page", "Page"]);
+          assert.deepEqual(shown(CURRENT_HIGHLIGHT), ["page"]);
+          assert.deepEqual(highlighted(MATCH_HIGHLIGHT), [], "the old window shows none of them");
+          assert.deepEqual(highlighted(CURRENT_HIGHLIGHT), []);
+          assert.equal(count(view), "2 of 3");
+          assert.equal(scrolls.count, 0);
+        } finally {
+          close(view);
+          popout.close();
+        }
+      });
+    }
+
+    it("leaves the rendered page's matches to be found when the frame shows its next document", async () => {
+      const harness = await Harness.load();
+      const view = harness.newView() as ResizableView;
+      harness.open(view, "Notes.html", PAGE);
+      const registry = new Map<string, Set<Range>>();
+      await loadFrame(view, (page) => {
+        class Highlight extends Set<Range> {
+          priority = 0;
+        }
+        const win = page.defaultView!;
+        Object.defineProperty(win, "Highlight", { configurable: true, value: Highlight });
+        Object.defineProperty(win.CSS, "highlights", { configurable: true, value: registry });
+      });
+      button(view, "Find in page").click();
+      input(view).value = "page";
+      press(input(view), "Enter");
+      const ranges = [...(registry.get(MATCH_HIGHLIGHT) ?? [])];
+      assert.equal(ranges.length, 3);
+      // The page's highlights are its frame's window's, not the view's.
+      harness.app.workspace.trigger("layout-change");
+      view.onResize();
+      const after = [...(registry.get(MATCH_HIGHLIGHT) ?? [])];
+      assert.equal(after.length, ranges.length);
+      after.forEach((range, index) => assert.strictEqual(range, ranges[index], "the same ranges"));
+      press(input(view), "Escape");
+    });
   });
 });
