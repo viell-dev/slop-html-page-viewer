@@ -148,6 +148,10 @@ The release candidate of 0.2.0, with the same plugin.
 upstream recorded them. The fork's releases take their changes from upstream's `main` as it syncs,
 not by version.
 
+### 0.1.6 - 2026-11-18
+
+- Prevent stale refreshes and inherited save paths from overwriting HTML files.
+
 ### 0.1.5 - 2026-11-16
 
 - Maintenance verification for Obsidian 1.15.1 on macOS desktop.
