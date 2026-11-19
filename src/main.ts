@@ -1205,7 +1205,20 @@ class HtmlPageViewerView extends TextFileView {
       },
       { signal },
     );
-    signal.addEventListener("abort", () => hiding?.stop(), { once: true });
+    // The frame drops the document while the tab is hidden, as when the tab
+    // moves then, and no `shown` comes for it: the source's place is no
+    // longer held. A source taken out of the page with its tab has no layout,
+    // so it keeps the place where it was held.
+    signal.addEventListener(
+      "abort",
+      () => {
+        if (hiding === null) return;
+        hiding.stop();
+        hiding = null;
+        this.sourceScrolling?.release();
+      },
+      { once: true },
+    );
     // Obsidian 1.5.3 lays a new window's elements out before its app.css has
     // arrived there, so the sides can be put in step for lines that then move
     // (#165). The first size change of the source's lines measures both sides

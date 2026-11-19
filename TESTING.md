@@ -581,18 +581,30 @@ both versions:
   the page went back to paragraph 12 instead of following the reader's scroll of the source to its
   start.
 
-Each of these 22 failed a unit test, in `move.test.ts` or `split.test.ts`:
+The version that the follow-up review read, `4b3bc67`, failed the test of a tab moved to a new
+window while hidden, in both versions: after the reader scrolled the source to line 10 there, the
+next switch sent both sides back to line 30, 800 px from the reader's place. Three more breakages
+failed a test in Obsidian, in both versions:
+
+- Leaving the source's hold on at `back`: the reader's scroll between two switches, the same 800 px.
+- Leaving it on at `release`: the hidden tab moved to a new window.
+- Keeping the scroll reported while held: the wrapped lines where the source led, shown by a click
+  on the tab header, 272 px off at the first switch (69 px on 1.5.3). `4b3bc67`'s tests, which
+  showed the tab from inside an animation frame, passed with it.
+
+Each of these 26 failed a unit test, in `move.test.ts` or `split.test.ts`:
 
 - In the kept place: taking reports while held; not going back, or only from the start; going
-  back where the reader's input can be unreported; keeping the old place when released; and the
-  page not going back.
+  back where the reader's input can be unreported; keeping the old place when released; leaving
+  the hold on at `back` or at `release`; and the page not going back.
 - In the watch of the frame: a frame without a size when watched taken for shown; every report
   taken for a change; an observer of the plugin's window; not disconnecting it; and a signal that
   never aborts.
 - In the split view: following the source's or the hidden page's scroll while the tab is hidden;
   not holding the source, or not putting it back; not measuring the sides again; leading with
   either side's report of its going back; not leading again, or with the page whatever led last;
-  and not following the reader's scroll of the source as the tab shows.
+  not following the reader's scroll of the source as the tab shows, or not releasing the source
+  there; and leaving the hold on when the frame drops its document.
 - The find bar not telling the page's kept place.
 
 On 2026-11-17, each of these deliberate breakages failed the check named (#91):
@@ -1010,14 +1022,22 @@ starts left neither test a step after it, and the screenshot was taken.
     tests that the sides are measured again and put in step there.
   - Only `split.test.ts` tests that a scroll of the source that the reader makes as the tab shows
     again, before the frame's observer reports, leads.
-  - `move.e2e.ts` hides the tab by opening a new tab in its tab group, and shows it again, through
-    Obsidian's API, which a click on the tab header calls. It does so in both orders in which
-    Chromium can report a wrapped source and the frame: with the view laid out in the task that
-    shows the tab, as Obsidian's handling of that click does, and without.
+  - `move.e2e.ts` hides the tab by opening a new tab in its tab group through Obsidian's API. It
+    shows the tab again as the reader's click on its header does: it calls the header's `click()`
+    in a task of its own, which runs Obsidian's handler of the click. Then a wrapped source reports
+    where Chromium laid it out before the frame's observer reports. One wrapped-lines test also
+    shows the tab through the API inside an animation frame's callback, where the observer reports
+    first.
   - It does not click the tab header with WebDriver. In CI, in two runs of each version on
     2026-11-19, five of those clicks went wrong: three left the other tab shown, and two closed the
     viewer's tab. Over 200 passed in Docker, also beside ten busy host processes and in full runs.
-    The cause was not found.
+    The cause was not found. One lead: after a failed WebDriver drag on Obsidian 1.5.3, every later
+    WebDriver click on a tab header in that session did nothing, as did a click on the **Split**
+    button, while the header's own `click()` still worked. No test drags, so that is not shown to
+    be the cause.
+  - A tab moved while hidden shows its page from its top
+    ([#186](https://github.com/viell-dev/slop-html-page-viewer/issues/186)). `move.e2e.ts` moves a
+    hidden tab to a new window, and tests only that the reader's later scroll of the source stays.
   - That a page with scripts on starts from its top was measured for #178 on both versions, not
     tested. That Chromium keeps the places of the frame's own scrolling elements, and of the
     **Source** view, `move.e2e.ts` tests.

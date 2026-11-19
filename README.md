@@ -148,7 +148,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   shows and, for a page that scrolls as a whole, its place, and the split view's two sides stay in
   step there. The place is the part of the page at the window's top, so it holds where the page
   wraps differently in its new pane. The **Source** view stays scrolled as far as it was; where long
-  lines wrap differently in its new pane, that can show other lines.
+  lines wrap differently in its new pane, that can show other lines. A tab that moves while another
+  tab of its tab group shows, as from its tab header's menu, shows its page from its top
+  ([#186](https://github.com/viell-dev/slop-html-page-viewer/issues/186)).
 
   **Unreleased (#178):** a page that scrolls as a whole also keeps its place when Obsidian shows its
   tab again after hiding it, as after another tab of its tab group or a collapsed sidebar, instead

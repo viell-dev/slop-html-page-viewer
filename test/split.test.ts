@@ -1408,6 +1408,26 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
         report();
         if (!reportsFirst) reportSource();
       },
+      /**
+       * Moves the hidden tab, as to a new window: Obsidian takes the view out
+       * of the page, and the frame drops its document. The view shows in its
+       * new place, where Chromium shows the source from its start until the
+       * view puts it back at Obsidian's layout change (#135), and the frame
+       * loads its next document.
+       */
+      moveHidden: async (): Promise<void> => {
+        view.contentEl.remove();
+        await moveFrame(view, {
+          away: () => {
+            document.body.append(view.contentEl);
+            layOutFrame(iframe, 200);
+            source?.jump(0);
+            harness.app.workspace.trigger("layout-change");
+          },
+          prepare: laidOutPage(page),
+        });
+        report();
+      },
       end: (): void => {
         view.contentEl.remove();
         delete (window as { ResizeObserver?: unknown }).ResizeObserver;
@@ -1575,6 +1595,67 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
       frames.run();
       assert.deepEqual(source!.scrolledTo, [150], "the source is not sent back");
       assert.deepEqual(page.scrolledTo, [500, 700], "the page follows it to paragraph 8");
+      // The source's place is the reader's again: their next scroll, to line
+      // 11, stays at the next switch.
+      page.win!.dispatchEvent(new page.win!.Event("scroll"));
+      source!.readerScrolls(210);
+      frames.run();
+      page.win!.dispatchEvent(new page.win!.Event("scroll"));
+      hide();
+      show({ sourceAt: 210 });
+      frames.run();
+      assert.deepEqual(source!.scrolledTo, [150], "the source stays at line 11");
+      assert.deepEqual(page.scrolledTo, [500, 700, 800, 800], "and the page at paragraph 9");
+    } finally {
+      shown.end();
+    }
+  });
+
+  it("takes the reader's scroll of the split view's source for its place between two switches", async () => {
+    const shown = await hiddenView("Split");
+    try {
+      const { page, source, frames, reportSource, hide, show } = shown;
+      readerScrollsPage(page, 500);
+      frames.run();
+      reportSource();
+      hide();
+      show({ sourceAt: 150 });
+      frames.run();
+      // Line 10, and the page follows to paragraph 8.
+      source!.readerScrolls(190);
+      frames.run();
+      page.win!.dispatchEvent(new page.win!.Event("scroll"));
+      hide();
+      show({ sourceAt: 190 });
+      frames.run();
+      assert.deepEqual(source!.scrolledTo, [150], "the source stays at line 10");
+      assert.deepEqual(page.scrolledTo, [500, 700, 700], "and the page at paragraph 8");
+    } finally {
+      shown.end();
+    }
+  });
+
+  it("takes the reader's scroll of the split view's source for its place after the hidden tab moved", async () => {
+    const shown = await hiddenView("Split");
+    try {
+      const { page, source, frames, reportSource, hide, show, moveHidden } = shown;
+      readerScrollsPage(page, 500);
+      frames.run();
+      reportSource();
+      hide();
+      // The frame drops its document while the tab is hidden, and no showing
+      // of it comes.
+      await moveHidden();
+      reportSource();
+      assert.deepEqual(source!.scrolledTo, [150, 150], "the source is back at line 8");
+      // Line 10, in the tab's new place.
+      source!.readerScrolls(190);
+      frames.run();
+      page.win!.dispatchEvent(new page.win!.Event("scroll"));
+      hide();
+      show({ sourceAt: 190 });
+      frames.run();
+      assert.deepEqual(source!.scrolledTo, [150, 150], "the source stays at line 10");
     } finally {
       shown.end();
     }
