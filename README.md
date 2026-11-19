@@ -155,13 +155,19 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   copies their files from the page's folder. Chromium resolves image inputs, posters, media, their
   sources, text tracks, and SVG `<image>` a moment after it reads them, so in a browser they come
   from the page's folder in a longer page or one with a script before the `<base>`, but from the
-  `<base>`'s folder in a short page; see [Limits](#limits). The `background` attributes of tables
-  and the `<body>`, and SVG `<feImage>`, still resolve against the `<base>`, and are not copied
-  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)). What making these URLs
-  absolute adds to the copy does not count toward the page's limits on stylesheets: each grows by
-  about the length of the page folder's address, so the copy grows with the page's own markup, as
-  with references found by name
-  ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
+  `<base>`'s folder in a short page; see [Limits](#limits). What making these URLs absolute adds
+  to the copy does not count toward the page's limits on stylesheets: each grows by about the
+  length of the page folder's address, so the copy grows with the page's own markup, as with
+  references found by name ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
+
+  **Unreleased (#198):** so do the `background` attributes of the `<body>` and of tables, their
+  columns, row groups, rows, and cells, and SVG `<feImage>` and `<script>`, which version 0.6.0
+  leaves to the `<base>`. A name of theirs that does not resolve as a path is found by name, and
+  with **Local files with scripts on** their files are copied, which 0.6.0 does not do, so that
+  such backgrounds and filter images show and such scripts run. Chromium resolves an `<feImage>`
+  and an SVG script before the `<base>` in every page, and a `background` attribute as it does an
+  image input
+  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
@@ -378,6 +384,7 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   once. For such a short page, version 0.6.0 shows them as browsers do, from the `<base>`'s folder,
   and the viewer no longer does
   ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+  **Unreleased (#198):** so do the images of `background` attributes.
 
 - **With scripts on, a `<base>` that a page's script adds** does not apply in the viewer, where a
   browser resolves the URLs that the page names after it against it: the viewer's copy has a

@@ -214,6 +214,17 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   that it reads in one go. The same file types, limits, and vault-only paths apply
   ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
 
+  **Unreleased (#198):** with **Local files with scripts on**, it also copies the images that the
+  `background` attributes of the `<body>` and of tables and their parts name, and the files of SVG
+  `<feImage>` and `<script>` elements, which 0.6.0 leaves as written, so that a page with scripts
+  on loads none of them. An SVG script so copied runs, as the page's other scripts do then. Before
+  a later `<base>`, these come from the page's folder too. It reads an attribute only on the
+  elements of the namespace that Chromium loads it for: an HTML element's `background` and `src`,
+  and an SVG element's `href`, so that it no longer copies the file of a `<video>`, an `<audio>`, or
+  an `<input>` inside SVG, which loads nothing. The same file types, limits, and vault-only paths
+  apply
+  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)).
+
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with
 scripts off.

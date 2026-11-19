@@ -745,21 +745,77 @@ function locateCssUrls(
   );
 }
 
-/** Attributes holding a URL of a resource the page loads, by element. */
-const RESOURCE_ATTRIBUTES: Record<string, readonly string[]> = {
-  img: ["src", "srcset"],
-  source: ["src", "srcset"],
-  video: ["src", "poster"],
-  audio: ["src"],
-  track: ["src"],
-  input: ["src"],
-  embed: ["src"],
-  object: ["data"],
-  iframe: ["src"],
-  image: ["href", "xlink:href"],
-  use: ["href", "xlink:href"],
-  script: ["src"],
-};
+const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
+
+/** Attributes that hold URLs, on the elements that Chromium reads them on (`urlAttributes`). */
+interface UrlAttributes {
+  /**
+   * The elements of a document or a template's content that may have such
+   * attributes, in tree order, with the names of those attributes.
+   */
+  elements(root: ParentNode): Generator<[Element, readonly string[]]>;
+}
+
+/**
+ * `UrlAttributes` of these names, by the namespace and the local name of the
+ * elements that have them: an HTML `<script>` names its file with `src`, and
+ * an SVG one with `href`. The elements are found by walking the tree, which
+ * in jsdom took a fifth of the time of a selector of their names on a page
+ * of 100,000 table cells and 50,000 images, and matches an SVG name such as
+ * `feImage` in its case.
+ */
+function urlAttributes(
+  byNamespace: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>,
+): UrlAttributes {
+  return {
+    *elements(root) {
+      const doc = root.ownerDocument ?? (root as Document);
+      const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+        const element = node as Element;
+        const names = byNamespace[element.namespaceURI ?? ""]?.[element.localName];
+        if (names !== undefined) yield [element, names];
+      }
+    },
+  };
+}
+
+/**
+ * The HTML elements whose `background` attribute Chromium takes for the URL
+ * of their background image: those of HTML's rendering rules, and `<col>` and
+ * `<colgroup>`, whose images Obsidian 1.5.3 and 1.15.1 load too (#198).
+ */
+const BACKGROUND_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  ["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "col", "colgroup"].map((name) => [
+    name,
+    ["background"],
+  ]),
+);
+
+/** Attributes holding a URL of a resource the page loads. */
+const RESOURCE_ATTRIBUTES = urlAttributes({
+  [HTML_NAMESPACE]: {
+    img: ["src", "srcset"],
+    source: ["src", "srcset"],
+    video: ["src", "poster"],
+    audio: ["src"],
+    track: ["src"],
+    input: ["src"],
+    embed: ["src"],
+    object: ["data"],
+    iframe: ["src"],
+    script: ["src"],
+    ...BACKGROUND_ATTRIBUTES,
+  },
+  [SVG_NAMESPACE]: {
+    image: ["href", "xlink:href"],
+    use: ["href", "xlink:href"],
+    feImage: ["href", "xlink:href"],
+    script: ["href", "xlink:href"],
+  },
+});
 
 /**
  * HTML's ASCII whitespace, as the inside of a character class: what HTML
@@ -826,10 +882,6 @@ function preparedSrcset(
     return prepared === url ? whole : `${comma}${space}${prepared}`;
   });
 }
-
-const HTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
 
 /**
  * A link's reference: its `href`, which wins over the legacy `xlink:href`,
@@ -921,18 +973,19 @@ function addTooltips(root: ParentNode, baseUrl: string, context: PageContext): v
  * page's address (`parsedBases`), as Chromium resolves them (#187).
  *
  * In Obsidian 1.5.3 and 1.15.1, Chromium resolves the URL of an image, a
- * picture's source, a frame, a script, and an SVG `<use>` as it parses the
- * element, so always before a later `<base>`. It resolves those of image
- * inputs, posters, media and their sources, text tracks, SVG `<image>`,
- * `<embed>`, and `<object>` later, when it lays the element out or starts to
- * load it: against the page's address where the parser waits for a script,
- * or reads on in a longer page, before it reaches the `<base>`, but against
- * the `<base>` in a short page that it reads in one go (TESTING.md's limits).
- * The copy takes the page's address for both. So for such a short page it
- * shows the second kind from the page's folder, where Chromium shows them
- * from the `<base>`'s, as the copy's `<base>` alone did. Its policy refuses
- * `<embed>` and `<object>` anyway (`pagePolicy`). The `style` attributes are
- * prepared with the stylesheets (`prepareStyleAttributes`).
+ * picture's source, a frame, a script, also an SVG one, an SVG `<use>`, and
+ * an SVG `<feImage>` as it parses the element, so always before a later
+ * `<base>`. It resolves those of image inputs, posters, `background`
+ * attributes, media and their sources, text tracks, SVG `<image>`, `<embed>`,
+ * and `<object>` later, when it lays the element out or starts to load it:
+ * against the page's address where the parser waits for a script, or reads
+ * on in a longer page, before it reaches the `<base>`, but against the
+ * `<base>` in a short page that it reads in one go (TESTING.md's limits). The
+ * copy takes the page's address for both. So for such a short page it shows
+ * the second kind from the page's folder, where Chromium shows them from the
+ * `<base>`'s, as the copy's `<base>` alone did. Its policy refuses `<embed>`
+ * and `<object>` anyway (`pagePolicy`). The `style` attributes are prepared
+ * with the stylesheets (`prepareStyleAttributes`).
  */
 function prepareReferences(
   root: ParentNode,
@@ -940,11 +993,13 @@ function prepareReferences(
   baseUrl: string,
   context: PageContext,
 ): void {
-  for (const element of root.querySelectorAll(Object.keys(RESOURCE_ATTRIBUTES).join(", "))) {
-    const base = parsedBase(element);
-    for (const name of RESOURCE_ATTRIBUTES[element.localName] ?? []) {
+  for (const [element, names] of RESOURCE_ATTRIBUTES.elements(root)) {
+    // Found only for an element with such an attribute: most table cells have none.
+    let base: string | undefined;
+    for (const name of names) {
       const value = element.getAttribute(name);
       if (value === null) continue;
+      base ??= parsedBase(element);
       const prepared =
         name === "srcset"
           ? preparedSrcset(value, base, baseUrl, context)
@@ -1862,26 +1917,37 @@ const COPIED_TYPES: Readonly<Record<string, string>> = {
 export const COPY_FILE_LIMIT = 8_000_000;
 export const COPY_PAGE_LIMIT = 32_000_000;
 
-/** Attributes holding the URL of a file that is copied into a page, by element. */
-const COPIED_ATTRIBUTES: Record<string, readonly string[]> = {
-  img: ["src", "srcset"],
-  source: ["src", "srcset"],
-  video: ["src", "poster"],
-  audio: ["src"],
-  track: ["src"],
-  input: ["src"],
-  image: ["href", "xlink:href"],
-  script: ["src"],
-};
+/**
+ * Attributes holding the URL of a file that is copied into a page. Chromium
+ * 150, in Obsidian 1.15.1, refuses a `data:` URL in an SVG `<use>`, so its
+ * file is not copied (#196).
+ */
+const COPIED_ATTRIBUTES = urlAttributes({
+  [HTML_NAMESPACE]: {
+    img: ["src", "srcset"],
+    source: ["src", "srcset"],
+    video: ["src", "poster"],
+    audio: ["src"],
+    track: ["src"],
+    input: ["src"],
+    script: ["src"],
+    ...BACKGROUND_ATTRIBUTES,
+  },
+  [SVG_NAMESPACE]: {
+    image: ["href", "xlink:href"],
+    feImage: ["href", "xlink:href"],
+    script: ["href", "xlink:href"],
+  },
+});
 
 /**
  * Which of a page's references to vault files a copy turns into `data:` URLs:
- * those of `attributes`, by element, to files of `types`, by extension, and,
- * when `stylesheets` is set, those of its `<style>` elements and `style`
+ * those of `attributes`, to files of `types`, by extension, and, when
+ * `stylesheets` is set, those of its `<style>` elements and `style`
  * attributes.
  */
 interface CopyScope {
-  readonly attributes: Readonly<Record<string, readonly string[]>>;
+  readonly attributes: UrlAttributes;
   readonly types: Readonly<Record<string, string>>;
   readonly stylesheets: boolean;
 }
@@ -1895,7 +1961,7 @@ const EVERY_FILE: CopyScope = {
 
 /** What a page with scripts off gets copied (`PageOptions.copyTracks`): its text tracks. */
 const TEXT_TRACKS: CopyScope = {
-  attributes: { track: ["src"] },
+  attributes: urlAttributes({ [HTML_NAMESPACE]: { track: ["src"] } }),
   types: { vtt: COPIED_TYPES.vtt },
   stylesheets: false,
 };
@@ -2104,8 +2170,8 @@ async function visitFileReferences(
     }
     return found;
   };
-  for (const element of root.querySelectorAll(Object.keys(scope.attributes).join(", "))) {
-    for (const name of scope.attributes[element.localName] ?? []) {
+  for (const [element, names] of scope.attributes.elements(root)) {
+    for (const name of names) {
       const value = element.getAttribute(name);
       if (value === null) continue;
       const reference = stripSpaces(value);

@@ -116,6 +116,11 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - With **Local files with scripts on**, a page that names a vault file whose extension is
   `constructor` or `__proto__` shows, instead of the message that the viewer is unable to prepare
   it (#200).
+- A page whose `<base>` comes after `background` attributes, of its `<body>` or of tables and their
+  parts, or after SVG `<feImage>` and `<script>` elements, shows their images from its own folder,
+  as browsers do in a longer page, instead of from the `<base>`'s folder. Their names that do not
+  resolve as paths are found by name, and with **Local files with scripts on** their files are
+  copied, so that such backgrounds and filter images show, and such scripts run (#198).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 
