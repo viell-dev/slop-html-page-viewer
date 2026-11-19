@@ -1674,10 +1674,17 @@ interface ShownAgain {
  * reports later in that frame, before the source. The frame and the source
  * are marked as moveActiveTab marks them, for pageState(true) and
  * movedSource to find.
+ *
+ * Given `width`, the tab's view has that width, in CSS pixels, while the tab
+ * is hidden and when it shows again, as where a sidebar opened meanwhile.
  */
-async function showTabAgain({ inFrame = false, marked = false } = {}): Promise<ShownAgain> {
+async function showTabAgain({
+  inFrame = false,
+  marked = false,
+  width,
+}: { inFrame?: boolean; marked?: boolean; width?: number } = {}): Promise<ShownAgain> {
   const shown = await browser.executeObsidian(
-    async ({ app }, inFrame, marked) => {
+    async ({ app }, inFrame, marked, width) => {
       const kept = window as unknown as {
         e2eShownAgain: NonNullable<ReturnType<typeof app.workspace.getMostRecentLeaf>>;
       };
@@ -1703,6 +1710,10 @@ async function showTabAgain({ inFrame = false, marked = false } = {}): Promise<S
       for (let count = 0; !reported && count < 120; count += 1) await frame();
       await frame();
       const hiddenPageY = win?.scrollY ?? null;
+      if (width !== undefined)
+        container
+          .querySelector<HTMLElement>(".view-content")
+          ?.style.setProperty("width", `${width}px`);
       if (inFrame) {
         app.workspace.setActiveLeaf(leaf, { focus: true });
       } else {
@@ -1718,9 +1729,59 @@ async function showTabAgain({ inFrame = false, marked = false } = {}): Promise<S
     },
     inFrame,
     marked,
+    width,
   );
   expect(shown.shows).toBe(true);
   return shown;
+}
+
+/**
+ * Hides the active tab behind a new tab of its tab group, and moves it to a
+ * new window with its tab header's menu, **Move to new window**, as a reader
+ * moves a tab that they are not looking at (#186). It opens the menu with
+ * the header's `contextmenu` event and clicks the item with its `click()`,
+ * not with WebDriver's pointer, as showTabAgain clicks the header. The tab
+ * shows in the new window. The frame and the source are marked as
+ * moveActiveTab marks them.
+ */
+async function moveHiddenTabByMenu(): Promise<void> {
+  const item = await browser.executeObsidian(async ({ app }) => {
+    const leaf = app.workspace.getMostRecentLeaf()!;
+    const container = leaf.view.containerEl;
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    const task = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+    await frame();
+    await frame();
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe")!;
+    iframe.dataset.e2eMoved = "";
+    iframe.contentDocument!.documentElement.dataset.e2eBefore = "";
+    container.querySelector(".html-page-viewer__source")?.setAttribute("data-e2e-moved", "");
+    (window as unknown as { e2eShownAgain: typeof leaf }).e2eShownAgain = leaf;
+    app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
+    for (let count = 0; iframe.clientHeight !== 0 && count < 120; count += 1) await frame();
+    await frame();
+    await frame();
+    const header = (leaf as unknown as { tabHeaderEl: HTMLElement }).tabHeaderEl;
+    const box = header.getBoundingClientRect();
+    header.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+    await frame();
+    const found = [...document.querySelectorAll<HTMLElement>(".menu .menu-item")].find(
+      (candidate) => candidate.textContent?.trim() === "Move to new window",
+    );
+    await task();
+    found?.click();
+    return found?.textContent?.trim() ?? null;
+  });
+  expect(item).toBe("Move to new window");
 }
 
 /**
@@ -2183,5 +2244,108 @@ describe("A tab shown again after Obsidian hid it", function () {
         app.workspace.rightSplit.collapse();
       });
     }
+  });
+
+  // The page wraps onto more lines in the narrower view, so that the height
+  // that it was scrolled to shows another part there: paragraph 14 in place
+  // of paragraph 30 on Obsidian 1.15.1, and paragraph 15 on 1.5.3, with the
+  // view as main at c3411ee has it.
+  it("shows the part of its page that it showed, where its view narrowed while the tab was hidden (#182)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    // Without the theme's line width, the page takes the pane's width.
+    await clickToolbarButton("Theme ON");
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    // The view measures the element at the page's top once its scrolling
+    // has settled.
+    await browser.pause(300);
+    const before = (await pageState(false))!;
+    expect(before.top).toBe(30);
+
+    await showTabAgain({ width: 500 });
+    for (const wait of [0, 500]) {
+      await browser.pause(wait);
+      const after = (await pageState(true))!;
+      expect(after.text).toBeLessThan(before.text - 300);
+      expect(after.top).toBe(30);
+    }
+  });
+
+  // With the view as main at c3411ee has it, the sides came back in step at
+  // paragraph 21 and line 28, in place of paragraph 30 and line 37, on both
+  // versions, where the page led. Where the source led, it leads again once
+  // the sides are back, so it needs its line as much as the page needs its
+  // paragraph.
+  for (const led of ["page", "source"] as const) {
+    it(`keeps the split view's sides at the paragraph and the line that they showed, where its view narrowed while the tab was hidden and the ${led} led (#182)`, async function () {
+      await writeParagraphsPage();
+      await openInActiveTab(PARAGRAPHS);
+      await clickToolbarButton("Split");
+      await waitForPage();
+      // Paragraph N is on line 7 + N.
+      if (led === "page") await scrollToParagraph(30, 0.5);
+      else await scrollSourceToLine(37);
+      await browser.waitUntil(
+        async () => {
+          const state = await pageState(false);
+          return state?.top === 30 && state.line === 37;
+        },
+        { timeout: 5000, timeoutMsg: "the sides did not come to paragraph 30 and line 37" },
+      );
+      await browser.pause(300);
+      const before = await splitSides(false);
+
+      // Wide enough that the sides stay side by side, each narrower.
+      await showTabAgain({ width: 900 });
+      for (const wait of [0, 500]) {
+        await browser.pause(wait);
+        const after = await splitSides(true);
+        expect(after.page.text).toBeLessThan(before.page.text - 100);
+        expect({ top: after.page.top, line: after.page.line }).toEqual({ top: 30, line: 37 });
+      }
+    });
+  }
+
+  // With the view as main at c3411ee has it, the moved page showed from its
+  // top, on both versions.
+  it("shows its page where it was after its hidden tab moved to a new window by its tab header's menu (#186)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    await browser.pause(300);
+    expect((await pageState(false))?.top).toBe(30);
+
+    await moveHiddenTabByMenu();
+    const after = await waitForMovedPage();
+    expect(after.inWindow).toBe(true);
+    expect(after.top).toBe(30);
+  });
+
+  // With the view as main at c3411ee has it, the moved page showed from its
+  // top, beside the source as far down as it was, which showed line 46 in
+  // the new window.
+  it("keeps the split view's sides in place and in step after its hidden tab moved to a new window by its tab header's menu (#186)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Split");
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    await browser.waitUntil(async () => ((await pageState(false))?.line ?? 0) > 30, {
+      timeout: 5000,
+      timeoutMsg: "the source did not follow the page to paragraph 30",
+    });
+    await browser.pause(300);
+    const before = (await pageState(false))!;
+
+    await moveHiddenTabByMenu();
+    const after = await waitForMovedPage(
+      (state) => state.readyState === "complete" && state.top === 30 && state.line === before.line,
+      `its page at paragraph 30 and its source at line ${before.line}`,
+    );
+    expect(after.inWindow).toBe(true);
+    await browser.pause(500);
+    expect(await pageState(true)).toMatchObject({ top: 30, line: before.line });
   });
 });

@@ -580,29 +580,49 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
  * A frame in an Obsidian window, with that window's ResizeObservers, which
  * `report` runs, and a page in the frame, as jsdom lays neither out: the
  * frame 400 pixels high, and the page's window scrolled down by `scrollY`.
+ * The page's two paragraphs, `One` and `Two`, are each `layout.height`
+ * pixels high, 1000 to start with: a narrower frame lays them out higher.
  * `scroll` scrolls the page and reports it, as Chromium does in its next
  * frame, and `jump` scrolls it without a report; `scrolledTo` collects
  * where its scrollTo sends it, which reports nothing. `hide` does what
  * Chromium does when Obsidian hides the tab with `display: none`: the frame
- * has no size, and its page goes to its start and reports that; then the
- * window's observers report. `show` lays the frame out again, and they
- * report. The page has animation frames, which run when `nextFrame` says.
+ * has no size, its page has no boxes, and it goes to its start and reports
+ * that; then the window's observers report. `show` lays the frame out
+ * again, and they report. The page has animation frames, which run when
+ * `nextFrame` says.
  */
 function framedPage() {
   const owner = new JSDOM("<!doctype html><html><body></body></html>").window;
   const { observers, report } = resizeObservers(owner as unknown as Window);
   const frame = owner.document.createElement("iframe");
   owner.document.body.append(frame);
-  const doc = new JSDOM("<!doctype html><html><body><p>One</p></body></html>", {
+  const doc = new JSDOM("<!doctype html><html><body><p>One</p><p>Two</p></body></html>", {
     url: "about:srcdoc",
   }).window.document;
   const win = doc.defaultView!;
   let height = 400;
   let scrollY = 0;
+  const layout = { height: 1000 };
   Object.defineProperty(frame, "contentDocument", { configurable: true, get: () => doc });
   Object.defineProperty(frame, "clientHeight", { configurable: true, get: () => height });
   Object.defineProperty(win, "scrollY", { configurable: true, get: () => scrollY });
   Object.defineProperty(win, "scrollX", { configurable: true, value: 0 });
+  Object.defineProperty(win.Element.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: Element) {
+      if (height === 0) return { top: 0, bottom: 0, height: 0, width: 0 };
+      const index = this.localName === "p" ? [...doc.body.children].indexOf(this) : 0;
+      const tall = this.localName === "p" ? layout.height : 2 * layout.height;
+      const top = index * layout.height - scrollY;
+      return { top, bottom: top + tall, height: tall, width: 100 };
+    },
+  });
+  Object.defineProperty(win.Element.prototype, "getClientRects", {
+    configurable: true,
+    value(this: Element) {
+      return height === 0 ? [] : [this.getBoundingClientRect()];
+    },
+  });
   const scrolledTo: number[] = [];
   win.scrollTo = ((options: ScrollToOptions) => {
     scrollY = options.top ?? scrollY;
@@ -618,6 +638,7 @@ function framedPage() {
     owner,
     frame,
     doc,
+    layout,
     observers,
     report,
     scrolledTo,
@@ -808,5 +829,115 @@ describe("a page's place when Obsidian hides its tab and shows it again (#178)",
     page.show();
     place.back();
     assert.deepEqual(page.scrolledTo, [600]);
+  });
+});
+
+describe("what a page shows when Obsidian shows its tab again at another width (#182)", () => {
+  /** Keeps `page`'s place, held while its frame is hidden and back when it shows, as the view does. */
+  function kept(page: ReturnType<typeof framedPage>) {
+    const place = keepPageScrolling(page.frame, page.doc, page.signal())!;
+    watchHiding(page.frame, page.doc, page.signal(), {
+      hid: () => place.hold(),
+      shown: () => place.back(),
+    });
+    page.report();
+    return place;
+  }
+
+  it("shows the element that was at its top, as laid out now", () => {
+    const page = framedPage();
+    const place = kept(page);
+    page.scroll(900);
+    // The frame of the report, and the next one, without a report.
+    page.nextFrame();
+    page.nextFrame();
+    assert.deepEqual(place.place(), { path: [0], into: 0.9, left: 0 });
+    page.hide();
+    // As where the frame narrowed while hidden: its paragraphs wrap onto
+    // about twice as many lines.
+    page.layout.height = 2000.5;
+    page.show();
+    assert.deepEqual(page.scrolledTo, [1800], "to the pixel");
+  });
+
+  it("measures the element at its top only once a frame passes without a report of its scrolling", () => {
+    const page = framedPage();
+    const place = kept(page);
+    page.scroll(900);
+    page.nextFrame();
+    page.scroll(1200);
+    page.nextFrame();
+    assert.equal(place.place(), undefined, "not while it scrolls");
+    page.nextFrame();
+    assert.deepEqual(place.place(), { path: [1], into: 0.2, left: 0 });
+    page.hide();
+    page.layout.height = 2000;
+    page.show();
+    assert.deepEqual(page.scrolledTo, [2400]);
+  });
+
+  it("goes back as far down as it was last reported, where its scrolling had not settled when its frame hid", () => {
+    const page = framedPage();
+    const place = kept(page);
+    page.scroll(900);
+    page.nextFrame();
+    page.nextFrame();
+    page.scroll(1200);
+    page.hide();
+    page.nextFrame();
+    page.nextFrame();
+    assert.deepEqual(place.place(), { path: [0], into: 0.9, left: 0 }, "nothing measured hidden");
+    page.layout.height = 2000;
+    page.show();
+    assert.deepEqual(page.scrolledTo, [1200], "not to paragraph One");
+  });
+
+  it("goes back exactly where it was, where what it showed is less than a pixel from there", () => {
+    const page = framedPage();
+    kept(page);
+    page.scroll(901);
+    page.nextFrame();
+    page.nextFrame();
+    page.hide();
+    // 0.901 of One is 901.6 pixels down now.
+    page.layout.height = 1000.666;
+    page.show();
+    assert.deepEqual(page.scrolledTo, [901]);
+  });
+
+  it("shows what the view scrolled it to itself, as the find bar does, and what the reader scrolled it to while held", () => {
+    const page = framedPage();
+    const place = kept(page);
+    page.scroll(900);
+    page.nextFrame();
+    page.nextFrame();
+    page.jump(300);
+    place.placed();
+    page.nextFrame();
+    page.nextFrame();
+    assert.deepEqual(place.place(), { path: [0], into: 0.3, left: 0 });
+    place.hold();
+    page.jump(1500);
+    place.release();
+    page.nextFrame();
+    page.nextFrame();
+    assert.deepEqual(place.place(), { path: [1], into: 0.5, left: 0 });
+    page.hide();
+    page.layout.height = 2000;
+    page.show();
+    assert.deepEqual(page.scrolledTo, [3000]);
+  });
+
+  it("says that it is at its top, and that it does not know before it has measured", () => {
+    const page = framedPage();
+    const place = kept(page);
+    assert.equal(place.place(), undefined);
+    page.scroll(900);
+    page.nextFrame();
+    page.nextFrame();
+    page.scroll(0);
+    page.nextFrame();
+    page.nextFrame();
+    assert.equal(place.place(), null);
   });
 });

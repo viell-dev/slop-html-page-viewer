@@ -29,6 +29,13 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   `<meta http-equiv="Default-Style">` names. A titled `<style>` or stylesheet link of another set
   keeps its text or stays a link, and an `alternate stylesheet` link with the preferred set's title
   now applies, as in browsers (#169).
+- When Obsidian shows a tab again after its pane changed width while the tab was hidden, as when a
+  sidebar opened or closed meanwhile, a page that scrolls as a whole shows the part that was at its
+  top, and the split view's source the line that was at its top, instead of going back as far down
+  as they were scrolled, which showed another part where they wrap differently (#182).
+- A tab moved while hidden, as with **Move to new window** in its tab header's menu while another
+  tab of its tab group shows, shows its page where it was, and the split view's sides in step
+  there, instead of the page from its top (#186).
 - A page whose stylesheets import each other many times opens in moments instead of keeping
   Obsidian from responding for seconds to hours: for each page, the viewer follows at most 1,000
   links and imports of vault stylesheets and copies at most 16 million characters of their text,

@@ -1,10 +1,11 @@
 // Scrolling the page in the view's frame: at once, past the page's own smooth
 // scrolling, and back to where the frame's previous document of the same copy
-// was when its tab moved to another tab group or window (#126), unless the
-// reader has scrolled since (#157). The source of the source view and of the
-// split view goes back to its place after such a move too (#135, #157), and
-// the page and the split view's source after Obsidian hid the tab and showed
-// it again (#178).
+// was when its tab moved to another tab group or window (#126), also while
+// hidden (#186), unless the reader has scrolled since (#157). The source of
+// the source view and of the split view goes back to its place after such a
+// move too (#135, #157), and the page and the split view's source after
+// Obsidian hid the tab and showed it again (#178), to what they showed, also
+// at another width (#182).
 
 import type { ScrollFollower } from "./split";
 
@@ -364,11 +365,31 @@ export interface KeptScrolling {
   hold(): void;
   /**
    * Ends `hold`, and scrolls back to the place held if it shows another place
-   * now, unless the reader's input in it can still be unreported.
+   * now, unless the reader's input in it can still be unreported. Where it
+   * keeps what it showed there, it scrolls to show that, as laid out now
+   * (#182).
    */
   back(): void;
   /** Ends `hold`, and keeps where it is now, as where the reader scrolled it. */
   release(): void;
+}
+
+/** How far something is scrolled, in pixels. */
+export interface Position {
+  readonly top: number;
+  readonly left: number;
+}
+
+/**
+ * What a scroll position shows, as a place in its content, which holds where
+ * the content is laid out at another width (#182): the element at a page's
+ * top, or the line at a source's.
+ */
+export interface Placing<P> {
+  /** What it shows now; it is laid out. */
+  measure(): P;
+  /** How far it scrolls to show `place`, as it is laid out now, or null if it cannot tell. */
+  position(place: P): Position | null;
 }
 
 /** What `keepPlace` keeps the scroll position of. */
@@ -404,21 +425,92 @@ interface Scroller {
  * scroll. A modifier key is not such input: it would keep a place lost to a
  * move that a hotkey makes in the same frame (#167). A window without
  * animation frames renders nothing, and its input does not count.
+ *
+ * With `placing`, it also keeps what it shows, for `back` (#182), as it
+ * measures it once its scrolling has settled, in the first animation frame
+ * without a report, also after `placed` and `release`. Measuring a page's
+ * place reads the boxes of its elements, which on a long page takes a share
+ * of a frame that would show in every frame of a scroll, or at each step of
+ * the find bar. Nothing is measured while it is not laid out. What it
+ * measured is out of date where it was measured elsewhere than it was last
+ * reported, as when the reader scrolled it and Obsidian hid the tab before
+ * the scrolling settled: `back` then scrolls to where it was last reported,
+ * and `place` still says what it measured last.
  */
-function keepPlace(scroller: Scroller, signal?: AbortSignal): KeptScrolling {
+function keepPlace<P>(
+  scroller: Scroller,
+  {
+    placing = null,
+    signal,
+  }: { readonly placing?: Placing<P> | null; readonly signal?: AbortSignal } = {},
+): KeptScrolling & { place(): P | undefined } {
   let kept = scroller.position();
   /** Whether a scroll of the reader's can still be unreported. */
   let unreported = false;
   let held = false;
+  /** What it shows at `at`, by `placing`: up to date while `at` is `kept`. */
+  let content: { readonly place: P; readonly at: Position } | null = null;
+  const measure = (): void => {
+    if (placing && scroller.laidOut())
+      content = { place: placing.measure(), at: scroller.position() };
+  };
+  /** The window whose next animation frame says whether its scrolling has settled. */
+  let settling: Window | null = null;
+  /** Whether it reported a scroll since the last of those frames. */
+  let moving = false;
+  const settle = (win: Window | null): void => {
+    settling = win;
+    if (!win?.requestAnimationFrame) {
+      settling = null;
+      moving = false;
+      measure();
+      return;
+    }
+    // Chromium reports a frame's scrolling before its animation frame
+    // callbacks, so the first of these runs in the frame of the report. A
+    // source that moves to another window waits in that window's frames.
+    win.requestAnimationFrame(() => {
+      if (settling !== win) return;
+      if (moving) {
+        moving = false;
+        settle(win);
+        return;
+      }
+      settling = null;
+      measure();
+    });
+  };
+  /** It is at `kept` now: what it shows there is measured once its scrolling settles. */
+  const measureWhenSettled = (): void => {
+    if (!placing) return;
+    moving = true;
+    const win = scroller.window();
+    if (settling !== win) settle(win);
+  };
   scroller.events.addEventListener(
     "scroll",
     () => {
       if (held || !scroller.laidOut()) return;
       kept = scroller.position();
       unreported = false;
+      measureWhenSettled();
     },
     { passive: true, signal },
   );
+  /**
+   * Where `back` scrolls to: where it shows what it showed, while that is up
+   * to date, and where it was otherwise. Within a pixel of where it was, as
+   * where nothing has changed, it goes back to that exactly, so that rounding
+   * cannot move it at each switch.
+   */
+  const target = (): Position => {
+    if (!placing || !content || content.at.top !== kept.top || content.at.left !== kept.left)
+      return kept;
+    const to = placing.position(content.place);
+    if (to === null || (Math.abs(to.top - kept.top) < 1 && Math.abs(to.left - kept.left) < 1))
+      return kept;
+    return { top: Math.round(to.top), left: Math.round(to.left) };
+  };
   onReaderInput(
     scroller.events,
     () => {
@@ -440,7 +532,9 @@ function keepPlace(scroller: Scroller, signal?: AbortSignal): KeptScrolling {
       scroller.scrollTo(kept);
     },
     placed: () => {
-      if (scroller.laidOut()) kept = scroller.position();
+      if (!scroller.laidOut()) return;
+      kept = scroller.position();
+      measureWhenSettled();
     },
     hold: () => {
       held = true;
@@ -448,13 +542,17 @@ function keepPlace(scroller: Scroller, signal?: AbortSignal): KeptScrolling {
     back: () => {
       held = false;
       if (unreported || !scroller.laidOut()) return;
+      const to = target();
       const { top, left } = scroller.position();
-      if (top !== kept.top || left !== kept.left) scroller.scrollTo(kept);
+      if (top !== to.top || left !== to.left) scroller.scrollTo(to);
     },
     release: () => {
       held = false;
-      if (scroller.laidOut()) kept = scroller.position();
+      if (!scroller.laidOut()) return;
+      kept = scroller.position();
+      measureWhenSettled();
     },
+    place: () => content?.place,
   };
 }
 
@@ -470,15 +568,21 @@ function keepPlace(scroller: Scroller, signal?: AbortSignal): KeptScrolling {
  * view's follower, and its putting the sides in step again in a new window
  * (#165), do not: their lowest target is the first line, below the source's
  * top padding, so they never leave the element at its start.
+ *
+ * With `placing`, `back` shows what the element showed, as the split view's
+ * source does with its lines (#182).
  */
-export function keepScrolling(element: HTMLElement): KeptScrolling {
-  return keepPlace({
-    events: element,
-    window: () => element.ownerDocument.defaultView,
-    position: () => ({ top: element.scrollTop, left: element.scrollLeft }),
-    laidOut: () => element.isConnected && element.clientHeight !== 0,
-    scrollTo: (to) => scrollInstantly(element, element, to),
-  });
+export function keepScrolling<P>(element: HTMLElement, placing?: Placing<P>): KeptScrolling {
+  return keepPlace(
+    {
+      events: element,
+      window: () => element.ownerDocument.defaultView,
+      position: () => ({ top: element.scrollTop, left: element.scrollLeft }),
+      laidOut: () => element.isConnected && element.clientHeight !== 0,
+      scrollTo: (to) => scrollInstantly(element, element, to),
+    },
+    { placing },
+  );
 }
 
 /**
@@ -489,6 +593,17 @@ export function frameShows(frame: HTMLIFrameElement, doc: Document): boolean {
   return frame.contentDocument === doc && frame.clientHeight !== 0;
 }
 
+/** Where a page is scrolled to, from `keepPageScrolling`. */
+export interface KeptPageScrolling extends KeptScrolling {
+  /**
+   * The element at the page's top when it last measured it, null at the
+   * page's top, or undefined before it has: for the frame's next document
+   * when the frame drops this one while its tab is hidden, and the page has
+   * no layout to tell (#186).
+   */
+  place(): ScrollPlace | null | undefined;
+}
+
 /**
  * Keeps where a frame's document `doc` is scrolled to, as a whole, until
  * `signal`, which says that the frame no longer shows the document: for
@@ -496,15 +611,19 @@ export function frameShows(frame: HTMLIFrameElement, doc: Document): boolean {
  * and `placed` where the find bar scrolls the document. The scroll to its
  * start that Chromium reports while the frame is hidden comes while the
  * frame is not laid out, so the place needs no `hold`.
+ *
+ * It also keeps the element at the page's top, by `scrollPlace`, so that
+ * `back` shows that element, also where the page is laid out at another
+ * width when the frame shows again (#182).
  */
 export function keepPageScrolling(
   frame: HTMLIFrameElement,
   doc: Document,
   signal: AbortSignal,
-): KeptScrolling | null {
+): KeptPageScrolling | null {
   const win = doc.defaultView;
   if (!win) return null;
-  return keepPlace(
+  return keepPlace<ScrollPlace | null>(
     {
       events: win,
       window: () => win,
@@ -512,7 +631,17 @@ export function keepPageScrolling(
       laidOut: () => frameShows(frame, doc),
       scrollTo: (to) => scrollInstantly(win, doc.documentElement, to),
     },
-    signal,
+    {
+      placing: {
+        measure: () => scrollPlace(doc),
+        position: (place) => {
+          if (place === null) return { top: 0, left: 0 };
+          const top = placeTop(doc, place);
+          return top === null ? null : { top, left: place.left };
+        },
+      },
+      signal,
+    },
   );
 }
 

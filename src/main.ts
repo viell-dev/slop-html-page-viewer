@@ -27,6 +27,7 @@ import {
   isPinned,
   keepPageScrolling,
   keepScrolling,
+  type KeptPageScrolling,
   type KeptScrolling,
   placeNextDocument,
   type ReaderActivity,
@@ -48,6 +49,7 @@ import {
   anchorElements,
   lineAtTop,
   lineForPageTop,
+  linePlacing,
   onFirstResize,
   pageTopForLine,
   remeasured,
@@ -497,7 +499,9 @@ class HtmlPageViewerView extends TextFileView {
       source.setAttribute("tabindex", "-1");
       // On Obsidian 1.5.3, the source would show its top after a move until it
       // followed the page, and a scroll of the reader's would start there.
-      this.sourceScrolling = keepScrolling(source);
+      // When the tab shows again, it goes back to its line, which can wrap
+      // otherwise there (#182).
+      this.sourceScrolling = keepScrolling(source, linePlacing(source));
       this.updateWrap();
       this.renderIframe(split);
       this.runFind();
@@ -1002,13 +1006,17 @@ class HtmlPageViewerView extends TextFileView {
     // the split view's source, which outlive it unless removed.
     const showing = new AbortController();
     let placed = false;
-    let kept: KeptScrolling | null = null;
+    let kept: KeptPageScrolling | null = null;
+    /** Whether Obsidian hides the tab, as the frame's own window last laid it out (#178). */
+    let hidden = false;
     // While pagehide runs, the document still has its layout, so it can say
     // where it is scrolled to; one that has not been placed yet keeps the
-    // place that it was to show.
+    // place that it was to show. A document in a hidden tab has no layout
+    // to tell, and Chromium has scrolled it to its start: the element that
+    // was at its top while the tab showed is its place (#186).
     doc.defaultView?.addEventListener("pagehide", () => {
       showing.abort();
-      if (placed) frame.place = scrollPlace(doc);
+      if (placed) frame.place = hidden ? (kept?.place() ?? null) : scrollPlace(doc);
       if (kept !== null && this.pageScrolling === kept) this.pageScrolling = null;
       if (this.iframe === iframe) this.startReaderWatch();
     });
@@ -1041,13 +1049,18 @@ class HtmlPageViewerView extends TextFileView {
       );
       placed = true;
       // When Obsidian hides the tab and shows it again, the page goes back to
-      // its place, and the split view's sides are put in step there (#178).
+      // what it showed, and the split view's sides are put in step there
+      // (#178, #182).
       const pageScrolling = keepPageScrolling(iframe, doc, showing.signal);
       kept = pageScrolling;
       if (this.iframe === iframe) this.pageScrolling = kept;
       watchHiding(iframe, doc, showing.signal, {
-        hid: () => split?.hid(),
+        hid: () => {
+          hidden = true;
+          split?.hid();
+        },
         shown: () => {
+          hidden = false;
           pageScrolling?.back();
           split?.shown();
         },

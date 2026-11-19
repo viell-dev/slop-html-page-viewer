@@ -182,13 +182,21 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   tab of its tab group shows, as from its tab header's menu, shows its page from its top
   ([#186](https://github.com/viell-dev/slop-html-page-viewer/issues/186)).
 
+  **Unreleased (#186):** a tab that moves while hidden shows its page where it was too, and the
+  split view's two sides in step there.
+
   **Unreleased (#178):** a page that scrolls as a whole also keeps its place when Obsidian shows its
   tab again after hiding it, as after another tab of its tab group or a collapsed sidebar, instead
   of showing from its top. In the split view, both sides go back where they were and stay in step,
-  also where the source's long lines wrap. They go back as far down as they were scrolled, so where
-  their pane changed width meanwhile and they wrap differently, they can show another part
-  ([#182](https://github.com/viell-dev/slop-html-page-viewer/issues/182)). The **Source** view, and
-  the parts of a page that scroll by themselves, keep their place there, as they did before.
+  also where the source's long lines wrap. The **Source** view, and the parts of a page that scroll
+  by themselves, keep their place there, as they did before.
+
+  **Unreleased (#182):** where the pane changed width while the tab was hidden, as when a sidebar
+  opened or closed meanwhile, the page shows the part that was at its top, and the split view's
+  source the line that was at its top, as they wrap now. A page or a source that was still
+  scrolling when the tab hid goes back as far down as it was, which can show another part there.
+  The **Source** view stays scrolled as far as it was, which can show other lines
+  ([#189](https://github.com/viell-dev/slop-html-page-viewer/issues/189)).
 
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
