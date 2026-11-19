@@ -155,13 +155,19 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   copies their files from the page's folder. Chromium resolves image inputs, posters, media, their
   sources, text tracks, and SVG `<image>` a moment after it reads them, so in a browser they come
   from the page's folder in a longer page or one with a script before the `<base>`, but from the
-  `<base>`'s folder in a short page; see [Limits](#limits). The `background` attributes of tables
-  and the `<body>`, and SVG `<feImage>`, still resolve against the `<base>`, and are not copied
-  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)). What making these URLs
-  absolute adds to the copy does not count toward the page's limits on stylesheets: each grows by
-  about the length of the page folder's address, so the copy grows with the page's own markup, as
-  with references found by name
-  ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
+  `<base>`'s folder in a short page; see [Limits](#limits). What making these URLs absolute adds
+  to the copy does not count toward the page's limits on stylesheets: each grows by about the
+  length of the page folder's address, so the copy grows with the page's own markup, as with
+  references found by name ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
+
+  **Unreleased (#198):** so do the `background` attributes of the `<body>` and of tables, their
+  columns, row groups, rows, and cells, and SVG `<feImage>` and `<script>`, which version 0.6.0
+  leaves to the `<base>`. A name of theirs that does not resolve as a path is found by name, and
+  with **Local files with scripts on** their files are copied, which 0.6.0 does not do, so that
+  such backgrounds and filter images show and such scripts run. Chromium resolves an `<feImage>`
+  and an SVG script before the `<base>` in every page, and a `background` attribute as it does an
+  image input
+  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
@@ -188,6 +194,7 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
+
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Shows the source and the page side by side in its **Split** view, one above the other in a narrow
   pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole, also
@@ -369,6 +376,7 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   once. For such a short page, version 0.6.0 shows them as browsers do, from the `<base>`'s folder,
   and the viewer no longer does
   ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+  **Unreleased (#198):** so do the images of `background` attributes.
 
 - **With scripts on, a `<base>` that a page's script adds** does not apply in the viewer, where a
   browser resolves the URLs that the page names after it against it: the viewer's copy has a
@@ -376,6 +384,23 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   one, a relative address in it resolves against Obsidian's own address instead of the page's
   ([#193](https://github.com/viell-dev/slop-html-page-viewer/issues/193)).
 
+- **With scripts off, a video's text tracks from the vault do not load**, such as its captions.
+  Unless its video has a `crossorigin` attribute, browsers load a text track only from the page's
+  own origin, which in the viewer's frame no vault file shares. With scripts off, the viewer copies
+  only stylesheets into a page, since its CSS could read a file copied into an attribute, such as a
+  track's, and send it to the web. With scripts on, **Local files with scripts on** copies the
+  tracks
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+- **With scripts off, video and audio show Chromium's own controls**, which cover the lower part of
+  a video's poster, and all of a small video's: HTML has browsers show them wherever a page's
+  scripts cannot run, so that its media can still be played. The poster itself loads as in a
+  browser ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+- **An SVG `<use>` of a symbol in another file shows nothing**, as in
+  `<use href="icons.svg#home"/>`, with scripts on or off; a symbol in the page itself shows.
+  Browsers load the other file only from the page's own origin, which in the viewer's frame no
+  vault file shares, and Obsidian 1.15.1 refuses a copy of it as a `data:` URL, so the viewer does
+  not copy such files
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets
   still apply, and the **Local files with scripts on** setting copies the page's images, media, text

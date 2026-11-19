@@ -903,4 +903,89 @@ describe("Links in a page in Obsidian", function () {
       ],
     });
   });
+
+  describe("whose href starts or ends with a space (#199)", function () {
+    // HTML strips only ASCII whitespace from a link's href, and keeps a
+    // no-break space, which JavaScript's trim would also take. A file is
+    // named with one before its name, and a decoy without it.
+    const nbsp = String.fromCodePoint(0xa0);
+    const PAGE = "Saved/Spaced links.html";
+    const TARGET = `Saved/${nbsp}Spaced target.html`;
+    const DECOY = "Saved/Spaced target.html";
+
+    before(async function () {
+      await browser.executeObsidian(
+        async ({ app }, page, decoy, target) => {
+          await app.vault.create(
+            page,
+            `<!doctype html><meta charset="utf-8"><title>Spaced links</title>` +
+              `<p><a id="nbsp" href="&nbsp;Spaced%20target.html">with a no-break space</a></p>` +
+              `<p><a id="ascii" href="&#10; Spaced%20target.html&#9;">with ASCII whitespace</a></p>`,
+          );
+          await app.vault.create(decoy, "<p>The decoy, without the no-break space</p>");
+          // Obsidian's API names a file that it creates with a space for
+          // U+00A0, so this one is written as a sync tool would.
+          const adapter = app.vault.adapter as unknown as {
+            write(path: string, data: string): Promise<void>;
+          };
+          await adapter.write(target, "<p>The target, with the no-break space</p>");
+        },
+        PAGE,
+        DECOY,
+        TARGET,
+      );
+      await browser.waitUntil(
+        () =>
+          browser.executeObsidian(
+            ({ app }, target) => app.vault.getAbstractFileByPath(target) !== null,
+            TARGET,
+          ),
+        { timeout: 10_000, timeoutMsg: "the vault did not list the file written by its name" },
+      );
+    });
+
+    after(async function () {
+      await browser.executeObsidian(
+        async ({ app }, paths) => {
+          for (const path of paths) {
+            const file = app.vault.getAbstractFileByPath(path);
+            if (file) await app.vault.delete(file);
+          }
+        },
+        [PAGE, DECOY, TARGET],
+      );
+    });
+
+    it("names in its tooltip the file that Chromium resolves it to, which a click opens", async function () {
+      await openInActiveTab(PAGE);
+      await waitForPage();
+      const vaultUrl = await browser.executeObsidian(({ app }, page) => {
+        const file = app.vault.getAbstractFileByPath(page);
+        return new URL("../", app.vault.getResourcePath(file as never)).href;
+      }, PAGE);
+      const shown = await browser.execute(
+        (active, vaultUrl) => {
+          const doc = document.querySelector<HTMLIFrameElement>(
+            `${active} iframe.html-page-viewer__frame`,
+          )!.contentDocument!;
+          return ["nbsp", "ascii"].map((id) => {
+            const link = doc.getElementById(id) as HTMLAnchorElement;
+            // Chromium's own resolution of the link, as a vault path.
+            const resolved = decodeURIComponent(link.href.slice(vaultUrl.length));
+            return [id, link.getAttribute("title"), resolved];
+          });
+        },
+        ACTIVE,
+        vaultUrl,
+      );
+      expect(shown).toEqual([
+        ["nbsp", TARGET, TARGET],
+        ["ascii", DECOY, DECOY],
+      ]);
+      await clickInPage("#nbsp");
+      await browser.waitUntil(async () => (await activeFile()).path === TARGET, {
+        timeoutMsg: "the link did not open the file of the name with the no-break space",
+      });
+    });
+  });
 });

@@ -2055,6 +2055,321 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with a video's poster, a text track, and an SVG <use> of another file (#196)", function () {
+    // With scripts off, the viewer's frame has Obsidian's origin, which no
+    // vault file has. Chromium loads a text track, without a crossorigin
+    // attribute, and the document of an SVG <use> only from the frame's own
+    // origin, so neither shows. The copy puts no copy of a file in such a page,
+    // whose CSS could read it. A poster loads, but where scripts cannot run,
+    // Chromium shows its media controls on every video, as HTML says, which
+    // cover the bottom of a poster: the served page, whose scripts run, shows
+    // them only with the controls attribute.
+    const res = "Media parts";
+    const elements = (controls: boolean) =>
+      [
+        `<style>body { margin: 0 } video, svg { vertical-align: top }</style>`,
+        `<video id="poster" poster="${res}/poster.png" width="320" height="180"${controls ? " controls" : ""}></video>`,
+        `<video width="64" height="64"><track id="track" default kind="subtitles" src="${res}/track.vtt"></video>`,
+        `<svg width="64" height="64"><use id="use" href="${res}/use.svg#s"/></svg>`,
+      ].join("\n");
+    const files: Record<string, string | Buffer> = {
+      "Saved/Media parts.html": elements(false),
+      // Shown whole, as the video's 180 pixels high allow.
+      [`Saved/${res}/poster.png`]: solidPng(180, GREEN),
+      [`Saved/${res}/track.vtt`]: `WEBVTT\n\n00:00.000 --> 01:00.000\npage\n`,
+      [`Saved/${res}/use.svg`]: `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="s"><rect width="64" height="64" fill="#1565c0"/></symbol></svg>`,
+    };
+    const POSTER_PIXELS = 180 * 180;
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths(["Saved/Media parts.html", `Saved/${res}`]);
+    });
+
+    /** The text track's cue, once it has loaded, or null when it failed to. Run in the frame. */
+    async function trackCue(): Promise<string | null> {
+      await browser.waitUntil(
+        () =>
+          browser.execute(
+            () => (document.getElementById("track") as HTMLTrackElement).readyState >= 2,
+          ),
+        { timeout: 10_000, timeoutMsg: "the text track neither loaded nor failed" },
+      );
+      return browser.execute(() => {
+        const track = document.getElementById("track") as HTMLTrackElement;
+        return (track.track.cues?.[0] as VTTCue | undefined)?.text ?? null;
+      });
+    }
+
+    /**
+     * What the served page shows: the track's cue, and the poster's and the
+     * symbol's pixels. The frame's load does not wait for a <use>'s document,
+     * so the symbol gets a few seconds more.
+     */
+    async function served(controls: boolean) {
+      return inServedPage(
+        { ...files, "Saved/Media parts.html": elements(controls) },
+        "Saved/Media parts.html",
+        async () => {
+          const track = await trackCue();
+          let pixels = await servedPixels({ poster: GREEN, symbol: BLUE });
+          for (let wait = 0; wait < 20 && pixels.symbol < IMAGE_PIXELS * 0.95; wait++) {
+            await browser.pause(250);
+            pixels = await servedPixels({ poster: GREEN, symbol: BLUE });
+          }
+          return { track, ...pixels };
+        },
+      );
+    }
+
+    it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
+      const shown = await served(false);
+      expect({
+        track: shown.track,
+        poster: shown.poster >= POSTER_PIXELS * 0.95,
+        symbol: shown.symbol >= IMAGE_PIXELS * 0.95,
+      }).toEqual({ track: "page", poster: true, symbol: true });
+      // The controls cover the poster's bottom third or so.
+      const controlled = await served(true);
+      expect(controlled.poster).toBeGreaterThan(POSTER_PIXELS * 0.3);
+      expect(controlled.poster).toBeLessThan(POSTER_PIXELS * 0.7);
+    });
+
+    it("shows the poster under Chromium's controls, and neither the track nor a symbol of another file, with scripts off", async function () {
+      const controlled = await served(true);
+      await openInActiveTab("Saved/Media parts.html");
+      await waitForPage();
+      const track = await inViewerFrame(async () => ({
+        cue: await trackCue(),
+        src: await browser.execute(() => document.getElementById("track")!.getAttribute("src")),
+      }));
+      // As long as the served page's symbol can take to show.
+      await browser.pause(1000);
+      await saveScreenshot("media-parts");
+      const poster = await framePixels(GREEN);
+      expect({
+        track,
+        // As the served page with the controls attribute shows it.
+        poster: Math.abs(poster - controlled.poster) <= controlled.poster * 0.05,
+        symbol: await framePixels(BLUE),
+      }).toEqual({
+        track: { cue: null, src: `${res}/track.vtt` },
+        poster: true,
+        symbol: 0,
+      });
+    });
+
+    it("copies the poster and the track, but not the <use>'s file, into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Media parts.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        const shown = await inViewerFrame(async () => ({
+          track: await trackCue(),
+          use: await browser.execute(() => document.getElementById("use")!.getAttribute("href")),
+        }));
+        await browser.pause(1000);
+        await saveScreenshot("media-parts-scripts-on");
+        expect({
+          ...shown,
+          poster: (await framePixels(GREEN)) >= POSTER_PIXELS * 0.95,
+          symbol: await framePixels(BLUE),
+        }).toEqual({ track: "page", use: `${res}/use.svg#s`, poster: true, symbol: 0 });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
+  describe("with a <base> after the page's background attributes, SVG filter images, and SVG scripts (#198)", function () {
+    // Each element names a file of its own in "Late bg/": a green image, or
+    // the word "page", beside the page, and a blue one, or "base", in the
+    // folder of the page's <base>, which comes after them; the <body>'s
+    // image is orange and red. After the <base> come a cell's background and
+    // an <feImage> of their own. Chromium resolves <feImage> and SVG scripts
+    // as it parses them, and background attributes when it lays the elements
+    // out: the served page's script, just before the <base>, arrives late, so
+    // that it has resolved them before it parses the <base>, as in a longer
+    // page (TESTING.md's limits).
+    const res = "Late bg";
+    const table = (inside: string) => `<table>${inside}</table>`;
+    const cell = "<tr><td></td></tr>";
+    const filter = (name: string, attribute = "href") =>
+      `<svg width="64" height="64"><filter id="${name}" x="0" y="0" width="1" height="1">` +
+      `<feImage ${attribute}="${res}/${name}.png" width="64" height="64"/></filter>` +
+      `<rect width="64" height="64" filter="url(#${name})"/></svg>`;
+    /** The elements before the <base> with a background attribute, by the name of their image. */
+    const BACKGROUNDS: Record<string, string> = {
+      table: `<table background="${res}/table.png">${cell}</table>`,
+      colgroup: table(`<colgroup background="${res}/colgroup.png"><col></colgroup>${cell}`),
+      col: table(`<colgroup><col background="${res}/col.png"></colgroup>${cell}`),
+      thead: table(`<thead background="${res}/thead.png">${cell}</thead>`),
+      tbody: table(`<tbody background="${res}/tbody.png">${cell}</tbody>`),
+      tfoot: table(`<tfoot background="${res}/tfoot.png">${cell}</tfoot>`),
+      tr: table(`<tr background="${res}/tr.png"><td></td></tr>`),
+      td: table(`<tr><td background="${res}/td.png"></td></tr>`),
+      th: table(`<tr><th background="${res}/th.png"></th></tr>`),
+    };
+    const elements = [
+      `<head><style>body { margin: 0 } table { display: inline-table; border-spacing: 0;`,
+      `vertical-align: top } td, th { width: 64px; height: 64px; padding: 0 }`,
+      `svg { vertical-align: top }</style></head><body background="${res}/body.png">`,
+      ...Object.values(BACKGROUNDS),
+      filter("fe"),
+      filter("xfe", "xlink:href"),
+      `<svg width="0" height="0"><script href="${res}/svgscript.js"></script>`,
+      `<script xlink:href="${res}/xsvgscript.js"></script></svg>`,
+      `<script src="${res}/late.js"></script>`,
+      `<base href="Late backgrounds/">`,
+      table(`<tr><td id="after" background="${res}/after.png"></td></tr>`),
+      filter("afterfe"),
+    ];
+    const BEFORE = [...Object.keys(BACKGROUNDS), "fe", "xfe", "body"].map((name) => `${name}.png`);
+    const files: Record<string, string | Buffer> = {
+      "Saved/Late backgrounds.html": elements.join("\n"),
+      [`Saved/${res}/late.js`]: "window.lateDelay = true;",
+    };
+    for (const [folder, color, body, word] of [
+      [`Saved/${res}`, GREEN, ORANGE, "page"],
+      [`Saved/Late backgrounds/${res}`, BLUE, RED, "base"],
+    ] as const) {
+      for (const name of [...Object.keys(BACKGROUNDS), "fe", "xfe", "after", "afterfe"])
+        files[`${folder}/${name}.png`] = solidPng(64, color);
+      files[`${folder}/body.png`] = solidPng(8, body);
+      files[`${folder}/svgscript.js`] = `window.svgScript = "${word}";`;
+      files[`${folder}/xsvgscript.js`] = `window.xsvgScript = "${word}";`;
+    }
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths([
+        "Saved/Late backgrounds.html",
+        `Saved/${res}`,
+        "Saved/Late backgrounds",
+      ]);
+    });
+
+    /** "page" or "base" for a URL of a file in either folder, or the URL. */
+    function folderOf(url: string): string {
+      const path = decodeURIComponent(url);
+      return path.includes("/Late backgrounds/Late bg/")
+        ? "base"
+        : path.includes("/Late bg/")
+          ? "page"
+          : url;
+    }
+
+    /** What the SVG scripts set, which only a page with scripts on runs. Run in the frame. */
+    function scripts() {
+      const page = window as { svgScript?: string; xsvgScript?: string };
+      return { svgScript: page.svgScript ?? null, xsvgScript: page.xsvgScript ?? null };
+    }
+
+    it("is measured against what Chromium resolves in the same page outside Obsidian", async function () {
+      const requests: string[] = [];
+      const ran = await inServedPage(
+        files,
+        "Saved/Late backgrounds.html",
+        () => browser.execute(scripts),
+        { requests, delayed: [`Saved/${res}/late.js`] },
+      );
+      const requested: Record<string, string[]> = {};
+      for (const request of requests) {
+        if (!request.includes(`/${res}/`)) continue;
+        const name = request.split("/").at(-1)!;
+        requested[name] = [...new Set([...(requested[name] ?? []), folderOf(request)])].sort();
+      }
+      expect({
+        before: Object.fromEntries(BEFORE.map((name) => [name, requested[name]])),
+        after: [requested["after.png"], requested["afterfe.png"]],
+        ...ran,
+      }).toEqual({
+        before: Object.fromEntries(BEFORE.map((name) => [name, ["page"]])),
+        after: [["base"], ["base"]],
+        svgScript: "page",
+        xsvgScript: "page",
+      });
+    });
+
+    /** Where each element's URL leads in the viewer's copy, whose own <base> comes first. Run inside the frame. */
+    function resolved() {
+      const xlink = "http://www.w3.org/1999/xlink";
+      const url = (value: string | null) => new URL(value ?? "", document.baseURI).href;
+      const background = (element: Element) =>
+        /url\("?(.*?)"?\)/.exec(getComputedStyle(element).backgroundImage)?.[1] ?? "none";
+      const found: Record<string, string> = {};
+      for (const element of document.querySelectorAll("[background]"))
+        found[element.id || element.localName] = background(element);
+      for (const image of document.querySelectorAll("feImage"))
+        found[image.parentElement!.id] = url(
+          image.getAttribute("href") ?? image.getAttributeNS(xlink, "href"),
+        );
+      const [script, xscript] = document.querySelectorAll("svg script");
+      found.svgscript = url(script.getAttribute("href"));
+      found.xsvgscript = url(xscript.getAttributeNS(xlink, "href"));
+      return found;
+    }
+
+    it("resolves the ones before it against the page, and the others against it", async function () {
+      await openInActiveTab("Saved/Late backgrounds.html");
+      await waitForPage();
+      await saveScreenshot("late-backgrounds");
+      const shown = await inViewerFrame(() => browser.execute(resolved));
+      expect(
+        Object.fromEntries(Object.entries(shown).map(([name, url]) => [name, folderOf(url)])),
+      ).toEqual({
+        ...Object.fromEntries(
+          [...Object.keys(BACKGROUNDS), "body", "fe", "xfe", "svgscript", "xsvgscript"].map(
+            (name) => [name, "page"],
+          ),
+        ),
+        after: "base",
+        afterfe: "base",
+      });
+      expect({
+        green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
+        blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+        orange: (await framePixels(ORANGE)) > 0,
+        red: await framePixels(RED),
+      }).toEqual({ green: 11, blue: 2, orange: true, red: 0 });
+    });
+
+    it("copies the files that each resolves to into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Late backgrounds.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("late-backgrounds-scripts-on");
+        expect({
+          ...(await inViewerFrame(() => browser.execute(scripts))),
+          green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
+          blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+          orange: (await framePixels(ORANGE)) > 0,
+          red: await framePixels(RED),
+        }).toEqual({
+          svgScript: "page",
+          xsvgScript: "page",
+          green: 11,
+          blue: 2,
+          orange: true,
+          red: 0,
+        });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   it("shows nothing from outside the vault", async function () {
     await openInActiveTab("Saved/Outside reference.html");
     await waitForPage();
@@ -2411,7 +2726,10 @@ async function inServedPage<T>(
     await browser.execute((src) => {
       const frame = document.createElement("iframe");
       frame.id = "e2e-served";
-      frame.style.cssText = "position: fixed; left: 0; top: 0; width: 400px; height: 300px;";
+      // Above Obsidian's own elements, such as its ribbon, so that a
+      // screenshot of the frame shows the whole page.
+      frame.style.cssText =
+        "position: fixed; left: 0; top: 0; z-index: 2147483647; width: 400px; height: 300px;";
       // The frame's load waits for the page's stylesheets and their imports.
       frame.addEventListener("load", () => (frame.dataset.loaded = "true"), { once: true });
       frame.src = src;
@@ -2431,6 +2749,27 @@ async function inServedPage<T>(
     await browser.execute(() => document.getElementById("e2e-served")?.remove());
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+/**
+ * How many pixels of {@link inServedPage}'s frame show each of `colors`. Run
+ * in its `read`, inside the frame, which it returns to.
+ */
+async function servedPixels<K extends string>(
+  colors: Record<K, Color>,
+): Promise<Record<K, number>> {
+  await browser.switchFrame(null);
+  try {
+    const frame = await browser.$("#e2e-served");
+    const shot = decodePng(
+      Buffer.from(await browser.takeElementScreenshot(await frame.elementId), "base64"),
+    );
+    const counts = {} as Record<K, number>;
+    for (const key of Object.keys(colors) as K[]) counts[key] = shot.count(colors[key]);
+    return counts;
+  } finally {
+    await browser.switchFrame(browser.$("#e2e-served"));
   }
 }
 

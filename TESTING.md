@@ -225,6 +225,39 @@ folder's, with eight green images and four blue ones. `document.stress.ts` makes
 makes the copy about 60 times as long as the page: in jsdom on Windows 11, that took 4.3 to 4.9 s,
 where `main` at `c853231` prepared the same page in 3.7 s.
 
+`rendered.test.ts` checks that a page's text track is copied only with scripts on and **Local
+files with scripts on**, and that with scripts off the view reads no file to copy (#196).
+`resources.e2e.ts` checks in Obsidian 1.5.3 and the latest a page with a video's poster, a text
+track, and an SVG `<use>` of another file. The served page, whose scripts run, loads the track and
+shows the poster and the symbol whole, and its poster only in part under Chromium's controls when
+the video has the `controls` attribute. In the viewer with scripts off, the track keeps its URL and
+does not load, the poster shows as much as under the served page's controls, within 5 %, and the
+symbol not at all; with scripts on and files copied, the track loads, the poster shows whole, and
+the `<use>` keeps its URL and shows nothing.
+
+**Unreleased (#198):** `document.test.ts` adds to the page of #187 a table with a `background`
+attribute on an element of each kind, the table, a column group, a column, a head, a body, a foot,
+a row, a header cell, and a cell, and SVG `<feImage>` and `<script>` by `href` and `xlink:href`.
+Before the later `<base>`, also in the shadow root, their URLs are made absolute against the page's
+folder, and with copying, each copies its file from its own base's folder; a `<body>` around the
+`<base>` is made absolute, and one after a `<base>` in the `<head>` is not. Each attribute is read
+only on the elements of its namespace: neither made absolute nor copied are a `background` on a
+`<div>`, a `<span>`, or an SVG element, also an SVG `<td>`, `<tr>`, or `<col>`, which the parser
+keeps in SVG, an `href` on an HTML `<script>` or `<use>`, or a `src` on an SVG `<script>` or
+`<video>`. A page with a `<constructor>` element, in HTML, in SVG, in a shadow root, and in a
+template, is prepared, also with copying, as its names are looked up in maps. Copied, their files pass the same checks: a note, a web address, a
+path outside the vault, and an empty value stay as written, so does an `<feImage>`'s fragment, and
+a file over the per-file limit is left out and counted. One that does not resolve as a path is
+found by name. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest a page whose `<base>`
+comes after a `<body>` background, nine tables with a background on an element of each kind, two
+`<feImage>` elements, two SVG scripts, and a script that the served page delays, followed by a
+cell's background and an `<feImage>`. The served page requests each file of those before the
+`<base>` from the page's folder and the others from the `<base>`'s, and runs both SVG scripts of
+the page's folder. With scripts off, the viewer's copy resolves those before it to the page's
+folder and the others to the `<base>`'s, with eleven green images and two blue ones and the
+`<body>`'s orange; with scripts on and files copied, it shows the same and runs both SVG scripts of
+the page's folder.
+
 **Unreleased (#154):** beside the eight-file depth limit, `document.test.ts` checks the page's
 stylesheet limits: at most 1,000 links and imports followed, and 16 million characters of the
 stylesheets' text, shared by the page's links and imports in the document and in shadow roots.
@@ -489,6 +522,16 @@ whitespace, all five on Chromium 150 and those of a space and a line feed on Chr
 the images of the names with U+00A0. In the viewer, the copy applies and reads the five links of
 ASCII whitespace, and with scripts on and files copied, it shows those images, not the files of the
 names without U+00A0.
+
+**Unreleased (#199):** `document.test.ts` checks that a link's tooltip names the file that its
+`href` resolves to with only ASCII whitespace stripped from its ends: with a no-break space before
+its name, the file of the name with it, also where only the name without it would be found by
+name, and with line feeds, spaces, tabs, and form feeds, the file of the name without them.
+`links.test.ts` checks that a click opens the same file and hands Obsidian's link resolution the
+same reference. `links.e2e.ts` checks in Obsidian 1.5.3 and the latest a page with such links, a
+file whose name starts with U+00A0, written into the vault by its exact name, and a decoy without
+it: each tooltip names the vault path of the URL that Chromium resolves its link to, and a click
+opens the file with U+00A0.
 
 ## Shown to fail
 
@@ -1176,6 +1219,44 @@ files copied no square showed one. Each of these breakages failed the check name
   `document.test.ts`.
 - Closing an attribute as a stylesheet, with a rule's `{}`: the test of closers in `css.test.ts`.
 
+On 2026-11-19 (#196), the copy of a page's text tracks with scripts off at `d4726cf`, the head of
+#203 that its review read, failed `rendered.test.ts`'s test of text tracks, which takes that copy
+for a file that the page's CSS could read.
+
+**Unreleased (#200):** On 2026-11-19, looking up a copied type among an object's inherited
+properties, as `main` at `eb926d3` does, failed the test of extensions such as `constructor` in
+`document.test.ts`, for which preparing the page threw.
+
+**Unreleased (#198):** On 2026-11-19, `main`'s preparation at `eb926d3` failed both viewer tests of
+the page of backgrounds in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where the served page
+showed what the tests expect: with scripts off, the copy resolved every background, `<feImage>`,
+and SVG script before the `<base>` to the `<base>`'s folder, and with scripts on and files copied
+it showed none of their images and ran neither SVG script. Each of these breakages failed the
+checks named in `document.test.ts`:
+
+- Leaving the backgrounds, `<feImage>`, or SVG scripts out of the attributes made absolute and
+  found by name: the #187 tests of every kind and of copying, and the test of finding by name; for
+  the backgrounds, the test of the `<body>` too.
+- Leaving `<col>` and `<colgroup>` out of the backgrounds: the #187 tests of every kind and of
+  copying.
+- Leaving the backgrounds, `<feImage>`, or SVG scripts out of the copied attributes: the #187 test
+  of copying and the test of the checks.
+- Copying an SVG `<use>`'s file: the #187 test of copying and the test of namespaces.
+- Reading an attribute on the elements of every namespace: the test of namespaces.
+
+The review of #203 found two changes that passed every test; each now fails the check named:
+
+- Looking an element's attribute names up in an object, which gave a `<constructor>` element the
+  prototype's function and made every page with one fail to prepare: the test of `<constructor>`.
+- Reading `background` attributes in SVG too: the test of namespaces, with its SVG `<td>`, `<tr>`,
+  and `<col>`.
+
+**Unreleased (#199):** On 2026-11-19, `main` at `eb926d3` failed the new test of `links.e2e.ts` in
+Obsidian 1.5.3 and 1.15.1: the tooltip of the link with U+00A0 named the decoy without it, where
+Chromium resolved the link to the file with it. Restoring `main`'s reads, a click's `href` as
+written and a tooltip's trimmed with `trim`, and trimming both with `trim`, each failed both new
+tests, in `document.test.ts` and `links.test.ts`.
+
 Since #155, a link and an import of the same URL share one kept text, so the #154 entry above for
 one kept text describes a breakage of that time, not of the current checkout.
 
@@ -1291,6 +1372,11 @@ starts left neither test a step after it, and the screenshot was taken.
   showed the second kind as Chromium does, and this change does not: that is the cost of one rule
   for every page. `resources.e2e.ts` delays the served page's script before the `<base>`, which
   fixes the order for all of them; it does not test the other order.
+  **Unreleased (#198):** SVG `<feImage>` and `<script>` are of the first kind, and `background`
+  attributes, also of `<col>` and `<colgroup>`, of the second. In served pages on both hosts, in 6
+  of 6 runs of a short page, each `<feImage>` came from the page's folder and each background from
+  the `<base>`'s; in 3 of 3 runs with a script before the `<base>` that the parser waits for, an SVG
+  script among them, every one came from the page's.
 
 - **Unreleased (#187):** the URLs that the copy makes absolute before a later `<base>` do not count
   toward the text limit: each grows by about the length of the page folder's address, and more
@@ -1301,16 +1387,30 @@ starts left neither test a step after it, and the screenshot was taken.
   `a 1x,`, half a million characters, made it 208 times as long, 104 million characters, in 2.1 s,
   as the review of #197 measured. What the frame does with a copy of that length is not measured
   (#158).
-- With scripts off, a video's poster, a text track, and an SVG `<use>` of another file from the
-  vault do not show in the viewer, also without a `<base>`, while the same page served outside
-  Obsidian shows them. `resources.e2e.ts` reads their URLs from the copy, not what they show
+- With scripts off, a text track from the vault does not load. Obsidian 1.5.3 and 1.15.1 refuse it
+  as an "unsafe attempt to load URL" of another origin than the frame's, unless its video has a
+  `crossorigin` attribute, with which it loaded, as Obsidian answers such requests. A copy as a
+  `data:` URL loaded, but the review of #203 showed that the page's CSS could read such a copy in
+  Chrome 158, with a selector such as `:has(track[src*="…"])`, and send it to the web through a
+  `url()` that applies only when the selector matches. So the copy of a page with scripts off holds
+  no file's contents but its stylesheets'
   ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
-- The `background` attributes of `<body>`, tables, and their cells, and SVG `<feImage>`, are not
-  among the resource attributes that the viewer prepares: they are not found by name, nor copied
-  with scripts on, and before a later `<base>` the copy resolves them against it. Chromium resolves
-  `<feImage>` against the page in every run measured by the review of #197, and `background`
-  attributes unless the `<base>` follows closely, as for image inputs
-  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)).
+- With scripts off, Chromium shows its media controls on every video and audio element, as HTML has
+  browsers do wherever scripts cannot run. In Obsidian 1.5.3 and 1.15.1, frames whose sandbox lacks
+  `allow-scripts` showed no poster whole, also one given as a `data:` URL, as a served frame shows
+  one for a video with the `controls` attribute. The controls cover the lower part of a poster, and
+  all of a 64-pixel video's, which #196 took for a poster that did not load. Hiding them would leave
+  the reader no way to play the media, so the copy keeps them
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+- An SVG `<use>` of another file shows nothing, with scripts on or off. With scripts off, Obsidian
+  1.5.3 and 1.15.1 refuse a vault file there as an "unsafe attempt to load URL" of another origin
+  than the frame's; with scripts on, the frame's origin is opaque. A copy as a `data:` URL showed
+  on 1.5.3 and was refused on 1.15.1, so copying the file would only lengthen the copy on the
+  current host. A `blob:` URL from Obsidian's window showed with scripts off, but would have to
+  live as long as the page, which the view does not manage. Putting the symbol into the copy would
+  style it otherwise: in served pages, the page's rules applied to an external symbol on neither
+  host, and the file's own `<style>` and gradient did on 1.15.1 and not on 1.5.3
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
 - With scripts on, a `<base>` that the page's script adds does not apply when it comes after the
   copy's own `<base>`, which is first in the `<head>`: in Obsidian 1.5.3 and 1.15.1, what the page
   named after it resolved against the page's folder, where a served page resolved it against the

@@ -2559,6 +2559,15 @@ describe("a <base> after the page's resource attributes (#187)", () => {
       `<svg><use href="r/${id}-use.svg#s"/><use xlink:href="r/${id}-xuse.svg#s"/>`,
       `<image href="r/${id}-image.png"/><image xlink:href="r/${id}-ximage.png"/></svg>`,
       `<embed src="r/${id}-embed.svg"><object data="r/${id}-object.svg"></object>`,
+      // The backgrounds, SVG filter images, and SVG scripts of #198.
+      `<table background="r/${id}-table.png"><colgroup background="r/${id}-colgroup.png">`,
+      `<col background="r/${id}-col.png"></colgroup><thead background="r/${id}-thead.png">`,
+      `<tr background="r/${id}-tr.png"><th background="r/${id}-th.png"></th></tr></thead>`,
+      `<tbody background="r/${id}-tbody.png"><tr><td background="r/${id}-td.png"></td></tr>`,
+      `</tbody><tfoot background="r/${id}-tfoot.png"></tfoot></table>`,
+      `<svg><filter><feImage href="r/${id}-fe.png"/><feImage xlink:href="r/${id}-xfe.png"/>`,
+      `</filter><script href="r/${id}-svgscript.js"></script>`,
+      `<script xlink:href="r/${id}-xsvgscript.js"></script></svg>`,
     ].join("");
   const html = [
     tree("doc"),
@@ -2599,6 +2608,19 @@ describe("a <base> after the page's resource attributes (#187)", () => {
       "image xlink:href": url("ximage.png"),
       "embed src": url("embed.svg"),
       "object data": url("object.svg"),
+      "table background": url("table.png"),
+      "colgroup background": url("colgroup.png"),
+      "col background": url("col.png"),
+      "thead background": url("thead.png"),
+      "tr background": url("tr.png"),
+      "th background": url("th.png"),
+      "tbody background": url("tbody.png"),
+      "td background": url("td.png"),
+      "tfoot background": url("tfoot.png"),
+      "feImage href": url("fe.png"),
+      "feImage xlink:href": url("xfe.png"),
+      "script href": url("svgscript.js"),
+      "script xlink:href": url("xsvgscript.js"),
     };
   }
 
@@ -2639,6 +2661,9 @@ describe("a <base> after the page's resource attributes (#187)", () => {
       ...["img.png", "a.png", "b.png", "source.png", "video.webm", "poster.png"],
       ...["vsource.webm", "track.vtt", "audio.wav", "input.png", "script.js"],
       ...["image.png", "ximage.png"],
+      ...["table.png", "colgroup.png", "col.png", "thead.png", "tr.png", "th.png"],
+      ...["tbody.png", "td.png", "tfoot.png", "fe.png", "xfe.png"],
+      ...["svgscript.js", "xsvgscript.js"],
     ];
     const files = (id: string, folder: string) =>
       names.map((name) => `Saved/${folder}r/${id}-${name}`);
@@ -2706,6 +2731,181 @@ describe("a <base> after the page's resource attributes (#187)", () => {
     assert.deepEqual(
       [...copy.images].map((image) => image.getAttribute("src")),
       [`${page}r/1.png`, "r/1.png"],
+    );
+  });
+});
+
+describe("background attributes, SVG filter images, and SVG scripts (#198)", () => {
+  // Chromium loads the images of the background attributes of a table's
+  // elements and the <body>, and the files of an SVG <feImage> and <script>,
+  // as resources.e2e.ts checks. The tests of #187 above cover each kind before
+  // and after a later <base>, in shadow roots and templates, and copied.
+  const page = `${VAULT}Saved/`;
+
+  it("makes a <body>'s background absolute before a later <base>, around which it is", async () => {
+    const around = parse(
+      await prepare(`<body background="r/body.png"><p>x</p><base href="sub/">`, context({})),
+    );
+    assert.equal(around.body.getAttribute("background"), `${page}r/body.png`);
+    const after = parse(
+      await prepare(
+        `<head><base href="sub/"></head><body background="r/body.png"><p>x</p>`,
+        context({}),
+      ),
+    );
+    assert.equal(after.body.getAttribute("background"), "r/body.png");
+  });
+
+  it("reads each attribute only on the elements of the namespace that Chromium reads it on", async () => {
+    const html = [
+      `<div background="r/div.png"></div><span background="r/span.png"></span>`,
+      `<script href="r/html.js"></script><use href="r/html-use.svg#s"></use>`,
+      `<svg><script src="r/svg.js"></script><video src="r/svg.webm"/><rect background="r/rect.png"/>`,
+      // The HTML parser keeps these names in SVG, unlike <table> and <body>.
+      `<td background="r/svg-td.png"/><tr background="r/svg-tr.png"/><col background="r/svg-col.png"/>`,
+      `<use href="r/svg-use.svg#s"/></svg><base href="sub/">`,
+    ].join("");
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    const copy = parse(await prepare(html, context({}), { copyFiles }));
+    assert.deepEqual(
+      [...copy.body.querySelectorAll("*")].flatMap((element) =>
+        [...element.attributes]
+          .filter(({ value }) => value.includes("r/"))
+          .map(({ name, value }) => `${element.localName} ${name} ${value}`),
+      ),
+      [
+        "div background r/div.png",
+        "span background r/span.png",
+        "script href r/html.js",
+        "use href r/html-use.svg#s",
+        "script src r/svg.js",
+        "video src r/svg.webm",
+        "rect background r/rect.png",
+        "td background r/svg-td.png",
+        "tr background r/svg-tr.png",
+        "col background r/svg-col.png",
+        `use href ${page}r/svg-use.svg#s`,
+      ],
+    );
+    assert.deepEqual(
+      [...copy.querySelectorAll("svg td, svg tr, svg col")].map(({ namespaceURI }) => namespaceURI),
+      Array(3).fill("http://www.w3.org/2000/svg"),
+    );
+    assert.deepEqual(copies, [], "nothing of these is copied");
+  });
+
+  it("prepares a page with a <constructor> element, in HTML, SVG, and shadow DOM, also copying files", async () => {
+    // A page names its elements, so a lookup of attribute names in an object
+    // would give a <constructor> the prototype's function as its names.
+    const html = [
+      `<constructor></constructor><img src="r/a.png">`,
+      `<svg><constructor/><image href="r/b.png"/></svg>`,
+      `<div><template shadowrootmode="open"><constructor></constructor><img src="r/c.png">`,
+      `</template></div><template><constructor></constructor></template><base href="sub/">`,
+    ].join("");
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      readBinary: async () => new Uint8Array([1]).buffer,
+    };
+    for (const options of [{}, { copyFiles }]) {
+      const copy = parse(await prepare(html, context({}), options));
+      const shadow = copy.querySelector("template")!.content;
+      assert.deepEqual(
+        [
+          copy.querySelector("img")?.getAttribute("src"),
+          copy.querySelector("image")?.getAttribute("href"),
+          shadow.querySelector("img")?.getAttribute("src"),
+        ],
+        "copyFiles" in options
+          ? Array(3).fill("data:image/png;base64,AQ==")
+          : [`${page}r/a.png`, `${page}r/b.png`, `${page}r/c.png`],
+      );
+    }
+  });
+
+  it("copies their files as data: URLs of their types, by the same checks and limits", async () => {
+    const files: Record<string, string> = {
+      "Saved/bg.png": "B",
+      "Saved/fe.svg": "<svg/>",
+      "Saved/run.js": "J",
+      "Saved/notes.md": "Private text",
+      "Saved/huge.png": "H",
+    };
+    const sizes: Record<string, number> = { "Saved/huge.png": COPY_FILE_LIMIT + 1 };
+    const asked: string[] = [];
+    const reads: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: (path) => {
+        asked.push(path);
+        return sizes[path] ?? (path in files ? files[path].length : null);
+      },
+      async readBinary(path) {
+        reads.push(path);
+        return path in files ? new TextEncoder().encode(files[path]).buffer : null;
+      },
+    };
+    const html = [
+      `<table background="bg.png"><tr><td background="notes.md"></td>`,
+      `<td background="https://example.com/x.png"></td><td background="../../../../outside.png"></td>`,
+      `<td background="huge.png"></td><td background=""></td></tr></table>`,
+      `<svg><filter><feImage href="fe.svg#x"/><feImage href="#local"/></filter>`,
+      `<script href="run.js"></script></svg>`,
+    ].join("");
+    const prepared = await preparePage(html, context({}), { copyFiles });
+    const copy = parse(prepared.html);
+    const data = (type: string, text: string): string => `data:${type};base64,${btoa(text)}`;
+    assert.deepEqual(
+      [copy.querySelector("table"), ...copy.querySelectorAll("td")].map((element) =>
+        element?.getAttribute("background"),
+      ),
+      [
+        data("image/png", "B"),
+        "notes.md",
+        "https://example.com/x.png",
+        "../../../../outside.png",
+        "huge.png",
+        "",
+      ],
+    );
+    assert.deepEqual(
+      [...copy.querySelectorAll("feImage")].map((image) => image.getAttribute("href")),
+      [`${data("image/svg+xml", "<svg/>")}#x`, "#local"],
+    );
+    assert.equal(
+      copy.querySelector("svg script")?.getAttribute("href"),
+      data("text/javascript", "J"),
+    );
+    assert.deepEqual(reads.sort(), ["Saved/bg.png", "Saved/fe.svg", "Saved/run.js"]);
+    for (const path of asked)
+      assert.match(path, /^Saved\/[^/]+\.(png|svg|js)$/, `asked about ${path}`);
+    assert.deepEqual(prepared.copiedFiles, { copied: 3, leftOut: 1 });
+  });
+
+  it("finds by name one that does not resolve as a path", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: () => false,
+      locate: (linktext) => `Found/${linktext}`,
+    };
+    const html = [
+      `<table><tr><td background="bg.png"></td></tr></table>`,
+      `<svg><filter><feImage xlink:href="fe.png"/></filter><script href="run.js"></script></svg>`,
+    ].join("");
+    const copy = parse(await prepare(html, ctx));
+    assert.deepEqual(
+      [
+        copy.querySelector("td")?.getAttribute("background"),
+        copy.querySelector("feImage")?.getAttribute("xlink:href"),
+        copy.querySelector("svg script")?.getAttribute("href"),
+      ],
+      [`${VAULT}Found/bg.png`, `${VAULT}Found/fe.png`, `${VAULT}Found/run.js`],
     );
   });
 });
@@ -3759,6 +3959,22 @@ describe("tooltips", () => {
     ]);
   });
 
+  it("names the file of an href stripped of ASCII whitespace only, as a click opens it (#199)", async () => {
+    // Chromium keeps U+00A0 at an end of a link's URL, which trim would remove.
+    const html = [
+      `<a href="&nbsp;Other%20page.html">no-break space</a>`,
+      `<a href="&#10; Other%20page.html&#9;&#12;">ASCII whitespace</a>`,
+      `<a href="&nbsp;glossary.html">by name, only without the space</a>`,
+      `<a href="glossary.html&#8195;">an em space at its end</a>`,
+    ].join("");
+    assert.deepEqual(await titles(html, "a"), [
+      "Saved/ Other page.html",
+      "Saved/Other page.html",
+      "Saved/ glossary.html",
+      "Saved/glossary.html ",
+    ]);
+  });
+
   it("resolves links against the page's own base, as the frame does", async () => {
     const html = `<base href="https://example.com/docs/"><a href="guide.html">guide</a>`;
     assert.deepEqual(await titles(html, "a"), ["https://example.com/docs/guide.html"]);
@@ -4129,6 +4345,18 @@ describe("copying local files (#11)", () => {
     );
     assert.doesNotMatch(outside.html, /;base64,/);
     assert.deepEqual(elsewhere.asked, [], "nothing outside the vault is asked about");
+  });
+
+  it("copies no file whose extension names a property of every object", async () => {
+    const files = { "Saved/x.constructor": "C", "Saved/x.__proto__": "P", "Saved/x.png": "A" };
+    const html = `<img src="x.constructor"><img src="x.__proto__"><img src="x.png">`;
+    const { page, copy, prepared } = await copied(html, files);
+    assert.deepEqual(
+      [...page.images].map((image) => image.getAttribute("src")),
+      ["x.constructor", "x.__proto__", data("image/png", "A")],
+    );
+    assert.deepEqual(copy.reads, ["Saved/x.png"]);
+    assert.deepEqual(prepared.copiedFiles, { copied: 1, leftOut: 0 });
   });
 
   it("copies the files that shadow roots and templates name, within the page's limits (#124)", async () => {

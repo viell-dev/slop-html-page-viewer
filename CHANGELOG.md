@@ -107,6 +107,18 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   `style='background-image: url("icon.png'`, which browsers close and load, shows its image from the
   page's folder before a later `<base>`, finds it by name, and with **Local files with scripts on**
   copies its file (#194).
+- With **Local files with scripts on**, a page that names a vault file whose extension is
+  `constructor` or `__proto__` shows, instead of the message that the viewer is unable to prepare
+  it (#200).
+- A page whose `<base>` comes after `background` attributes, of its `<body>` or of tables and their
+  parts, or after SVG `<feImage>` and `<script>` elements, shows their images from its own folder,
+  as browsers do in a longer page, instead of from the `<base>`'s folder. Their names that do not
+  resolve as paths are found by name, and with **Local files with scripts on** their files are
+  copied, so that such backgrounds and filter images show, and such scripts run (#198).
+- The tooltip of a link whose `href` starts or ends with a no-break space, or another space that
+  HTML keeps in a URL, names the file that a click on it opens, whose name has that space, instead
+  of a file without it. A click hands Obsidian's link resolution the reference with only the ASCII
+  whitespace at its ends removed, as the tooltip uses it (#199).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

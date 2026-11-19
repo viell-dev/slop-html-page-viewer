@@ -29,6 +29,17 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   `allow-scripts`, nothing in the page can use that origin: no script runs, including event handler
   attributes and `javascript:` links, and forms, popups, and navigation of Obsidian's window stay
   blocked.
+
+  The copy of such a page holds no vault file's contents but its `.css` stylesheets', whose text
+  goes into `<style>` elements; its other files load by their URLs, or not at all. CSS runs without
+  scripts, and an attribute selector such as `:has(track[src*="…"])` can test an attribute's value
+  piece by piece and turn each answer into a request to the web, through a `url()` that applies
+  only when the selector matches, which the copy's policy lets load. A file copied into an
+  attribute as a `data:` URL could so be read out of the page. So a text track, which Chromium
+  loads only from the frame's own origin unless its video has a `crossorigin` attribute, does not
+  load with scripts off, rather than be copied
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+
 - **Scripts on, by choice.** The toolbar's scripts button turns scripts on for the open page, and
   the **Scripts when a page opens** setting turns them on for every page as it opens. The sandbox
   then grants only `allow-scripts`, so the page runs with an opaque origin and cannot reach Obsidian
@@ -201,6 +212,20 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   posters, media, their sources, text tracks, and SVG `<image>` against the `<base>` in a short page
   that it reads in one go. The same file types, limits, and vault-only paths apply
   ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+
+  **Unreleased (#198):** with **Local files with scripts on**, it also copies the images that the
+  `background` attributes of the `<body>` and of tables and their parts name, and the files of SVG
+  `<feImage>` and `<script>` elements, which 0.6.0 leaves as written, so that a page with scripts
+  on loads none of them. An SVG script so copied runs, as the page's other scripts do then. Before
+  a later `<base>`, the viewer copies these from the page's folder too, which is its choice, as for
+  #187: Chromium takes an `<feImage>`'s and an SVG script's file from there in every page, but a
+  `background` attribute's from the `<base>`'s folder in a short page that it reads in one go. It
+  reads an attribute only on the
+  elements of the namespace that Chromium loads it for: an HTML element's `background` and `src`,
+  and an SVG element's `href`, so that it no longer copies the file of a `<video>`, an `<audio>`, or
+  an `<input>` inside SVG, which loads nothing. The same file types, limits, and vault-only paths
+  apply
+  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)).
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with
