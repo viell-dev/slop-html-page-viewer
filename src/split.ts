@@ -286,13 +286,19 @@ export interface LinePlace {
  * The line at the top of a source, as a place that holds where its lines
  * wrap at another width (#182), for keeping its scroll position. It reads the
  * tops of only the lines that it searches, of the line elements that the
- * source has now: the view renders a source anew to change its text.
+ * source has now: the view renders a source anew to change its text. That
+ * costs little, so it is measured at each scroll that the source reports,
+ * and a source that its tab moves or hides right after a scroll keeps its
+ * line too (#189). A source with no width cannot tell: in a new window,
+ * Obsidian 1.5.3 first lays it out so, where each line is as high as its
+ * characters are many.
  */
 export function linePlacing(source: HTMLElement): Placing<LinePlace> {
   const lines = [...source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")];
   const topOf = (index: number): number => lines[index].offsetTop;
   return {
     measure: () => {
+      if (source.clientWidth === 0) return undefined;
       const top = source.scrollTop;
       const index = lastAtOrBefore(lines.length, top, topOf);
       if (index === -1) return { index, into: top };
@@ -300,10 +306,12 @@ export function linePlacing(source: HTMLElement): Placing<LinePlace> {
       return { index, into: height > 0 ? (top - topOf(index)) / height : 0 };
     },
     topFor: ({ index, into }) => {
+      if (source.clientWidth === 0) return null;
       if (index === -1) return into;
       const line = lines[Math.min(index, lines.length - 1)];
       return line ? line.offsetTop + into * line.offsetHeight : null;
     },
+    atOnce: true,
   };
 }
 
@@ -363,7 +371,8 @@ export interface ScrollSide {
   scrollTo(position: number): void;
 }
 
-type SideName = "source" | "page";
+/** A side of the split view. */
+export type SideName = "source" | "page";
 
 /**
  * Keeps two sides scrolling in step: the side that was scrolled leads, at
@@ -540,4 +549,36 @@ export function onFirstResize(
   };
   signal.addEventListener("abort", stop);
   observer.observe(element);
+}
+
+/**
+ * Calls `resized` at each change of `element`'s size within `within`
+ * milliseconds and before `signal` aborts, as onFirstResize tells the first:
+ * a view that moved to a new window on Obsidian 1.5.3 can be laid out there
+ * first with no width, then at the window's width, and then with Obsidian's
+ * styles (#165, #189).
+ */
+export function onResizes(
+  element: HTMLElement,
+  resized: () => void,
+  signal: AbortSignal,
+  within: number,
+): void {
+  const win = element.ownerDocument.defaultView;
+  if (!win) return;
+  const until = win.performance.now() + within;
+  const watch = (): void => {
+    const left = until - win.performance.now();
+    if (left <= 0) return;
+    onFirstResize(
+      element,
+      () => {
+        resized();
+        watch();
+      },
+      signal,
+      left,
+    );
+  };
+  watch();
 }

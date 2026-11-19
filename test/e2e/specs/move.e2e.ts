@@ -657,11 +657,16 @@ interface ReaderLine {
  * frame. Obsidian opens a new window with `window.open` and then adds its
  * styles; on Obsidian 1.5.3, app.css can arrive there after the view has put
  * the sides in step (#165). restoreWindowOpen ends the wrap of `window.open`
- * if no window opened.
+ * if no window opened. With `sourceView`, it holds app.css back until the
+ * **Source** view's source shows the line, as the view puts it back (#189).
  */
-async function holdNewWindowStyles(number: number, reader?: ReaderLine): Promise<void> {
+async function holdNewWindowStyles(
+  number: number,
+  reader?: ReaderLine,
+  sourceView = false,
+): Promise<void> {
   await browser.execute(
-    (number, reader) => {
+    (number, reader, sourceView) => {
       const state: HeldStyles = {
         held: false,
         released: false,
@@ -686,7 +691,9 @@ async function holdNewWindowStyles(number: number, reader?: ReaderLine): Promise
           let scrolled = false;
           const check = (): void => {
             const source = win.document.querySelector<HTMLElement>(
-              ".html-page-viewer__split .html-page-viewer__source",
+              sourceView
+                ? ".html-page-viewer__source"
+                : ".html-page-viewer__split .html-page-viewer__source",
             );
             const lines = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line");
             const doc =
@@ -705,7 +712,9 @@ async function holdNewWindowStyles(number: number, reader?: ReaderLine): Promise
               );
             };
             if (!state.followed)
-              state.followed = root !== null && root.dataset.e2eBefore === undefined && at(number);
+              state.followed =
+                (sourceView || (root !== null && root.dataset.e2eBefore === undefined)) &&
+                at(number);
             if (state.followed && reader && !state.read) {
               if (!scrolled) {
                 scrolled = true;
@@ -756,6 +765,7 @@ async function holdNewWindowStyles(number: number, reader?: ReaderLine): Promise
     },
     number,
     reader ?? null,
+    sourceView,
   );
 }
 
@@ -766,6 +776,29 @@ async function restoreWindowOpen(): Promise<void> {
     if (main.e2eWindowOpen) window.open = main.e2eWindowOpen;
     delete main.e2eWindowOpen;
   });
+}
+
+/**
+ * Moves the active tab to a new window with moveActiveTab, holding the new
+ * window's app.css back as holdNewWindowStyles does, and says what it did.
+ */
+async function moveToWindowHoldingStyles(number: number, sourceView = false): Promise<HeldStyles> {
+  await holdNewWindowStyles(number, undefined, sourceView);
+  try {
+    await moveActiveTab("window");
+    await browser.waitUntil(
+      async () =>
+        (await browser.execute(
+          () => (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles.released,
+        )) === true,
+      { timeout: 15_000, timeoutMsg: "the new window's app.css was not held back and let go" },
+    );
+    return await browser.execute(
+      () => (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles,
+    );
+  } finally {
+    await restoreWindowOpen();
+  }
 }
 
 /** Waits for two animation frames of the window that the tab moveActiveTab moved is in. */
@@ -1629,6 +1662,154 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
     expect(await movedFind()).toMatchObject({ count: "1 of 11", matches: 11, current: 1 });
   });
 
+  // Obsidian puts the moved source back as far down as it was, which shows
+  // other lines where they wrap otherwise in the new pane: line 19 in place
+  // of line 37 in a narrower tab group, and line 58 in a wider one, on both
+  // versions, with the view as main at eb926d3 has it.
+  for (const into of ["narrower", "wider"] as const) {
+    it(`keeps the Source view's line in a ${into} tab group, where its lines wrap otherwise (#189)`, async function () {
+      await writeParagraphsPage();
+      await openInActiveTab(PARAGRAPHS);
+      await clickToolbarButton("Source");
+      await prepareTabGroups(into === "narrower" ? { other: 400 } : { own: 400 });
+      await scrollViewSourceToLine(37);
+      await browser.pause(300);
+      const before = (await sourceLine())!;
+      expect(before.line).toBe(37);
+
+      await moveToOtherGroup();
+      const after = await expectSourceAtLine(37);
+      // The premise: line 37 is elsewhere in the source's new width.
+      expect(Math.abs(after.width - before.width)).toBeGreaterThan(200);
+      expect(Math.abs(after.top - before.top)).toBeGreaterThan(200);
+    });
+  }
+
+  // On Obsidian 1.5.3, the new window's app.css can arrive after the view has
+  // put the source back at its line, laid out without it, where the lines
+  // then take other heights. Holding it back until then makes that so in
+  // every run. On 1.15.1 the lines have their height without app.css. With
+  // the view as main at eb926d3 has it, the source never showed line 37
+  // while app.css was held back, on both versions.
+  it("keeps the Source view's line in a new window once Obsidian's styles arrive there (#189)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Source");
+    await scrollViewSourceToLine(37);
+    await browser.pause(300);
+
+    const held = await moveToWindowHoldingStyles(37, true);
+    expect(held).toMatchObject({ held: true, released: true, followed: true });
+    expect((await expectSourceAtLine(37)).inWindow).toBe(true);
+  });
+
+  // With the view as main at eb926d3 has it, the source showed line 49 in
+  // the new window on Obsidian 1.5.3.
+  it("keeps the Source view's line in a new window, where its lines wrap otherwise (#189)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Source");
+    await scrollViewSourceToLine(37);
+    await browser.pause(300);
+    const before = (await sourceLine())!;
+
+    await moveActiveTab("window");
+    const after = await expectSourceAtLine(37);
+    expect(after.inWindow).toBe(true);
+    expect(after.width).toBeGreaterThan(before.width + 200);
+  });
+
+  // The head's 300 rules share the page's first 8 pixels. With the view as
+  // main at eb926d3 has it, the placed page led, and the source went from
+  // line 150 to line 155 in another tab group, and to line 194 on Obsidian
+  // 1.15.1 and 174 on 1.5.3 in a new window. The new window's app.css is held
+  // back until the view has put the source at its line, laid out without it:
+  // the source keeps its line when the styles arrive (#165).
+  for (const to of ["group", "window"] as const) {
+    it(`keeps the split view's source at its line among a long head's in ${to === "group" ? "another tab group" : "a new window"}, where the source led last (#195)`, async function () {
+      await openInActiveTab(await writeLongHeadPage());
+      await clickToolbarButton("Split");
+      await waitForPage();
+      await scrollViewSourceToLine(150);
+      await browser.pause(500);
+      const before = (await pageState(false))!;
+      expect(before.line).toBe(150);
+
+      if (to === "window")
+        expect(await moveToWindowHoldingStyles(150)).toMatchObject({
+          held: true,
+          released: true,
+          followed: true,
+        });
+      else await moveActiveTab(to);
+      await waitForMovedPage();
+      const after = await expectSourceAtLine(150);
+      expect(after.inWindow).toBe(to === "window");
+      // The page follows it, as far down as it was.
+      expect(Math.abs((await pageState(true))!.scrollY - before.scrollY)).toBeLessThanOrEqual(1);
+    });
+  }
+
+  // Until the moved page has loaded, Chromium's scroll anchoring can scroll it
+  // as its images arrive: that leads nothing, and the page follows the source
+  // again once it has loaded. A script's scroll stands in for the anchoring.
+  it("keeps the split view's source at its line among a long head's while the moved page loads, whatever the page scrolls meanwhile (#195)", async function () {
+    const image = await heldImage();
+    try {
+      await openInActiveTab(await writeLongHeadPage({ image: image.url }));
+      await clickToolbarButton("Split");
+      await waitForParsedPage();
+      await scrollViewSourceToLine(150);
+      await browser.pause(500);
+      const before = (await pageState(false))!;
+      expect(before.line).toBe(150);
+
+      await moveActiveTab("group");
+      await waitForMovedPage(
+        (state) => state.readyState === "interactive" && state.line === 150,
+        "its page before it loaded, beside the source at line 150",
+      );
+      await browser.executeObsidian(({ app }) => {
+        app.workspace.iterateAllLeaves((leaf) => {
+          leaf.view.containerEl
+            .querySelector<HTMLIFrameElement>("iframe[data-e2e-moved]")
+            ?.contentWindow?.scrollTo(0, 3000);
+        });
+      });
+      await browser.pause(300);
+      expect(await pageState(true)).toMatchObject({ readyState: "interactive", line: 150 });
+
+      image.release();
+      await waitForMovedPage();
+      await expectSourceAtLine(150);
+      expect(Math.abs((await pageState(true))!.scrollY - before.scrollY)).toBeLessThanOrEqual(1);
+    } finally {
+      image.close();
+    }
+  });
+
+  // The head's rules wrap onto two rows in the narrower pane, where
+  // Obsidian puts the source back as far down as it was, which shows other
+  // lines: the source goes back to its line there, and then leads. With the
+  // view as main at eb926d3 has it, the source showed line 58 on Obsidian
+  // 1.15.1 and line 20 on 1.5.3.
+  it("keeps the split view's source at its line in a narrower tab group, where its lines wrap otherwise and the source led last (#195)", async function () {
+    await openInActiveTab(await writeLongHeadPage({ wide: true }));
+    await clickToolbarButton("Split");
+    await waitForPage();
+    await prepareTabGroups({ other: 300 });
+    await scrollViewSourceToLine(150);
+    await browser.pause(500);
+    const before = (await sourceLine())!;
+    expect(before.line).toBe(150);
+
+    await moveToOtherGroup();
+    await waitForMovedPage();
+    const after = await expectSourceAtLine(150);
+    // The premise: line 150 is elsewhere in the source's new width.
+    expect(after.top).toBeGreaterThan(before.top + 300);
+  });
+
   it("leaves its page where the reader scrolls it before the page has loaded", async function () {
     const { scrolled, loaded } = await scrollBeforeLoad("iframe[data-e2e-moved]", false);
     expect(loaded.readyState).toBe("complete");
@@ -1681,7 +1862,9 @@ interface ShownAgain {
  * is hidden and when it shows again, as where a sidebar opened meanwhile.
  * Given `scrolledTo`, the id of an element of the page, the page is first
  * scrolled to that element's top, and the tab hides two frames later, once
- * Chromium has reported that scroll and before it has settled. With
+ * Chromium has reported that scroll and before it has settled; given
+ * `sourceScrolledTo`, a line's number, the source is scrolled to that line's
+ * top so. With
  * `readableLineLengthOff`, Obsidian's Readable line length is first turned
  * off, and the tab hides two frames after the page's text took the pane's
  * width, once the page's window has reported that change of its layout.
@@ -1691,16 +1874,26 @@ async function showTabAgain({
   marked = false,
   width,
   scrolledTo,
+  sourceScrolledTo,
   readableLineLengthOff = false,
 }: {
   inFrame?: boolean;
   marked?: boolean;
   width?: number;
   scrolledTo?: string;
+  sourceScrolledTo?: number;
   readableLineLengthOff?: boolean;
 } = {}): Promise<ShownAgain> {
   const shown = await browser.executeObsidian(
-    async ({ app }, inFrame, marked, width, scrolledTo, readableLineLengthOff) => {
+    async (
+      { app },
+      inFrame,
+      marked,
+      width,
+      scrolledTo,
+      sourceScrolledTo,
+      readableLineLengthOff,
+    ) => {
       const kept = window as unknown as {
         e2eShownAgain: NonNullable<ReturnType<typeof app.workspace.getMostRecentLeaf>>;
       };
@@ -1716,6 +1909,14 @@ async function showTabAgain({
       const page = iframe?.contentWindow;
       const element = scrolledTo ? iframe?.contentDocument?.getElementById(scrolledTo) : null;
       if (page && element) page.scrollTo(0, page.scrollY + element.getBoundingClientRect().top);
+      const scrolledSource = container.querySelector<HTMLElement>(".html-page-viewer__source");
+      const line =
+        sourceScrolledTo === null
+          ? undefined
+          : scrolledSource?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[
+              sourceScrolledTo - 1
+            ];
+      if (scrolledSource && line) scrolledSource.scrollTop = line.offsetTop;
       if (readableLineLengthOff && page) {
         const width = page.document.body.getBoundingClientRect().width;
         (app.vault as unknown as { setConfig(setting: string, value: unknown): void }).setConfig(
@@ -1763,6 +1964,7 @@ async function showTabAgain({
     marked,
     width,
     scrolledTo,
+    sourceScrolledTo ?? null,
     readableLineLengthOff,
   );
   expect(shown.shows).toBe(true);
@@ -1771,8 +1973,9 @@ async function showTabAgain({
 
 /**
  * Hides the active tab behind a new tab of its tab group, marks it, its frame,
- * and its source as moveActiveTab marks them, and waits until the frame has no
- * height. Returns nothing; the tab is `e2eShownAgain` in the main window.
+ * and its source as moveActiveTab marks them, and waits until the frame, or
+ * in the **Source** view the source, has no height. Returns nothing; the tab
+ * is `e2eShownAgain` in the main window.
  */
 async function hideActiveTab(): Promise<void> {
   await browser.executeObsidian(async ({ app }) => {
@@ -1782,13 +1985,17 @@ async function hideActiveTab(): Promise<void> {
       new Promise((resolve) => requestAnimationFrame(() => resolve()));
     await frame();
     await frame();
-    const iframe = container.querySelector<HTMLIFrameElement>("iframe")!;
-    iframe.dataset.e2eMoved = "";
-    iframe.contentDocument!.documentElement.dataset.e2eBefore = "";
-    container.querySelector(".html-page-viewer__source")?.setAttribute("data-e2e-moved", "");
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe");
+    const source = container.querySelector<HTMLElement>(".html-page-viewer__source");
+    if (iframe) {
+      iframe.dataset.e2eMoved = "";
+      iframe.contentDocument!.documentElement.dataset.e2eBefore = "";
+    }
+    source?.setAttribute("data-e2e-moved", "");
     (window as unknown as { e2eShownAgain: typeof leaf }).e2eShownAgain = leaf;
     app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
-    for (let count = 0; iframe.clientHeight !== 0 && count < 120; count += 1) await frame();
+    const shown = (iframe ?? source)!;
+    for (let count = 0; shown.clientHeight !== 0 && count < 120; count += 1) await frame();
     await frame();
     await frame();
   });
@@ -2008,19 +2215,169 @@ async function expectSplitShownAgainAt(before: { page: PageState; source: number
   }
 }
 
-/** Writes a page whose head has 300 one-line rules, before 60 long paragraphs. */
-async function writeLongHeadPage(): Promise<string> {
+/**
+ * Writes a page whose head has 300 one-line rules, before 60 long paragraphs.
+ * With `wide`, each rule is about 50 characters long, which fits on one row
+ * of the split view's source beside the page in a pane 900 pixels wide, and
+ * wraps onto two above it in a pane 300 pixels wide. With `image`, an image
+ * of that URL follows the paragraphs.
+ */
+async function writeLongHeadPage({
+  wide = false,
+  image,
+}: { wide?: boolean; image?: string } = {}): Promise<string> {
   const rules = Array.from(
     { length: 300 },
-    (_, index) => `.rule-${index + 1} { color: #123456; }`,
+    (_, index) => `.rule-${index + 1} { color: #123456;${wide ? " background: #abcdef;" : ""} }`,
   ).join("\n");
+  const name = image ? "Long held head" : wide ? "Long wide head" : "Long head";
+  const after = image
+    ? `<img src="${image}" alt="An image that arrives only when the test says" width="16" height="16">\n`
+    : "";
+  const path = `Saved/${name}.html`;
   await writePage(
-    "Saved/Long head.html",
+    path,
     "Long head",
     `<style>\n${rules}\n</style>\n`,
-    `${paragraphs(1, 60)}\n`,
+    `${paragraphs(1, 60)}\n${after}`,
   );
-  return "Saved/Long head.html";
+  return path;
+}
+
+/**
+ * Scrolls the active tab's source, in the **Source** view or the split view,
+ * to show line `number` at its top, and marks it for sourceLine.
+ */
+async function scrollViewSourceToLine(number: number): Promise<void> {
+  await browser.execute(
+    (active, number) => {
+      const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`);
+      const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[
+        number - 1
+      ];
+      if (!source || !line) throw new Error(`No line ${number}`);
+      source.dataset.e2eMoved = "";
+      source.scrollTop = line.offsetTop;
+    },
+    ACTIVE,
+    number,
+  );
+}
+
+/** The source that a test marked with `data-e2e-moved`, in whichever window it is. */
+interface MarkedSource {
+  /** How far it is scrolled down, in CSS pixels, and the number of the first line at its top. */
+  readonly top: number;
+  readonly line: number;
+  /** How wide it is, in CSS pixels. */
+  readonly width: number;
+  readonly inWindow: boolean;
+}
+
+async function sourceLine(): Promise<MarkedSource | null> {
+  return browser.executeObsidian(({ app }) => {
+    const found: MarkedSource[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      const source = leaf.view.containerEl.querySelector<HTMLElement>(
+        ".html-page-viewer__source[data-e2e-moved]",
+      );
+      if (!source) return;
+      const lines = [...source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")];
+      found.push({
+        top: source.scrollTop,
+        line:
+          lines.findIndex((each) => each.offsetTop + each.offsetHeight > source.scrollTop + 1) + 1,
+        width: source.clientWidth,
+        inWindow: source.ownerDocument !== document,
+      });
+    });
+    return found[0] ?? null;
+  });
+}
+
+/**
+ * Checks that the marked source shows line `number` at its top, and still
+ * does a moment later, after Obsidian's resize of the view and anything else
+ * that the move or the showing starts.
+ */
+async function expectSourceAtLine(number: number): Promise<MarkedSource> {
+  let after: MarkedSource | null = null;
+  try {
+    await browser.waitUntil(
+      async () => {
+        after = await sourceLine();
+        return after?.line === number;
+      },
+      { timeout: 5000 },
+    );
+  } catch {
+    throw new Error(`The source did not show line ${number}: ${JSON.stringify(after)}`);
+  }
+  await browser.pause(500);
+  const later = (await sourceLine())!;
+  expect(later.line).toBe(number);
+  return later;
+}
+
+/**
+ * Makes a second tab group beside the active tab's, and a second tab in the
+ * active tab's tab group, so that it stays when the active tab moves to the
+ * other; the active tab shows again. The active tab's tab group is at most
+ * `own` pixels wide, and the other at most `other`, as Obsidian's panes take
+ * the width that the other leaves. Run it before the test scrolls the view:
+ * the active tab is hidden for a moment.
+ */
+async function prepareTabGroups({ own, other }: { own?: number; other?: number }): Promise<void> {
+  await browser.executeObsidian(
+    async ({ app }, own, other) => {
+      const frame = (): Promise<void> =>
+        new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      interface Tabs {
+        containerEl: HTMLElement;
+      }
+      const leaf = app.workspace.getMostRecentLeaf()!;
+      const ownTabs = (leaf as unknown as { parent: Tabs }).parent;
+      const split = app.workspace.getLeaf("split", "vertical") as unknown as { parent: Tabs };
+      if (own !== null) ownTabs.containerEl.style.setProperty("max-width", `${own}px`);
+      if (other !== null) split.parent.containerEl.style.setProperty("max-width", `${other}px`);
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      app.workspace.getLeaf("tab");
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      (window as unknown as { e2eOtherGroup: unknown }).e2eOtherGroup = split.parent;
+      for (let count = 0; count < 6; count += 1) await frame();
+    },
+    own ?? null,
+    other ?? null,
+  );
+}
+
+/**
+ * Moves the active tab into the tab group that prepareTabGroups made, with the
+ * calls that Obsidian makes when a tab is dropped on another tab group, as
+ * moveActiveTab does. The frame is marked as moveActiveTab marks it.
+ */
+async function moveToOtherGroup(): Promise<void> {
+  await browser.executeObsidian(({ app }) => {
+    interface Tabs {
+      children: unknown[];
+      removeChild(child: unknown): void;
+      insertChild(index: number, child: unknown): void;
+      selectTabIndex(index: number): void;
+    }
+    const leaf = app.workspace.getMostRecentLeaf()!;
+    const frame = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe");
+    if (frame) {
+      frame.dataset.e2eMoved = "";
+      frame.contentDocument!.documentElement.dataset.e2eBefore = "";
+    }
+    const moved = leaf as unknown as { parent: Tabs; setDimension(size: null): void };
+    const other = (window as unknown as { e2eOtherGroup: Tabs }).e2eOtherGroup;
+    moved.parent.removeChild(leaf);
+    moved.setDimension(null);
+    other.insertChild(-1, leaf);
+    other.selectTabIndex(other.children.indexOf(leaf));
+    app.workspace.setActiveLeaf(leaf, { focus: true });
+  });
 }
 
 describe("A tab shown again after Obsidian hid it", function () {
@@ -2509,6 +2866,69 @@ describe("A tab shown again after Obsidian hid it", function () {
     expect(after.inWindow).toBe(true);
     await browser.pause(500);
     expect(await pageState(true)).toMatchObject({ top: 30, line: before.line });
+  });
+
+  // Chromium lays the source out again as far down as it was, which showed
+  // line 19 in place of line 37 on both versions, with the view as main at
+  // eb926d3 has it.
+  it("keeps the Source view's line, where its view narrowed while the tab was hidden (#189)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Source");
+    await scrollViewSourceToLine(37);
+    await browser.pause(300);
+    const before = (await sourceLine())!;
+    expect(before.line).toBe(37);
+
+    await showTabAgain({ width: 500 });
+    const after = await expectSourceAtLine(37);
+    expect(after.width).toBeLessThan(before.width - 300);
+  });
+
+  // A source's line is measured at each scroll that it reports: the tab hides
+  // two frames after the scroll, within the 100 ms in which #190 lets a
+  // page's scrolling settle before it measures what the page shows.
+  it("keeps the Source view's line, where its tab hid two frames after a scroll and its view narrowed while hidden (#189)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Source");
+    await scrollViewSourceToLine(10);
+    await browser.pause(300);
+    const before = (await sourceLine())!;
+
+    await showTabAgain({ width: 500, sourceScrolledTo: 37 });
+    const after = await expectSourceAtLine(37);
+    expect(after.width).toBeLessThan(before.width - 300);
+  });
+
+  // With the view as main at eb926d3 has it, the source showed line 24 in
+  // the new window on Obsidian 1.15.1, and line 49 on 1.5.3.
+  it("keeps the Source view's line after its hidden tab moved to a new window by its tab header's menu (#189)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Source");
+    await scrollViewSourceToLine(37);
+    await browser.pause(300);
+
+    await moveHiddenTabByMenu();
+    expect((await expectSourceAtLine(37)).inWindow).toBe(true);
+  });
+
+  // With the view as main at eb926d3 has it, the placed page led, and the
+  // source showed line 194 on Obsidian 1.15.1 and 174 on 1.5.3.
+  it("keeps the split view's source at its line among a long head's after its hidden tab moved to a new window by its tab header's menu, where the source led last (#195)", async function () {
+    await openInActiveTab(await writeLongHeadPage());
+    await clickToolbarButton("Split");
+    await waitForPage();
+    await scrollViewSourceToLine(150);
+    await browser.pause(500);
+    const before = (await pageState(false))!;
+    expect(before.line).toBe(150);
+
+    await moveHiddenTabByMenu();
+    await waitForMovedPage();
+    expect((await expectSourceAtLine(150)).inWindow).toBe(true);
+    expect(Math.abs((await pageState(true))!.scrollY - before.scrollY)).toBeLessThanOrEqual(1);
   });
 
   for (const mode of ["rendered", "split"] as const) {

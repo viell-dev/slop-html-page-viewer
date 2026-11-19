@@ -229,6 +229,15 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   before that scroll; after **Split down**, the split view's source then shows where it was
   scrolled, apart from the page.
 
+  **Unreleased (#189):** after a move, also one while the tab was hidden, the **Source** view shows
+  the line that was at its top, as its long lines wrap in the new pane, instead of the same pixels,
+  which can show other lines.
+
+  **Unreleased (#195):** after a move, the split view's side that was scrolled last leads, as when
+  Obsidian shows a hidden tab again. Where that was the source, it keeps the line that was at its
+  top and the page follows it, instead of the page leading, which took the source to other lines
+  among the many short lines of a long `<head>`.
+
   **Unreleased (#178):** a page that scrolls as a whole also keeps its place when Obsidian shows its
   tab again after hiding it, as after another tab of its tab group or a collapsed sidebar, instead
   of showing from its top. In the split view, both sides go back where they were and stay in step,
@@ -237,11 +246,14 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 
   **Unreleased (#182):** where the pane changed width while the tab was hidden, as when a sidebar
   opened or closed meanwhile, the page shows the part that was at its top, and the split view's
-  source the line that was at its top, as they wrap now. A page or a source that was still
-  scrolling when the tab hid, or stopped less than a tenth of a second before, goes back as far
-  down as it was, which can show another part there.
-  The **Source** view stays scrolled as far as it was, which can show other lines
-  ([#189](https://github.com/viell-dev/slop-html-page-viewer/issues/189)).
+  source the line that was at its top, as they wrap now. A page that was still scrolling when the
+  tab hid, or stopped less than a tenth of a second before, goes back as far down as it was, which
+  can show another part there. With scripts on, the split view's source still goes back as far
+  down as it was ([#204](https://github.com/viell-dev/slop-html-page-viewer/issues/204)).
+
+  **Unreleased (#189):** the **Source** view shows the line that was at its top there too. A
+  source, unlike a page, keeps its line also where its tab hid or moved within a tenth of a second
+  of a scroll; one made in the same instant as the hide or the move is not kept.
 
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,

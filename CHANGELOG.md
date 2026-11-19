@@ -37,6 +37,15 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   tab of its tab group shows, shows its page where it was, and the split view's sides in step
   there, instead of the page from its top. So does a hidden tab whose tab group Obsidian lays out
   anew, as for **Split down** in the tab in front of it (#186).
+- The **Source** view shows the line that was at its top when its tab moves to another tab group
+  or window, or shows again after its pane changed width while the tab was hidden, as its long
+  lines wrap there, instead of going back as far down as it was scrolled, which showed other lines.
+  The split view's source keeps its line too where its tab hides or moves within a tenth of a
+  second of a scroll (#189).
+- After a tab moves to another tab group or window, the split view's side that was scrolled last
+  leads, as when Obsidian shows a hidden tab again. Where that was the source, it keeps its line
+  and the page follows it, instead of the page leading, which took the source to other lines among
+  the many short lines of a long `<head>` (#195).
 - A page whose stylesheets import each other many times opens in moments instead of keeping
   Obsidian from responding for seconds to hours: for each page, the viewer follows at most 1,000
   links and imports of vault stylesheets and copies at most 16 million characters of their text,
