@@ -1350,66 +1350,90 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
   ).join("\n")}`;
 
   /**
-   * The view of LONG in Obsidian's main window, with the window's observers
-   * and animation frames, its frame's page laid out by `laidOutPage`, and in
-   * the split view its source by `laidOutSource`. The frame is 200 pixels
-   * high. `hide` does what Chromium does when Obsidian hides the tab with
-   * `display: none`: the frame has no size, and its page goes to its start
-   * and reports that; then the window's observers report. `show` lays the
-   * frame out again, and they report.
+   * The view of LONG in Obsidian's main window, which holds it, with the
+   * window's observers and animation frames, its frame's page laid out by
+   * `laidOutPage`, and in the split view its source by `laidOutSource`. The
+   * frame is 200 pixels high. `reportSource` has Chromium report where the
+   * source is scrolled to, as it does in its next frame.
+   *
+   * `hide` does what Chromium does when Obsidian hides the tab with
+   * `display: none`: the frame has no size, its page goes to its start and
+   * reports that, the source reads as at its start, and then the window's
+   * observers report. `show` lays the frame out again and has the observers
+   * report. Given `sourceAt`, Chromium lays the source out there, and
+   * reports it before the frame's observer reports, with `reportsFirst`, or
+   * in the frame after.
    */
   async function hiddenView(mode: "Rendered" | "Split") {
     const { report } = resizeObservers(window);
     const frames = animationFrames(window);
     const harness = await Harness.load();
     const view = harness.newView();
+    document.body.append(view.contentEl);
     harness.open(view, "Long.html", LONG);
+    // The source is laid out before the page shows, so that the split view
+    // measures its lines.
     const source = mode === "Split" ? (button(view, "Split").click(), laidOutSource(view)) : null;
     const page = pageLayout();
     await loadFrame(view, laidOutPage(page));
     const iframe = view.contentEl.querySelector("iframe")!;
+    const sourceEl = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source");
     layOutFrame(iframe, 200);
     // A window's first report gives the sizes that the elements have then.
     report();
+    const reportSource = (): void => {
+      sourceEl?.dispatchEvent(new window.Event("scroll"));
+    };
     return {
       view,
       page,
       source,
+      sourceEl,
       frames,
+      reportSource,
       hide: (): void => {
         layOutFrame(iframe, 0);
         page.scrollY = 0;
         page.win!.dispatchEvent(new page.win!.Event("scroll"));
+        source?.jump(0);
         report();
       },
-      show: (): void => {
+      show: ({
+        sourceAt,
+        reportsFirst = false,
+      }: { sourceAt?: number; reportsFirst?: boolean } = {}) => {
         layOutFrame(iframe, 200);
+        if (sourceAt !== undefined) source?.jump(sourceAt);
+        if (reportsFirst) reportSource();
         report();
+        if (!reportsFirst) reportSource();
+      },
+      end: (): void => {
+        view.contentEl.remove();
+        delete (window as { ResizeObserver?: unknown }).ResizeObserver;
+        delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
       },
     };
   }
 
-  const end = (): void => {
-    delete (window as { ResizeObserver?: unknown }).ResizeObserver;
-    delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
-  };
-
   it("shows the rendered view's page where it was", async () => {
+    const shown = await hiddenView("Rendered");
     try {
-      const { page, hide, show } = await hiddenView("Rendered");
+      const { page, hide, show } = shown;
       readerScrollsPage(page, 500);
       hide();
       assert.deepEqual(page.scrolledTo, []);
       show();
       assert.deepEqual(page.scrolledTo, [500]);
     } finally {
-      end();
+      shown.end();
     }
   });
 
   it("shows the page where the find bar scrolled it, also before Chromium reported that scroll", async () => {
+    const shown = await hiddenView("Rendered");
     try {
-      const { view, page, hide, show } = await hiddenView("Rendered");
+      const { view, page, hide, show } = shown;
       readerScrollsPage(page, 500);
       // The find bar scrolls the page to paragraph 3's match in one step,
       // which Chromium would report in its next frame.
@@ -1431,40 +1455,140 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
       assert.deepEqual(page.scrolledTo, [200]);
       field.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
     } finally {
-      end();
+      shown.end();
     }
   });
 
-  it("follows no side of the split view while the frame is hidden, and has the page lead once it shows again", async () => {
+  // Chromium lays a split view's source whose lines wrap out some lines from
+  // where it was, and reports that during the task that shows the tab, or in
+  // the frame after the frame's observer reports.
+  for (const reportsFirst of [true, false]) {
+    it(`puts the split view's source back where Chromium lays it out elsewhere, ${reportsFirst ? "before" : "after"} the frame's observer reports, and leads neither side with it`, async () => {
+      const shown = await hiddenView("Split");
+      try {
+        const { page, source, frames, reportSource, hide, show } = shown;
+        // Paragraph 6, on line 8, at the page's top; the source follows.
+        readerScrollsPage(page, 500);
+        frames.run();
+        reportSource();
+        assert.deepEqual(source!.scrolledTo, [150]);
+        hide();
+        frames.run();
+        assert.deepEqual(source!.scrolledTo, [150], "the source does not follow the hidden page");
+        // Line 10.
+        show({ sourceAt: 190, reportsFirst });
+        frames.run();
+        assert.deepEqual(source!.scrolledTo, [150, 150], "the source goes back to line 8");
+        assert.deepEqual(page.scrolledTo, [500], "and the page to paragraph 6");
+        frames.run();
+        assert.deepEqual(source!.scrolledTo, [150, 150]);
+        assert.deepEqual(page.scrolledTo, [500]);
+      } finally {
+        shown.end();
+      }
+    });
+  }
+
+  for (const reportsFirst of [true, false]) {
+    it(`puts a source that led back where it was, where Chromium lays it out elsewhere, ${reportsFirst ? "before" : "after"} the frame's observer reports, and the page stays`, async () => {
+      const shown = await hiddenView("Split");
+      try {
+        const { page, source, frames, hide, show } = shown;
+        source!.readerScrolls(150);
+        frames.run();
+        page.win!.dispatchEvent(new page.win!.Event("scroll"));
+        assert.deepEqual(page.scrolledTo, [500]);
+        hide();
+        show({ sourceAt: 190, reportsFirst });
+        frames.run();
+        frames.run();
+        assert.deepEqual(source!.scrolledTo, [150], "back at line 8");
+        assert.deepEqual(page.scrolledTo, [500, 500], "the page goes back to paragraph 6");
+      } finally {
+        shown.end();
+      }
+    });
+  }
+
+  it("has the source that the reader scrolled last lead the sides in step, where the page's paragraphs changed height while hidden", async () => {
+    const shown = await hiddenView("Split");
     try {
-      const { page, source, frames, hide, show } = await hiddenView("Split");
-      // Paragraph 6, on line 8, at the page's top; the source follows.
+      const { page, source, frames, hide, show } = shown;
+      // Line 8, paragraph 6's, at the source's top; the page follows.
+      source!.readerScrolls(150);
+      frames.run();
+      page.win!.dispatchEvent(new page.win!.Event("scroll"));
+      assert.deepEqual(page.scrolledTo, [500]);
+      hide();
+      // As where the pane changed width while the tab was hidden.
+      page.height = 80;
+      show({ sourceAt: 150 });
+      assert.deepEqual(page.scrolledTo, [500, 500], "the page goes back as far down as it was");
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [500, 500, 400], "and follows the source to paragraph 6");
+      assert.deepEqual(source!.scrolledTo, [], "the source stays at line 8");
+    } finally {
+      shown.end();
+    }
+  });
+
+  // Chromium's report of the source, before the frame's observer reports,
+  // leads neither.
+  for (const reportsFirst of [true, false]) {
+    it(`has the page that led last lead the sides in step once, where its paragraphs changed height while hidden, ${reportsFirst ? "with the source's report first" : "with the frame's observer first"}`, async () => {
+      const shown = await hiddenView("Split");
+      try {
+        const { page, source, frames, reportSource, hide, show } = shown;
+        readerScrollsPage(page, 500);
+        frames.run();
+        reportSource();
+        hide();
+        page.height = 80;
+        show({ sourceAt: 190, reportsFirst });
+        frames.run();
+        // 500 pixels down is a quarter into paragraph 7, on line 9.
+        assert.deepEqual(source!.scrolledTo, [150, 150, 175]);
+        assert.deepEqual(page.scrolledTo, [500]);
+        reportSource();
+        frames.run();
+        assert.deepEqual(source!.scrolledTo, [150, 150, 175], "once");
+      } finally {
+        shown.end();
+      }
+    });
+  }
+
+  it("follows the reader's scroll of the split view's source as the tab shows again", async () => {
+    const shown = await hiddenView("Split");
+    try {
+      const { page, source, sourceEl, frames, reportSource, hide, show } = shown;
       readerScrollsPage(page, 500);
       frames.run();
-      assert.deepEqual(source!.scrolledTo, [150]);
+      reportSource();
       hide();
+      // The watch of the reader counts input from the task after the hiding.
+      await settle();
+      // Line 10, as the reader's wheel scrolls the source before the frame's
+      // observer reports.
+      sourceEl!.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+      show({ sourceAt: 190, reportsFirst: true });
       frames.run();
-      assert.deepEqual(source!.scrolledTo, [150], "the source does not follow the hidden page");
-      // As where Chromium lays the source out elsewhere.
-      source!.jump(40);
-      show();
-      assert.deepEqual(page.scrolledTo, [500]);
-      frames.run();
-      assert.deepEqual(source!.scrolledTo, [150, 150], "the source follows to line 8 again");
-      assert.deepEqual(page.scrolledTo, [500]);
+      assert.deepEqual(source!.scrolledTo, [150], "the source is not sent back");
+      assert.deepEqual(page.scrolledTo, [500, 700], "the page follows it to paragraph 8");
     } finally {
-      end();
+      shown.end();
     }
   });
 
   it("follows the reader's scroll of the split view's source that Chromium reports with the page's going back (#157)", async () => {
+    const shown = await hiddenView("Split");
     try {
-      const { page, source, frames, hide, show } = await hiddenView("Split");
+      const { page, source, frames, reportSource, hide, show } = shown;
       readerScrollsPage(page, 500);
       frames.run();
-      assert.deepEqual(source!.scrolledTo, [150]);
+      reportSource();
       hide();
-      show();
+      show({ sourceAt: 150 });
       assert.deepEqual(page.scrolledTo, [500]);
       // The reader scrolls the source to line 10 before Chromium's next
       // frame, which reports the source's scroll, in Obsidian's window, before
@@ -1475,7 +1599,7 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
       assert.deepEqual(page.scrolledTo, [500, 700], "the page follows to paragraph 8");
       assert.deepEqual(source!.scrolledTo, [150], "the source is not sent back");
     } finally {
-      end();
+      shown.end();
     }
   });
 });

@@ -1644,44 +1644,66 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
   });
 });
 
+/** What showTabAgain saw while the tab was hidden, and whether it shows again. */
+interface ShownAgain {
+  /** How far down the tab's page was while hidden, or null without a page. */
+  readonly hiddenPageY: number | null;
+  readonly active: boolean;
+  readonly connected: boolean;
+}
+
 /**
- * Opens a new tab in the active tab's tab group, which hides the active tab
- * with `display: none` while it shows, and then shows the active tab again by
- * clicking its tab header, as the reader does (#178). The tab's frame, if it
- * has one, is marked as moveActiveTab marks it, for pageState(true) to find,
- * and so is its source, for movedSource.
+ * Hides the active tab behind a new tab of its tab group, as the tab group's
+ * new-tab button does, and shows it again through Obsidian's API, which a
+ * click on its tab header calls (#178).
+ *
+ * Before the hide, it waits for Chromium to report the scrolling that the
+ * test has done, which a scroll still unreported when the tab hides would
+ * lose. It shows the tab again in the frame after the hidden page's scroll
+ * to its start has been reported, when the split view would have followed
+ * it. With `layoutFirst`, the task that shows the tab also reads the view's
+ * layout, as Obsidian's handling of a click on the tab header does: then
+ * Chromium lays the view out in that task, and the split view's source
+ * reports where it laid it out before the frame's ResizeObserver reports.
+ * Otherwise the observer reports first. The frame and the source are marked
+ * as moveActiveTab marks them, for pageState(true) and movedSource to find.
  */
-async function showTabAgain(): Promise<void> {
-  await browser.executeObsidian(({ app }) => {
+async function showTabAgain({ layoutFirst = true } = {}): Promise<ShownAgain> {
+  const shown = await browser.executeObsidian(async ({ app }, layoutFirst) => {
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    await frame();
+    await frame();
     const leaf = app.workspace.getMostRecentLeaf()!;
-    leaf.view.containerEl.querySelector("iframe")?.setAttribute("data-e2e-moved", "");
-    leaf.view.containerEl
-      .querySelector(".html-page-viewer__source")
-      ?.setAttribute("data-e2e-moved", "");
+    const container = leaf.view.containerEl;
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe");
+    const source = container.querySelector<HTMLElement>(".html-page-viewer__source");
+    iframe?.setAttribute("data-e2e-moved", "");
+    source?.setAttribute("data-e2e-moved", "");
     (window as unknown as { e2eShownAgain: typeof leaf }).e2eShownAgain = leaf;
+    const win = iframe?.contentWindow ?? null;
+    let reported = !win || win.scrollY === 0;
+    win?.addEventListener("scroll", () => (reported = true), { once: true });
     app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
+    for (let count = 0; !reported && count < 120; count += 1) await frame();
+    await frame();
+    const hiddenPageY = win?.scrollY ?? null;
+    app.workspace.setActiveLeaf(leaf, { focus: true });
+    // Reading a box lays the view out now.
+    if (layoutFirst) container.getBoundingClientRect();
+    await frame();
+    await frame();
+    return {
+      hiddenPageY,
+      active: app.workspace.getMostRecentLeaf() === leaf,
+      connected: container.isConnected,
+    };
+  }, layoutFirst);
+  expect({ active: shown.active, connected: shown.connected }).toEqual({
+    active: true,
+    connected: true,
   });
-  const displayed = (): Promise<boolean> =>
-    browser.execute(() => {
-      const leaf = (window as unknown as { e2eShownAgain: { containerEl: HTMLElement } })
-        .e2eShownAgain;
-      return getComputedStyle(leaf.containerEl).display !== "none";
-    });
-  await browser.waitUntil(async () => !(await displayed()), {
-    timeout: 5000,
-    timeoutMsg: "Obsidian did not hide the tab",
-  });
-  // Chromium reports the hidden page's scroll in its next frame.
-  await nextFrames();
-  const header = await browser.execute(() => {
-    const leaf = (window as unknown as { e2eShownAgain: { tabHeaderEl: HTMLElement } })
-      .e2eShownAgain;
-    const box = leaf.tabHeaderEl.getBoundingClientRect();
-    return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
-  });
-  await browser.action("pointer").move(header).down().up().perform();
-  await browser.waitUntil(displayed, { timeout: 5000, timeoutMsg: "the tab did not show again" });
-  await nextFrames();
+  return shown;
 }
 
 /**
@@ -1714,25 +1736,57 @@ async function openLongPageSplitAtLine30(): Promise<void> {
   });
 }
 
+/** The page and the source of the tab that showTabAgain marked, or of the active tab. */
+async function splitSides(marked: boolean): Promise<{ page: PageState; source: number }> {
+  const page = (await pageState(marked))!;
+  const source = marked
+    ? (await movedSource())!.top
+    : await browser.execute(
+        (active) =>
+          document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!.scrollTop,
+        ACTIVE,
+      );
+  return { page, source };
+}
+
 /**
- * Checks that the split view of openLongPageSplitAtLine30, shown again, has
- * its page where it was, `before`, and its sides in step at line 30 and
- * paragraph 22, and that they stay there.
+ * Checks that the split view that showTabAgain showed again has its page
+ * and its source where they were, `before`, and that they stay there. A
+ * pixel of either side is allowed, as the side that led last puts the
+ * other in step from where it is.
  */
-async function expectSplitShownAgainAt(before: PageState): Promise<void> {
+async function expectSplitShownAgainAt(before: { page: PageState; source: number }): Promise<void> {
   for (const wait of [0, 500]) {
     await browser.pause(wait);
-    const after = (await pageState(true))!;
-    expect(Math.abs(after.scrollY - before.scrollY)).toBeLessThanOrEqual(1);
-    expect(Math.abs((after.line ?? 0) - 30)).toBeLessThanOrEqual(1);
-    expect(Math.abs(after.top - 22)).toBeLessThanOrEqual(1);
+    const after = await splitSides(true);
+    expect(Math.abs(after.page.scrollY - before.page.scrollY)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.source - before.source)).toBeLessThanOrEqual(1);
+    expect({ top: after.page.top, line: after.page.line }).toEqual({
+      top: before.page.top,
+      line: before.page.line,
+    });
   }
 }
 
-describe("A tab shown again after another tab of its tab group in Obsidian", function () {
+/** Writes a page whose head has 300 one-line rules, before 60 long paragraphs. */
+async function writeLongHeadPage(): Promise<string> {
+  const rules = Array.from(
+    { length: 300 },
+    (_, index) => `.rule-${index + 1} { color: #123456; }`,
+  ).join("\n");
+  await writePage(
+    "Saved/Long head.html",
+    "Long head",
+    `<style>\n${rules}\n</style>\n`,
+    `${paragraphs(1, 60)}\n`,
+  );
+  return "Saved/Long head.html";
+}
+
+describe("A tab shown again after Obsidian hid it", function () {
   beforeEach(freshTab);
 
-  it("shows its page where it was (#178)", async function () {
+  it("shows its page where it was, after another tab of its tab group (#178)", async function () {
     await writeParagraphsPage();
     await openInActiveTab(PARAGRAPHS);
     await waitForPage();
@@ -1740,7 +1794,9 @@ describe("A tab shown again after another tab of its tab group in Obsidian", fun
     const before = (await pageState(false))!;
     expect(before).toMatchObject({ top: 30 });
 
-    await showTabAgain();
+    const shown = await showTabAgain();
+    // The premise: Chromium scrolled the hidden page to its start.
+    expect(shown.hiddenPageY).toBe(0);
     await expectShownAgainAt(before);
   });
 
@@ -1763,7 +1819,6 @@ describe("A tab shown again after another tab of its tab group in Obsidian", fun
       timeout: 5000,
       timeoutMsg: "the reader's wheel did not scroll the page to its top",
     });
-    await nextFrames();
 
     await showTabAgain();
     await expectShownAgainAt({ scrollY: 0, top: 1 });
@@ -1779,7 +1834,6 @@ describe("A tab shown again after another tab of its tab group in Obsidian", fun
       timeout: 5000,
       timeoutMsg: "the find bar did not scroll the page to paragraph 45",
     });
-    await nextFrames();
     const before = (await pageState(false))!;
 
     await showTabAgain();
@@ -1791,42 +1845,161 @@ describe("A tab shown again after another tab of its tab group in Obsidian", fun
     expect(count).toBe("1 of 1");
   });
 
+  // Chromium reports the find bar's scroll only in its next frame, after the
+  // hide: the view keeps where the find bar put the page itself.
+  it("shows its page where the find bar scrolled it in the task that hid the tab (#178)", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await waitForPage();
+    await browser.$(`${ACTIVE} button[aria-label="Find in page"]`).click();
+    await browser.execute((active) => {
+      document
+        .querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)!
+        .contentWindow!.scrollTo(0, 600);
+    }, ACTIVE);
+    await nextFrames();
+    const result = await browser.executeObsidian(async ({ app }) => {
+      const frame = (): Promise<void> =>
+        new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      const leaf = app.workspace.getMostRecentLeaf()!;
+      const container = leaf.view.containerEl;
+      const win = container.querySelector("iframe")!.contentWindow!;
+      const input = container.querySelector<HTMLInputElement>(".html-page-viewer__find input")!;
+      input.value = "Paragraph 45 of";
+      input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
+      const found = win.scrollY;
+      app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
+      for (let count = 0; count < 4; count += 1) await frame();
+      const hidden = win.scrollY;
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      for (let count = 0; count < 4; count += 1) await frame();
+      return { found, hidden, after: win.scrollY };
+    });
+    expect(result.found).toBeGreaterThan(1000);
+    expect(result.hidden).toBe(0);
+    expect(result.after).toBe(result.found);
+  });
+
   it("keeps the split view's sides where they were, in step (#178)", async function () {
     await openLongPageSplitAtLine30();
-    await nextFrames();
-    const before = (await pageState(false))!;
+    const before = await splitSides(false);
 
     await showTabAgain();
     await expectSplitShownAgainAt(before);
   });
 
-  // As a quick switch to another tab and back does, a moment after the
-  // reader's last scroll. The view measures the sides again when their sizes
-  // have changed, at most once every 250 ms, and a measurement of the hidden
-  // sides would last until 250 ms after it.
+  // Where the source's lines wrap, as they do by default, Chromium lays the
+  // source out other than it was when the tab shows again: 187 px further
+  // down on Obsidian 1.15.1, and 56 px on 1.5.3, here. The view puts it back.
+  for (const layoutFirst of [true, false]) {
+    it(`keeps the split view's sides through three switches, where the source's lines wrap and the page led, ${layoutFirst ? "with the source's report first" : "with the frame's observer first"} (#178)`, async function () {
+      await writeParagraphsPage();
+      await openInActiveTab(PARAGRAPHS);
+      await clickToolbarButton("Split");
+      await waitForPage();
+      await scrollToParagraph(30, 0.5);
+      await browser.waitUntil(async () => ((await pageState(false))?.line ?? 0) > 30, {
+        timeout: 5000,
+        timeoutMsg: "the source did not follow the page to paragraph 30",
+      });
+      await browser.pause(300);
+      const before = await splitSides(false);
+      expect(before.page.top).toBe(30);
+
+      for (let round = 0; round < 3; round += 1) {
+        await showTabAgain({ layoutFirst });
+        await expectSplitShownAgainAt(before);
+      }
+    });
+  }
+
+  it("keeps the split view's sides through three switches, where the source's lines wrap and the source led (#178)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Split");
+    await waitForPage();
+    await scrollSourceToLine(40);
+    await browser.waitUntil(async () => ((await pageState(false))?.top ?? 0) > 20, {
+      timeout: 5000,
+      timeoutMsg: "the page did not follow the source to line 40",
+    });
+    await browser.pause(300);
+    const before = await splitSides(false);
+
+    for (let round = 0; round < 3; round += 1) {
+      await showTabAgain();
+      await expectSplitShownAgainAt(before);
+    }
+  });
+
+  // Many of the source's lines, those of the head, share the page's first
+  // pixels: were the page to lead, the source would go to another line.
+  it("leaves the split view's source where the reader scrolled it, among the lines of a long head (#178)", async function () {
+    await openInActiveTab(await writeLongHeadPage());
+    await clickToolbarButton("Split");
+    await waitForPage();
+    await scrollSourceToLine(150);
+    await browser.pause(500);
+    const before = await splitSides(false);
+    expect(before.page.line).toBe(150);
+
+    await showTabAgain();
+    await expectSplitShownAgainAt(before);
+  });
+
+  // The view puts the sides back in the frame of the frame's ResizeObserver;
+  // an observer made after the view's reports after it, in the same frame,
+  // and the reader's scroll there leads.
+  it("follows the reader's scroll of the split view's source in the frame in which the sides go back (#178)", async function () {
+    await openLongPageSplitAtLine30();
+    await browser.pause(500);
+    const at = await browser.executeObsidian(async ({ app }) => {
+      const frame = (): Promise<void> =>
+        new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      const leaf = app.workspace.getMostRecentLeaf()!;
+      const container = leaf.view.containerEl;
+      const iframe = container.querySelector("iframe")!;
+      const source = container.querySelector<HTMLElement>(".html-page-viewer__source")!;
+      iframe.setAttribute("data-e2e-moved", "");
+      source.setAttribute("data-e2e-moved", "");
+      app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
+      for (let count = 0; count < 4; count += 1) await frame();
+      let seen: { page: number; source: number } | null = null;
+      const observer = new ResizeObserver(() => {
+        if (iframe.clientHeight === 0 || seen !== null) return;
+        seen = { page: iframe.contentWindow!.scrollY, source: source.scrollTop };
+        const line = source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[9];
+        source.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -200 }));
+        source.scrollTop = line.offsetTop;
+      });
+      observer.observe(iframe);
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      for (let count = 0; count < 6; count += 1) await frame();
+      observer.disconnect();
+      return seen as { page: number; source: number } | null;
+    });
+    // When the reader scrolled, the page was back at paragraph 22.
+    expect(at).not.toBeNull();
+    expect(at!.page).toBe(920);
+    await browser.waitUntil(async () => ((await pageState(true))?.top ?? 99) <= 3, {
+      timeout: 5000,
+      timeoutMsg: "the page did not follow the reader's scroll of the source to line 10",
+    });
+    await browser.pause(500);
+    const after = (await pageState(true))!;
+    expect(after.line).toBe(10);
+    expect(Math.abs(after.top - 2)).toBeLessThanOrEqual(1);
+  });
+
+  // As a quick switch to another tab and back does: the tab shows again in
+  // the frame after the hidden page reported its scroll to its start, which
+  // the view does not follow, and the sides go back in step.
   it("keeps the split view's sides in step when its tab shows again at once (#178)", async function () {
     await openLongPageSplitAtLine30();
     await browser.pause(500);
-    const before = (await pageState(false))!;
+    const before = await splitSides(false);
 
-    const hidden = await browser.executeObsidian(async ({ app }) => {
-      const leaf = app.workspace.getMostRecentLeaf()!;
-      leaf.view.containerEl.querySelector("iframe")!.setAttribute("data-e2e-moved", "");
-      const frame = (): Promise<void> =>
-        new Promise((resolve) => requestAnimationFrame(() => resolve()));
-      const started = performance.now();
-      app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
-      // Chromium reports the hidden page's scroll in its next frame, and the
-      // view would follow it in the frame after.
-      for (let count = 0; count < 4; count += 1) await frame();
-      const pageY = leaf.view.containerEl.querySelector("iframe")!.contentWindow!.scrollY;
-      app.workspace.setActiveLeaf(leaf, { focus: true });
-      return { pageY, hiddenFor: performance.now() - started };
-    });
-    // The premise: Chromium scrolled the hidden page to its start.
-    expect(hidden.pageY).toBe(0);
-    expect(hidden.hiddenFor).toBeLessThan(250);
-    await nextFrames();
+    const shown = await showTabAgain({ layoutFirst: false });
+    expect(shown.hiddenPageY).toBe(0);
     await expectSplitShownAgainAt(before);
   });
 
@@ -1841,7 +2014,6 @@ describe("A tab shown again after another tab of its tab group in Obsidian", fun
       return source.scrollTop;
     }, ACTIVE);
     expect(before).toBe(571);
-    await nextFrames();
 
     await showTabAgain();
     await browser.pause(500);
@@ -1857,36 +2029,76 @@ describe("A tab shown again after another tab of its tab group in Obsidian", fun
     );
     await openInActiveTab("Saved/Scrolling column.html");
     await waitForPage();
-    await browser.execute((active) => {
+    const before = await browser.execute((active) => {
       const doc = document.querySelector<HTMLIFrameElement>(
         `${active} iframe.html-page-viewer__frame`,
       )!.contentDocument!;
       const column = doc.getElementById("column")!;
       column.scrollTop = doc.getElementById("p30")!.offsetTop;
+      return column.scrollTop;
     }, ACTIVE);
-    await nextFrames();
-    const column = async (): Promise<number | null> =>
-      browser.executeObsidian(({ app }) => {
-        let top: number | null = null;
-        app.workspace.iterateAllLeaves((leaf) => {
-          const element = leaf.view.containerEl
-            .querySelector<HTMLIFrameElement>("iframe[data-e2e-moved]")
-            ?.contentDocument?.getElementById("column");
-          if (element) top = element.scrollTop;
-        });
-        return top;
-      });
-    const before = await browser.execute(
-      (active) =>
-        document
-          .querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)!
-          .contentDocument!.getElementById("column")!.scrollTop,
-      ACTIVE,
-    );
     expect(before).toBeGreaterThan(1000);
 
     await showTabAgain();
     await browser.pause(500);
-    expect(await column()).toBe(before);
+    const after = await browser.executeObsidian(() => {
+      const leaf = (window as unknown as { e2eShownAgain: { view: { containerEl: HTMLElement } } })
+        .e2eShownAgain;
+      return (
+        leaf.view.containerEl.querySelector("iframe")?.contentDocument?.getElementById("column")
+          ?.scrollTop ?? null
+      );
+    });
+    expect(after).toBe(before);
+  });
+
+  // Obsidian hides a collapsed sidebar with display: none too.
+  it("shows its page where it was when its sidebar is expanded again (#178)", async function () {
+    await writeParagraphsPage();
+    await browser.executeObsidian(async ({ app }, path) => {
+      const leaf = app.workspace.getRightLeaf(true)!;
+      await leaf.openFile(app.vault.getAbstractFileByPath(path) as never);
+      app.workspace.rightSplit.expand();
+      app.workspace.revealLeaf(leaf);
+      leaf.view.containerEl.querySelector("iframe")?.setAttribute("data-e2e-moved", "");
+      (window as unknown as { e2eSidebarLeaf: typeof leaf }).e2eSidebarLeaf = leaf;
+    }, PARAGRAPHS);
+    try {
+      await browser.waitUntil(async () => (await pageState(true))?.readyState === "complete", {
+        timeout: 20_000,
+        timeoutMsg: "the sidebar's page did not load",
+      });
+      const result = await browser.executeObsidian(async ({ app }) => {
+        const frame = (): Promise<void> =>
+          new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        const leaf = (
+          window as unknown as { e2eSidebarLeaf: { view: { containerEl: HTMLElement } } }
+        ).e2eSidebarLeaf;
+        const iframe = leaf.view.containerEl.querySelector("iframe")!;
+        const win = iframe.contentWindow!;
+        // The sidebar can take a moment to collapse and to expand.
+        const until = async (done: () => boolean): Promise<void> => {
+          for (let count = 0; !done() && count < 120; count += 1) await frame();
+          await frame();
+          await frame();
+        };
+        win.scrollTo(0, 2000);
+        await frame();
+        await frame();
+        const before = win.scrollY;
+        app.workspace.rightSplit.collapse();
+        await until(() => iframe.clientHeight === 0);
+        const collapsed = win.scrollY;
+        app.workspace.rightSplit.expand();
+        await until(() => iframe.clientHeight !== 0);
+        return { before, collapsed, after: win.scrollY };
+      });
+      expect(result).toEqual({ before: 2000, collapsed: 0, after: 2000 });
+    } finally {
+      await browser.executeObsidian(({ app }) => {
+        (window as unknown as { e2eSidebarLeaf?: { detach(): void } }).e2eSidebarLeaf?.detach();
+        app.workspace.rightSplit.collapse();
+      });
+    }
   });
 });

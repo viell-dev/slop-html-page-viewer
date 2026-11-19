@@ -8,10 +8,12 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 
 ## Unreleased
 
-- A page that scrolls as a whole keeps its place when its tab shows again after another tab of its
-  tab group, instead of showing from its top, and the split view's two sides stay in step there.
-  Before, the split view's source kept its place while its page went to its top. A page with
-  scripts on still shows from its top, since the viewer cannot reach it (#178).
+- A page that scrolls as a whole keeps its place when Obsidian shows its tab again after hiding it,
+  as after another tab of its tab group or a collapsed sidebar, instead of showing from its top. In
+  the split view, both sides go back where they were and stay in step. Before, the page went to its
+  top, and where the source's long lines wrap, as they do by default, the source came back a few
+  lines away and the page followed it there, further at each switch. A page with scripts on still
+  shows from its top, since the viewer cannot reach it (#178).
 - A page whose stylesheets import each other many times opens in moments instead of keeping
   Obsidian from responding for seconds to hours: for each page, the viewer follows at most 1,000
   links and imports of vault stylesheets and copies at most 16 million characters of their text,

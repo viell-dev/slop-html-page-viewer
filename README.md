@@ -150,10 +150,11 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   wraps differently in its new pane. The **Source** view stays scrolled as far as it was; where long
   lines wrap differently in its new pane, that can show other lines.
 
-  **Unreleased (#178):** a page that scrolls as a whole also keeps its place when its tab shows
-  again after another tab of its tab group, instead of showing from its top, and the split view's
-  two sides stay in step there. The page goes back as far down as it was scrolled, so where its
-  pane changed width meanwhile and the page wraps differently, it can show another part
+  **Unreleased (#178):** a page that scrolls as a whole also keeps its place when Obsidian shows its
+  tab again after hiding it, as after another tab of its tab group or a collapsed sidebar, instead
+  of showing from its top. In the split view, both sides go back where they were and stay in step,
+  also where the source's long lines wrap. They go back as far down as they were scrolled, so where
+  their pane changed width meanwhile and they wrap differently, they can show another part
   ([#182](https://github.com/viell-dev/slop-html-page-viewer/issues/182)). The **Source** view, and
   the parts of a page that scroll by themselves, keep their place there, as they did before.
 
@@ -286,7 +287,7 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   window, and its scripts run again: the viewer cannot reach the page to keep its place.
 
   **Unreleased (#178):** it also starts again from its top, without running its scripts again,
-  when its tab shows again after another tab of its tab group.
+  when Obsidian shows its tab again after hiding it, as after another tab of its tab group.
 
 - **Parts of a page that scroll by themselves start again from their beginning** when its tab
   moves to another tab group or window, as does a page that scrolls only inside such a part, such as
