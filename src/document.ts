@@ -20,6 +20,7 @@ import {
   importStop,
   type CssToken,
   type ImportConditions,
+  type ImportStop,
 } from "./css";
 import { READING_STYLE_ID } from "./reading";
 
@@ -108,16 +109,20 @@ async function readStylesheet(context: PageContext, path: string): Promise<strin
   }
 }
 
-/** Text of a prepared stylesheet, and which later imports it keeps from counting (`importStop`). */
+/** Text of a prepared stylesheet, and which later imports it keeps from counting. */
 interface TextPart {
   readonly kind: "text";
   readonly text: string;
-  readonly stop: ReturnType<typeof importStop>;
+  readonly stop: ImportStop;
 }
 
 /**
  * An import that the copy keeps as an import, for the browser to load or
- * refuse: of a stylesheet from elsewhere, or one past the limits.
+ * refuse: of a stylesheet from the web; of a vault file that is missing,
+ * cannot be read, is not a `.css` file, imports itself, or lies past the
+ * depth or page limits; of one with a `}` outside any block, which would end
+ * a block form early; and one with a scope, or with support conditions where
+ * the host never applies them (#151).
  */
 interface KeptImport {
   readonly kind: "import";
@@ -125,9 +130,11 @@ interface KeptImport {
   readonly text: string;
   /** Its stylesheet's URL, or null for a reference that does not resolve. */
   readonly url: string | null;
-  /** Its conditions, or null for ones without a block form (`CssImport`). */
+  /** Its conditions as written, or null for ones without a block form (`CssImport`). */
   readonly conditions: ImportConditions | null;
 }
+
+type SheetPart = TextPart | KeptImport;
 
 /**
  * A stylesheet prepared for the copy, in order: text, and the imports that
@@ -137,15 +144,15 @@ interface KeptImport {
  * it, such as `@media`, would end early.
  */
 interface PreparedSheet {
-  readonly parts: readonly (TextPart | KeptImport)[];
+  readonly parts: readonly SheetPart[];
   readonly length: number;
   readonly strayCloser: boolean;
 }
 
-const STOPS = ["none", "after-import", "all"] as const;
+const STOPS: readonly ImportStop[] = ["blank", "none", "after-import", "all"];
 
 /** Adds a part, joining text to the text before it. Parts are shared, so never changed. */
-function addPart(parts: (TextPart | KeptImport)[], part: TextPart | KeptImport): void {
+function addPart(parts: SheetPart[], part: SheetPart): void {
   if (part.text === "") return;
   const last = parts.at(-1);
   if (part.kind === "text" && last?.kind === "text") {
@@ -208,44 +215,122 @@ function blockText(text: string, conditions: ImportConditions): string {
 }
 
 /**
- * A stylesheet's parts as an import with these conditions puts them in the
- * importing stylesheet: its text in their block forms, and its kept imports
- * with the conditions added (`composedImport`) or as text in the blocks.
- * Text is joined first, so that an anonymous layer holds the whole
- * stylesheet, as one block makes one layer.
+ * The declaration of an import's named layer, in the blocks of its other
+ * conditions, for a stylesheet in which nothing else declares it, such as an
+ * empty one: an import declares its layer where it is, whatever its
+ * stylesheet holds (#151). Without other conditions, it is an `@layer`
+ * statement, which imports may follow before the first import.
  */
-function blockParts(
-  parts: readonly (TextPart | KeptImport)[],
+function layerDeclaration(layer: string, { supports, media }: ImportConditions): TextPart {
+  const statement = `@layer ${layer};`;
+  if (supports === null && media === null)
+    return { kind: "text", text: statement, stop: "after-import" };
+  return {
+    kind: "text",
+    text: blockText(statement, { layer: null, supports, media }),
+    stop: "all",
+  };
+}
+
+/**
+ * A stylesheet's parts as an import with these conditions puts them in the
+ * importing stylesheet, with the length of what that adds to the copy, or
+ * null when that would be more than `room`. Its text goes in the conditions'
+ * block forms, but not text of only what CSS discards between rules, which
+ * reads the same outside them. Its kept imports take the conditions too
+ * (`composedImport`), or else go in the blocks as text. Text is joined first,
+ * so that an anonymous layer holds the whole stylesheet, as one block makes
+ * one layer. With `merged`, every part is text in one block, which adds the
+ * least: the kept imports are then where CSS ignores them, as in a block
+ * that the stylesheet's own text has. The work stops once what it adds
+ * passes `room`, so that a long condition, put around many parts, never
+ * builds a copy past the limit.
+ */
+function placedParts(
+  parts: readonly SheetPart[],
   conditions: ImportConditions,
-): (TextPart | KeptImport)[] {
-  const joined: (TextPart | KeptImport)[] = [];
+  room: number,
+  merged: boolean,
+): { parts: SheetPart[]; added: number } | null {
+  const joined: SheetPart[] = [];
+  let added = 0;
   for (const part of parts) {
-    const kept = part.kind === "import" ? composedImport(part, conditions) : null;
-    addPart(joined, kept ?? { kind: "text", text: part.text, stop: "all" });
+    const kept = part.kind === "import" && !merged ? composedImport(part, conditions) : null;
+    if (kept !== null) {
+      added += kept.text.length - part.text.length;
+      if (added > room) return null;
+    }
+    addPart(
+      joined,
+      kept ?? (part.kind === "import" ? { kind: "text", text: part.text, stop: "all" } : part),
+    );
   }
-  return joined.map((part) =>
-    part.kind === "import"
-      ? part
-      : { kind: "text", text: blockText(part.text, conditions), stop: "all" },
-  );
+  const wrapper = blockText("", conditions).length;
+  const placed: SheetPart[] = [];
+  let declared = false;
+  for (const part of joined) {
+    if (part.kind === "import" || part.stop === "blank") {
+      declared ||= part.kind === "import";
+      placed.push(part);
+      continue;
+    }
+    added += wrapper;
+    if (added > room) return null;
+    placed.push({ kind: "text", text: blockText(part.text, conditions), stop: "all" });
+    declared = true;
+  }
+  if (!declared && conditions.layer !== null && conditions.layer !== "") {
+    const declaration = layerDeclaration(conditions.layer, conditions);
+    added += declaration.text.length;
+    if (added > room) return null;
+    placed.unshift(declaration);
+  }
+  return { parts: placed, added };
+}
+
+/**
+ * The origin of the only stylesheets from elsewhere that a page loads in
+ * Obsidian. Obsidian's policy is `style-src 'unsafe-inline' 'self'
+ * https://fonts.googleapis.com` in 1.5.3 and 1.15.1, and the copy's own
+ * policy leaves out Obsidian's `'self'` (`pagePolicy`).
+ */
+const LOADED_STYLESHEETS_ORIGIN = "https://fonts.googleapis.com";
+
+/**
+ * Whether where a kept import stands in the copy changes how the page shows:
+ * it can load (`LOADED_STYLESHEETS_ORIGIN`), it declares a cascade layer,
+ * which an import does where it counts, also when it does not load, or it has
+ * conditions that the viewer does not read. Any other import does nothing,
+ * whether it counts or not.
+ */
+function placeMatters(part: KeptImport): boolean {
+  if (part.conditions === null || part.conditions.layer !== null) return true;
+  if (part.url === null) return false;
+  try {
+    return new URL(part.url).origin === LOADED_STYLESHEETS_ORIGIN;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * The texts of the stylesheets that the copy puts in place of a prepared
  * one, in order. An import that stays an import counts only where nothing
  * before it in its stylesheet keeps it from counting, which an imported
- * stylesheet's rules do when the copy puts them before it (#152): after them,
- * it starts a stylesheet of its own, and the parts after it follow it there.
- * Stylesheets apply in order, so each rule keeps its place in the cascade.
+ * stylesheet's rules do when the copy puts them before it (#152). After them,
+ * one whose place matters (`placeMatters`) starts a stylesheet of its own,
+ * where `split` allows another, and the parts after it follow it there; any
+ * other stays where it is. Stylesheets apply in order, so each rule keeps its
+ * place in the cascade.
  */
-function stylesheetTexts(parts: readonly (TextPart | KeptImport)[]): string[] {
+function stylesheetTexts(parts: readonly SheetPart[], split: () => boolean): string[] {
   const texts: string[] = [];
   let text = "";
   let imported = false;
   let stopped = false;
   for (const part of parts) {
     if (part.kind === "import") {
-      if (stopped) {
+      if (stopped && placeMatters(part) && split()) {
         texts.push(text);
         text = "";
         stopped = false;
@@ -259,6 +344,13 @@ function stylesheetTexts(parts: readonly (TextPart | KeptImport)[]): string[] {
 }
 
 /**
+ * The most `<style>` elements that the copy adds to a page for the imports
+ * that stay imports (`stylesheetTexts`). Past it, such an import stays where
+ * it is, where it does not count, as it does when its place does not matter.
+ */
+export const STYLE_ELEMENT_LIMIT = 1_000;
+
+/**
  * The vault stylesheets that a page's copy takes in, within the page's
  * limits, which the document and the content of its templates share, in the
  * order they are prepared. Each file is read once, however often the page
@@ -267,12 +359,45 @@ function stylesheetTexts(parts: readonly (TextPart | KeptImport)[]): string[] {
 class StylesheetBudget {
   private taken = 0;
   private text = 0;
-  /** How often `take` has kept a stylesheet out for the limits. */
+  /** How often the limits have kept something out: a stylesheet (`take`), or what `refuse` counts. */
   private refused = 0;
+  /** How many `<style>` elements the copy has added (`addStyle`). */
+  private styles = 0;
   private readonly reads = new Map<string, Promise<string | null>>();
   private readonly kept = new Map<string, PreparedSheet | null>();
 
   constructor(private readonly context: PageContext) {}
+
+  /** How much more text the copy can take in within the text limit. */
+  get room(): number {
+    return STYLESHEET_TEXT_LIMIT - this.text;
+  }
+
+  /**
+   * Takes into the text limit what the copy adds around a stylesheet's own
+   * text, which fits in `room`: the blocks of an import's conditions, and the
+   * conditions that it adds to kept imports (`placedParts`).
+   */
+  add(length: number): void {
+    this.text += length;
+  }
+
+  /** Counts something that the limits kept out of a stylesheet, as `take` counts one it refuses. */
+  refuse(): void {
+    this.refused++;
+  }
+
+  /**
+   * Whether the copy may add another `<style>` element, whose copied
+   * attributes take `length` more text: at most `STYLE_ELEMENT_LIMIT` for a
+   * page, within the text limit. One that it may add counts.
+   */
+  addStyle(length: number): boolean {
+    if (this.styles >= STYLE_ELEMENT_LIMIT || length > this.room) return false;
+    this.styles++;
+    this.text += length;
+    return true;
+  }
 
   /**
    * The text of a stylesheet to put in the copy in place of a link or an
@@ -331,8 +456,8 @@ class StylesheetBudget {
     if (!this.kept.has(url)) {
       const refused = this.refused;
       const sheet = await prepare();
-      // `prepare` uses only `take` of the budget, so the same count of
-      // refusals means that the limits left its result whole.
+      // `prepare` counts everything that the limits keep out of it, so the
+      // same count of refusals means that the limits left its result whole.
       if (this.refused === refused) this.kept.set(url, sheet);
       return sheet;
     }
@@ -705,7 +830,7 @@ export async function inlineStylesheet(
   const budget = new StylesheetBudget(context);
   const { text, tokens } = closedSheet(css);
   const sheet = await inlineImports(text, sheetUrl, context, new Set(), tokens, budget);
-  return stylesheetTexts(sheet.parts);
+  return stylesheetTexts(sheet.parts, () => budget.addStyle(0));
 }
 
 /**
@@ -834,13 +959,26 @@ async function inlineImports(
     if (sheet !== null && conditions !== null && unconditional(conditions)) {
       for (const part of sheet.parts) addPart(parts, part);
       strayCloser ||= sheet.strayCloser;
-    } else if (sheet !== null && conditions !== null && !sheet.strayCloser) {
-      for (const part of blockParts(sheet.parts, conditions)) addPart(parts, part);
-    } else {
-      // A stray "}" would end the blocks early, and the blocks' own "}" would
-      // then take the importing sheet's next rule.
-      addPart(parts, kept);
+      continue;
     }
+    // A stray "}" would end the blocks early, and the blocks' own "}" would
+    // then take the importing sheet's next rule.
+    let placed: ReturnType<typeof placedParts> = null;
+    if (sheet !== null && conditions !== null && !sheet.strayCloser) {
+      placed = placedParts(sheet.parts, conditions, budget.room, false);
+      if (placed === null) {
+        // What it adds would take the page past its text limit: one block,
+        // which adds the least, may still fit.
+        budget.refuse();
+        placed = placedParts(sheet.parts, conditions, budget.room, true);
+      }
+    }
+    if (placed === null) {
+      addPart(parts, kept);
+      continue;
+    }
+    budget.add(placed.added);
+    for (const part of placed.parts) addPart(parts, part);
   }
   addPart(parts, own(css.length));
   let length = 0;
@@ -1017,9 +1155,12 @@ async function inlineStylesheets(
       fileSheet(path, sheetUrl, context, new Set(), budget),
     );
     if (sheet === null) continue;
-    link.replaceWith(
-      ...stylesheetTexts(sheet.parts).map((text) => styleFor(link, HTML_NAMESPACE, text)),
+    const texts = stylesheetTexts(sheet.parts, () =>
+      budget.addStyle(copiedLength(link, LINK_ATTRIBUTES)),
     );
+    // One at a time: a call takes only so many arguments.
+    for (const text of texts) link.before(styleFor(link, HTML_NAMESPACE, LINK_ATTRIBUTES, text));
+    link.remove();
   }
 
   for (const style of originalStyles) {
@@ -1032,27 +1173,55 @@ async function inlineStylesheets(
       cssImports(css, tokens).length > 0
         ? stylesheetTexts(
             (await inlineImports(css, baseUrl, context, new Set(), tokens, budget)).parts,
+            () => budget.addStyle(copiedLength(style, STYLE_ATTRIBUTES)),
           )
         : [locateCssUrls(css, baseUrl, context, tokens)];
     // The element keeps the last stylesheet, which holds its own rules, and
     // the others go before it, in its namespace (`styleFor`).
     const text = styleElementText(texts.pop() ?? "");
-    for (const before of texts) style.before(styleFor(style, style.namespaceURI, before));
+    for (const before of texts)
+      style.before(styleFor(style, style.namespaceURI, STYLE_ATTRIBUTES, before));
     // Escaped before comparing, so that a style whose text needs only the escape is written too.
     if (text !== own) setStyleText(style, text);
   }
 }
 
 /**
- * A `<style>` for one of the stylesheets that the copy puts in place of a link
- * or another `<style>`, which applies as the element does: with its `media`,
- * and its `title`, which keeps it in the element's set of alternative
- * stylesheets. Those before an SVG `<style>` are SVG ones, so that parsing the
- * copy again reads them as it reads the page's.
+ * The attributes that decide how a link's stylesheet applies, which the
+ * `<style>` elements in its place get: `media`, and `title`, which keeps them
+ * in its set of alternative stylesheets. A link's `type` may have parameters,
+ * which would keep a `<style>` from applying (`isCssStyle`).
  */
-function styleFor(element: Element, namespace: string | null, text: string): Element {
+const LINK_ATTRIBUTES = ["media", "title"];
+
+/**
+ * The attributes that decide how a `<style>` applies, which those put before
+ * it get: also its `type`, which an SVG `<style>` on Chromium 114 needs in
+ * lowercase to apply (`isCssStyle`).
+ */
+const STYLE_ATTRIBUTES = ["media", "title", "type"];
+
+/** The length of an element's attributes of these names, which a `<style>` copies (`styleFor`). */
+function copiedLength(element: Element, names: readonly string[]): number {
+  let length = 0;
+  for (const name of names) length += element.getAttribute(name)?.length ?? 0;
+  return length;
+}
+
+/**
+ * A `<style>` for one of the stylesheets that the copy puts in place of a link
+ * or another `<style>`, with the attributes of these names, so that it
+ * applies as the element does. Those before an SVG `<style>` are SVG ones,
+ * so that parsing the copy again reads them as it reads the page's.
+ */
+function styleFor(
+  element: Element,
+  namespace: string | null,
+  names: readonly string[],
+  text: string,
+): Element {
   const style = element.ownerDocument.createElementNS(namespace, "style");
-  for (const name of ["media", "title"]) {
+  for (const name of names) {
     const value = element.getAttribute(name);
     if (value !== null) style.setAttribute(name, value);
   }

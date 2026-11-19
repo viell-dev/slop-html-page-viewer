@@ -82,11 +82,13 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   in Obsidian applies, still cause no reads
   ([#151](https://github.com/viell-dev/slop-html-page-viewer/issues/151)).
 
-  **Unreleased (#152):** an import that the copy keeps as an import counts after copied rules too,
-  in a `<style>` element of its own, and inside a copied stylesheet, with the conditions of that
-  stylesheet's import. A page then loads a Google Fonts import that 0.6.0 put where CSS ignores it,
-  as it loads one before any copied rules; Obsidian's policy still refuses other web and vault
-  stylesheets. Nothing more is read or copied for it
+  **Unreleased (#152):** an import of Google Fonts, or one into a cascade layer, that the copy
+  keeps as an import counts after copied rules too, in a `<style>` element of its own, and so does
+  one inside a copied stylesheet, with the conditions of that stylesheet's import. A page then
+  loads a Google Fonts import that 0.6.0 put where CSS ignores it, as it loads one before any
+  copied rules; Obsidian's policy still refuses other web and vault stylesheets. Nothing more is
+  read or copied for it. What the copy adds for conditions and new `<style>` elements counts
+  toward the page's text limit, and at most 1,000 such elements are added
   ([#152](https://github.com/viell-dev/slop-html-page-viewer/issues/152)).
 
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied

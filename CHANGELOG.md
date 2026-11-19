@@ -42,11 +42,12 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   now apply, in the layer order that their imports give. So do imports with support conditions,
   such as `supports(display: grid)`, on Obsidian versions whose Chromium applies them; Obsidian
   1.5.3's never does. Imports with a scope still do not apply, as in Chromium (#151).
-- An import of Google Fonts, or of any stylesheet that stays an import, now applies after a
-  page's imports of vault stylesheets, also inside a stylesheet imported with conditions, such as
+- An import of Google Fonts, or one into a cascade layer, now applies after a page's imports of
+  vault stylesheets, also inside a stylesheet imported with conditions, such as
   `@import "fonts.css" screen;`. The viewer puts it in a `<style>` element of its own, with the
-  rules after it, which keeps each rule's place in the cascade. `<!--` and `-->` in an imported
-  stylesheet no longer keep its rules from applying inside the conditions of its import (#152).
+  rules after it, which keeps each rule's place in the cascade; selectors that count elements and
+  the page's scripts see the new element. `<!--` and `-->` in an imported stylesheet no longer
+  keep its rules from applying inside the conditions of its import (#152).
 - After a tab moves to another window, Enter pressed right after typing in the find bar goes on
   from the match that it shows, instead of the search of what was typed taking the bar back to the
   first match a moment later. After the tab moves out of a window that then closes, the find bar

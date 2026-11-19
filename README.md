@@ -178,7 +178,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   in `@supports` blocks where Obsidian's Chromium applies such imports. Obsidian 1.5.3's Chromium
   114 never applies them, and neither does the viewer there. Imports with a scope, such as
   `@import "card.css" scope(.card);`, still stay imports: no Chromium in Obsidian applies them. A
-  stylesheet with a `}` outside any block stays an import with any of these conditions
+  stylesheet with a `}` outside any block stays an import with any of these conditions. One that
+  is empty still declares its layer where its import is, as an import does
   ([#151](https://github.com/viell-dev/slop-html-page-viewer/issues/151)).
 
 - **Copying an import can change what CSS reads in the stylesheets**
@@ -190,13 +191,25 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   `@namespace` rule applies to the importing stylesheet's later rules too, and after another
   imported stylesheet's rules, it does not apply at all.
 
-  **Unreleased (#152):** an import after copied rules starts a `<style>` element of its own,
-  together with the rules after it, so that it applies and every rule keeps its place in the
-  cascade. One inside a stylesheet imported with conditions gets those conditions in its own, as
+  **Unreleased (#152):** after copied rules, an import of Google Fonts, which Obsidian's policy
+  loads, or an import into a cascade layer, which declares the layer where it counts, starts a
+  `<style>` element of its own, together with the rules after it. It then applies, and every rule
+  keeps its place in the cascade. Any other import that stays an import does nothing wherever it
+  is, and stays where it is. The new elements come just before the page's own, with its `media`,
+  `title`, and `type`, and the page sees them: a selector that counts elements, such as
+  `:nth-child(2)` beside a `<style>`, can match another element, and the page's scripts find more
+  stylesheets through `document.styleSheets` or `document.querySelector("style")`. The viewer adds
+  at most 1,000 of them for a page; past that, such an import stays where it is, as in 0.6.0.
+
+  An import inside a stylesheet imported with conditions gets those conditions in its own, as
   `@import url(…) screen;`, unless one import cannot have both: with an anonymous layer around it,
   an anonymous layer of its own inside a named one, or media conditions of its own inside others.
-  `<!--` and `-->` between an imported stylesheet's rules become spaces. `@namespace` rules still
-  apply as before.
+  `<!--` and `-->` between an imported stylesheet's rules become spaces, and text of nothing but
+  comments and spaces takes no block. What the viewer adds for conditions, the blocks, the
+  conditions added to imports, and the attributes of the `<style>` elements it adds, counts toward
+  the page's 16 million characters of stylesheets (#154). Past them, a stylesheet imported with
+  conditions goes in one block, with its kept imports inside, where they never count, and if even
+  that does not fit, its import stays an import. `@namespace` rules still apply as before.
 
 - **A page whose stylesheets import each other many times can keep the viewer preparing it for a
   long time**, and Obsidian may not respond meanwhile, also when it opens such a page again at its

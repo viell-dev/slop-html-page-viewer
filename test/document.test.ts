@@ -571,16 +571,13 @@ describe("stylesheet limits (#154)", () => {
   it("follows at most the limit's number of imports, leaving the rest as imports", async () => {
     const names = Array.from({ length: STYLESHEET_COUNT_LIMIT + 1 }, (_, i) => `s${i}.css`);
     const ctx = context(Object.fromEntries(names.map((name, i) => [`Saved/${name}`, `.s${i}{}`])));
-    const styles = [...parse(await prepare(importing(names), ctx)).querySelectorAll("style")];
+    const text = parse(await prepare(importing(names), ctx)).querySelector("style")!.textContent;
     assert.equal(ctx.reads.length, STYLESHEET_COUNT_LIMIT);
-    assert.equal(styles[0].textContent.split("{}").length - 1, STYLESHEET_COUNT_LIMIT);
+    assert.equal(text.split("{}").length - 1, STYLESHEET_COUNT_LIMIT);
     // The one past the limit is not read, and stays an import, which
-    // Obsidian's policy keeps from loading, in a stylesheet of its own after
-    // the rules of those before it (#152).
-    assert.deepEqual(
-      styles.slice(1).map((style) => style.textContent),
-      [`@import url("${VAULT}Saved/s${STYLESHEET_COUNT_LIMIT}.css");`],
-    );
+    // Obsidian's policy keeps from loading. It declares no layer, so where it
+    // stands does not matter, and it needs no stylesheet of its own (#152).
+    assert.ok(text.endsWith(`\n@import url("${VAULT}Saved/s${STYLESHEET_COUNT_LIMIT}.css");`));
   });
 
   it("shares the count between links and imports, in the document and shadow roots alike", async () => {
@@ -778,10 +775,8 @@ describe("stylesheet limits (#154)", () => {
     const link = '<link rel="stylesheet" href="all.css">';
     const copy = parse(await prepare(link + link, ctx));
     const styles = [...copy.querySelectorAll("style")].map((style) => style.textContent);
-    // The first link's last import stays one, in a stylesheet of its own (#152).
-    assert.equal(styles.length, 2);
+    assert.equal(styles.length, 1);
     assert.equal(styles[0].split(" {}").length - 1, STYLESHEET_COUNT_LIMIT - 1);
-    assert.equal(styles[1], `@import url("${VAULT}Saved/s${STYLESHEET_COUNT_LIMIT - 1}.css");`);
     assert.equal(copy.querySelectorAll("link").length, 1);
   });
 
@@ -1092,26 +1087,33 @@ describe("import conditions (#144, #151)", () => {
 
 describe("what inlining keeps of each stylesheet's context (#152)", () => {
   const FONTS = "https://fonts.googleapis.com/css2?family=Roboto";
-  const inline = (css: string, files: Record<string, string>) =>
-    inlineStylesheet(css, `${VAULT}main.css`, { ...context(files), importSupports: true });
+  const FONTS2 = "https://fonts.googleapis.com/css2?family=Inter";
+  const WEB = "https://example.com/x.css";
+  const inline = (css: string, files: Record<string, string>, importSupports = true) =>
+    inlineStylesheet(css, `${VAULT}main.css`, { ...context(files), importSupports });
 
-  it("starts a stylesheet at an import kept after an inlined stylesheet's rules", async () => {
+  it("starts a stylesheet at an import kept after an inlined stylesheet's rules, where its place matters", async () => {
     const files = {
       "a.css": "A{}",
       "fonts.css": `@import url("${FONTS}"); F{}`,
       "c.css": `@layer y; @import url("${FONTS}"); C{}`,
       "d.css": `@charset "x"; @import url("${FONTS}"); D{}`,
       "self.css": '@import "self.css"; S{}',
+      "comment.css": "/* nothing */",
+      "statements.css": "@layer a, b;",
     };
     for (const [css, sheets] of [
-      // A web import, a missing file's, and one past the cycle limit, after an inlined stylesheet.
+      // An import of Google Fonts, which Obsidian's policy loads, and one
+      // into a layer, which it declares where it counts.
       [`@import "a.css"; @import url("${FONTS}"); p {}`, ["A{} ", `@import url("${FONTS}"); p {}`]],
       [
         '@import "a.css"; @import "missing.css" layer(m);',
         ["A{} ", `@import url("${VAULT}missing.css") layer(m);`],
       ],
-      ['@import "self.css";', [`@import url("${VAULT}self.css"); S{}`]],
-      ['@import "a.css"; @import "self.css";', ["A{} ", `@import url("${VAULT}self.css"); S{}`]],
+      // Any other does nothing, whether it counts or not: it stays where it is.
+      [`@import "a.css"; @import url("${WEB}"); p {}`, [`A{} @import url("${WEB}"); p {}`]],
+      ['@import "a.css"; @import "self.css";', [`A{} @import url("${VAULT}self.css"); S{}`]],
+      ['@import "a.css"; @import "missing.css";', [`A{} @import url("${VAULT}missing.css");`]],
       // One in an inlined stylesheet, after another's rules.
       ['@import "a.css"; @import "fonts.css";', ["A{} ", `@import url("${FONTS}"); F{}`]],
       // Before any rules, they stay together.
@@ -1121,15 +1123,31 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
         `@charset "x"; @import url("${FONTS}"); @import "d.css";`,
         [`@charset "x"; @import url("${FONTS}"); @charset "x"; @import url("${FONTS}"); D{}`],
       ],
-      // An @layer statement after an import ends the imports.
+      // So they do after a stylesheet with no rules, imported with
+      // conditions, which takes no block.
+      [
+        `@import "comment.css" screen; @import url("${FONTS}");`,
+        [`/* nothing */ @import url("${FONTS}");`],
+      ],
+      // An @layer statement after an import ends the imports, and so does one
+      // in a block.
       [
         `@import url("${FONTS}"); @import "c.css";`,
         [`@import url("${FONTS}"); @layer y; `, `@import url("${FONTS}"); C{}`],
       ],
-      // Rules after a kept import go with it; another one after them starts another.
       [
-        `@import "a.css"; @import url("${FONTS}"); @import "a.css"; @import "fonts.css";`,
-        ["A{} ", `@import url("${FONTS}"); A{} `, `@import url("${FONTS}"); F{}`],
+        `@import "statements.css" layer(t); @import url("${FONTS}");`,
+        ["@layer t {\n@layer a, b;\n} ", `@import url("${FONTS}");`],
+      ],
+      // Rules after a kept import go with it; another one after them starts
+      // another, and one right after it does not.
+      [
+        `@import "a.css"; @import url("${FONTS}"); @import url("${FONTS2}"); @import "a.css"; @import "fonts.css";`,
+        [
+          "A{} ",
+          `@import url("${FONTS}"); @import url("${FONTS2}"); A{} `,
+          `@import url("${FONTS}"); F{}`,
+        ],
       ],
     ] as const)
       assert.deepEqual(await inline(css, files), sheets, css);
@@ -1145,6 +1163,7 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
         "layer(theme)",
         [`@import url("${FONTS}") layer(theme.g);@layer theme {\n F{}\n}`],
       ],
+      ["layer", "screen", [`@import url("${FONTS}") layer screen;@media screen {\n F{}\n}`]],
       [
         "supports(c: d) print",
         "layer(theme) supports(a: b)",
@@ -1167,6 +1186,18 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
         conditions,
       );
     }
+    // Support conditions as written, also where the host never applies
+    // them, and an import whose place does not matter, which takes them too.
+    assert.deepEqual(
+      await inline(
+        '@import "x.css" screen;',
+        { "x.css": `@import url("${FONTS}") supports(a: b);\n@import url("${WEB}"); X{}` },
+        false,
+      ),
+      [
+        `@import url("${FONTS}") supports(a: b) screen;\n@import url("${WEB}") screen;@media screen {\n X{}\n}`,
+      ],
+    );
     // A reference that does not resolve stays as written, in the blocks.
     assert.deepEqual(
       await inline('@import "bad.css" screen;', { "bad.css": '@import "http://[";' }),
@@ -1174,17 +1205,75 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
     );
   });
 
+  it("puts no block around text of only what CSS discards between rules", async () => {
+    // Two Google Fonts imports, each on a line of its own after a comment.
+    const fonts = `/* Fonts */\n@import url("${FONTS}");\n@import url("${FONTS2}");\n.t {}\n`;
+    assert.deepEqual(await inline('@import "fonts.css" screen;\np {}', { "fonts.css": fonts }), [
+      `/* Fonts */\n@import url("${FONTS}") screen;\n@import url("${FONTS2}") screen;@media screen {\n\n.t {}\n\n}\np {}`,
+    ]);
+    // Any rule takes one, as one that CSS allows among imports does.
+    assert.deepEqual(
+      await inline('@import "charset.css" screen;', { "charset.css": '@charset "x";' }),
+      ['@media screen {\n@charset "x";\n}'],
+    );
+  });
+
+  it("declares the layer of an import whose stylesheet declares none, as Chromium does", async () => {
+    for (const [empty, conditions, sheet] of [
+      ["", "layer(ra)", "@layer ra; @layer rb {\nB{}\n} @layer ra { E{} }"],
+      ["\n/* c */", "layer(ra)", "@layer ra;\n/* c */ @layer rb {\nB{}\n} @layer ra { E{} }"],
+      [
+        "",
+        "layer(ra) screen",
+        "@media screen {\n@layer ra;\n} @layer rb {\nB{}\n} @layer ra { E{} }",
+      ],
+      // An anonymous layer holds nothing that can be told apart.
+      ["", "layer", " @layer rb {\nB{}\n} @layer ra { E{} }"],
+    ] as const)
+      assert.deepEqual(
+        await inline(
+          `@import "empty.css" ${conditions}; @import "b.css" layer(rb); @layer ra { E{} }`,
+          { "empty.css": empty, "b.css": "B{}" },
+        ),
+        [sheet],
+        `${JSON.stringify(empty)} ${conditions}`,
+      );
+  });
+
+  it("keeps what it adds for conditions within the text limit, and adds one block past it", async () => {
+    // Twenty kept imports, each of which would take a media query list of a
+    // million characters: one block takes it once.
+    const media = `screen${", print".repeat(150_000)}`;
+    const imports = `@import url("${FONTS}");\n`.repeat(20);
+    const [css, ...more] = await inline(`@import "x.css" ${media};`, { "x.css": `${imports}X{}` });
+    assert.deepEqual(more, []);
+    assert.equal(css, `@media ${media} {\n${imports}X{}\n}`);
+    // Its block counts, so a stylesheet that would have fit after it no longer does.
+    const big = "a{}".repeat((STYLESHEET_TEXT_LIMIT - 500_000) / 3);
+    const both = await inline(`@import "x.css" ${media}; @import "big.css";`, {
+      "x.css": "X{}",
+      "big.css": big,
+    });
+    assert.deepEqual(both, [`@media ${media} {\nX{}\n} @import url("${VAULT}big.css");`]);
+    // With no room even for that block, the import stays an import.
+    const huge = `screen${", print".repeat(STYLESHEET_TEXT_LIMIT / 7)}`;
+    assert.deepEqual(await inline(`@import "x.css" ${huge};`, { "x.css": "X{}" }), [
+      `@import url("${VAULT}x.css") ${huge};`,
+    ]);
+  });
+
   it("puts each stylesheet in a <style> of the element's own, which keeps the last", async () => {
     const ctx = context({
       "Saved/a.css": "A{}",
-      "Saved/sheet.css": '@import "a.css"; @import url(x.css); L{}',
+      "Saved/sheet.css": `@import "a.css"; @import url(${FONTS}); L{}`,
     });
     const page = parse(
       await prepare(
         [
-          '<style id="own" class="c" media="screen" title="Set">@import "a.css"; @import url(x.css); p {}</style>',
-          '<link rel="stylesheet" href="sheet.css" media="print" title="Set" id="link">',
-          '<svg><style>@import "a.css"; @import url(x.css); q {}</style></svg>',
+          `<style id="own" class="c" media="screen" title="Set">@import "a.css"; @import url(${FONTS}); p {}</style>`,
+          '<link rel="stylesheet" href="sheet.css" media="print" title="Set" id="link" type="text/css; charset=utf-8">',
+          // Chromium 114 applies an SVG <style> only with a lowercase type.
+          `<svg><style type="TEXT/CSS">@import "a.css"; @import url(${FONTS}); q {}</style></svg>`,
         ].join(""),
         ctx,
       ),
@@ -1194,48 +1283,60 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
       attributes: [...style.attributes].map(({ name, value }) => `${name}=${value}`),
       text: style.textContent,
     }));
-    const x = `@import url("${VAULT}Saved/x.css");`;
+    const kept = `@import url("${FONTS}");`;
     assert.deepEqual(styles, [
       { svg: false, attributes: ["media=screen", "title=Set"], text: "A{} " },
       {
         svg: false,
         attributes: ["id=own", "class=c", "media=screen", "title=Set"],
-        text: `${x} p {}`,
+        text: `${kept} p {}`,
       },
       { svg: false, attributes: ["media=print", "title=Set"], text: "A{} " },
-      { svg: false, attributes: ["media=print", "title=Set"], text: `${x} L{}` },
-      { svg: true, attributes: [], text: "A{} " },
-      { svg: true, attributes: [], text: `${x} q {}` },
+      { svg: false, attributes: ["media=print", "title=Set"], text: `${kept} L{}` },
+      { svg: true, attributes: ["type=TEXT/CSS"], text: "A{} " },
+      { svg: true, attributes: ["type=TEXT/CSS"], text: `${kept} q {}` },
     ]);
     // A repeat of the link gets the same stylesheets, prepared once (#154).
     const repeat = context({
       "Saved/a.css": "A{}",
-      "Saved/sheet.css": '@import "a.css"; @import url(x.css);',
+      "Saved/sheet.css": `@import "a.css"; @import url(${FONTS});`,
     });
     const link = '<link rel="stylesheet" href="sheet.css">';
     const copy = parse(await prepare(link + link, repeat));
     assert.deepEqual(
       [...copy.querySelectorAll("style")].map((style) => style.textContent),
-      ["A{} ", x, "A{} ", x],
+      ["A{} ", kept, "A{} ", kept],
     );
-    assert.deepEqual(repeat.reads, ["Saved/sheet.css", "Saved/a.css", "Saved/x.css"]);
+    assert.deepEqual(repeat.reads, ["Saved/sheet.css", "Saved/a.css"]);
   });
 
   it("keeps a kept import after an inlined one in every place, and copies files alike", async () => {
-    const css = '@import "a.css"; @import url(x.css); p { background: url(dot.png) }';
-    for (const { place, texts, copies } of await everyPlace(css, {
-      "Saved/a.css": "a { background: url(dot.png) }",
-    })) {
-      assert.equal(texts.length, 2, place);
-      assert.match(texts[1], /^@import url\("[^"]+\/Saved\/x\.css"\);/, place);
-      assert.deepEqual(copies, place.includes("copying") ? ["Saved/dot.png"] : [], place);
+    for (const [kept, count] of [
+      [FONTS, 2],
+      [WEB, 1],
+    ] as const) {
+      const css = `@import "a.css"; @import url(${kept}); p { background: url(dot.png) }`;
+      for (const { place, texts, copies } of await everyPlace(css, {
+        "Saved/a.css": "a { background: url(dot.png) }",
+      })) {
+        assert.equal(texts.length, count, place);
+        assert.ok(texts.at(-1)!.includes(`@import url("${kept}");`), place);
+        assert.deepEqual(copies, place.includes("copying") ? ["Saved/dot.png"] : [], place);
+      }
     }
   });
 
   it("turns <!-- and --> between a stylesheet file's rules into spaces, which a block keeps", async () => {
-    const files = { "old.css": '<!-- p { color: green } --> a { b: "<!--" } <!--' };
+    const files = {
+      "old.css": '<!-- p { color: green } --> a { b: "<!--" } <!--',
+      "open.css": "<!-- p { color: green } --> a {",
+    };
     assert.deepEqual(await inline('@import "old.css" screen;', files), [
       '@media screen {\n  p { color: green }   a { b: "<!--" }  \n}',
+    ]);
+    // Also in a file that CSS closes at its end.
+    assert.deepEqual(await inline('@import "open.css" screen;', files), [
+      "@media screen {\n  p { color: green }   a {}\n}",
     ]);
     // The importing stylesheet's own stay, where CSS discards them.
     assert.deepEqual(await inline('<!-- @import "old.css"; -->', files), [

@@ -396,23 +396,37 @@ function closingParenthesis(tokens: readonly CssToken[], open: number, to: numbe
   return -1;
 }
 
+/** The index of the first token from `i` on that is not a comment. */
+function skipComments(tokens: readonly CssToken[], i: number): number {
+  while (tokens[i]?.kind === "comment") i++;
+  return i;
+}
+
 /**
- * The layer name between the parentheses of `layer()`, as written, or null
- * when it is not one: identifiers joined by `.`, with nothing between them, and
- * spaces or comments around the whole, as Chromium 114 and 150 read it. With a
- * space beside a dot, a dot at the end, a number, or a comma, they read
- * `layer()` as part of the media query list, which then never matches.
+ * The layer name between the parentheses of `layer()`, its identifiers as
+ * written, joined by `.`, or null when it is not one. Chromium 114 and 150
+ * read identifiers joined by `.`, with comments but no spaces between them,
+ * and spaces or comments around the whole: with a comment beside its dot,
+ * `a.b` is still `a.b`. With a space beside a dot, a dot at the end, a number,
+ * or a comma, they read
+ * `layer()` as part of the media query list, which then never matches. The
+ * comments are left out, so that the name reads the same in a block's prelude.
  */
 function layerName(css: string, tokens: readonly CssToken[], from: number, to: number) {
-  let i = skipBlank(tokens, from, to);
-  const start = i;
   const ident = (token: CssToken | undefined) =>
     token?.kind === "name" && identifierStart(css, token.start);
+  let i = skipBlank(tokens, from, to);
   if (!ident(tokens[i])) return null;
-  while (tokens[i + 1]?.kind === "delim" && tokens[i + 1].value === "." && ident(tokens[i + 2]))
-    i += 2;
-  if (skipBlank(tokens, i + 1, to) !== to) return null;
-  return css.slice(tokens[start].start, tokens[i].end);
+  let name = css.slice(tokens[i].start, tokens[i].end);
+  for (;;) {
+    const dot = skipComments(tokens, i + 1);
+    if (tokens[dot]?.kind !== "delim" || tokens[dot].value !== ".") break;
+    const next = skipComments(tokens, dot + 1);
+    if (!ident(tokens[next])) return null;
+    name += `.${css.slice(tokens[next].start, tokens[next].end)}`;
+    i = next;
+  }
+  return skipBlank(tokens, i + 1, to) === to ? name : null;
 }
 
 /**
@@ -508,21 +522,35 @@ export function cssImports(css: string, tokens: readonly CssToken[] = cssTokens(
     }
     if (token.kind !== "at-keyword") break;
     const rule = topLevelRule(tokens, i);
-    if (isKeyword(token.value, "@import")) {
+    const place = importPlace(tokens, rule);
+    if (place === "import") {
       // Browsers drop a malformed import, so it leaves later imports in place.
       beforeImports = false;
       const found = importRule(css, tokens, rule);
       if (found !== null) imports.push(found);
-    } else if (isKeyword(token.value, "@layer")) {
-      if (!beforeImports || rule.ending !== ";") break;
-    } else if (
-      !isKeyword(token.value, "@charset") &&
-      !isKeyword(token.value, "@supports-condition")
-    )
-      break;
+    } else if (place === "other" || (place === "layer statement" && !beforeImports)) break;
     i = rule.end;
   }
   return imports;
+}
+
+/**
+ * Where a top-level rule may stand among a stylesheet's imports, as CSS
+ * Cascade 5 orders them: an import; an `@layer` statement, only before the
+ * first import; `@charset` and `@supports-condition`, anywhere among them; or
+ * any other rule, which ends them.
+ */
+function importPlace(
+  tokens: readonly CssToken[],
+  rule: TopLevelRule,
+): "import" | "layer statement" | "among imports" | "other" {
+  const { kind, value } = tokens[rule.start];
+  if (kind !== "at-keyword") return "other";
+  if (isKeyword(value, "@import")) return "import";
+  if (isKeyword(value, "@layer")) return rule.ending === ";" ? "layer statement" : "other";
+  return isKeyword(value, "@charset") || isKeyword(value, "@supports-condition")
+    ? "among imports"
+    : "other";
 }
 
 /** An import rule that names a string or URL and ends with its `;`, or null. */
@@ -560,36 +588,32 @@ function tokenAt(tokens: readonly CssToken[], offset: number): number {
 }
 
 /**
- * Which imports after it the text from `from` to `to` keeps from counting,
- * when it is made of whole top-level rules and starts a stylesheet or follows
- * text that imports may follow: none, when it holds only what CSS allows
- * among imports (`cssImports`), with no `@layer` statement; those after an
- * import before it, when it also holds `@layer` statements, which CSS allows
- * only before the first import; or all of them, when it holds any other rule.
+ * Which imports after it a stylesheet's text keeps from counting, from least
+ * to most: none, as it holds only what CSS discards between rules (`blank`);
+ * none, as it holds only what CSS allows anywhere among imports; those after
+ * an import before it, as it also holds `@layer` statements, which CSS allows
+ * only before the first import; or all of them, as it holds any other rule.
  */
-export function importStop(
-  tokens: readonly CssToken[],
-  from: number,
-  to: number,
-): "none" | "after-import" | "all" {
-  let stop: "none" | "after-import" = "none";
+export type ImportStop = "blank" | "none" | "after-import" | "all";
+
+/**
+ * What the text from `from` to `to` keeps later imports from (`ImportStop`),
+ * when it is made of whole top-level rules and starts a stylesheet or follows
+ * text that imports may follow (`importPlace`).
+ */
+export function importStop(tokens: readonly CssToken[], from: number, to: number): ImportStop {
+  let stop: ImportStop = "blank";
   for (let i = tokenAt(tokens, from); i < tokens.length && tokens[i].start < to;) {
-    const token = tokens[i];
-    if (betweenRules(token)) {
+    if (betweenRules(tokens[i])) {
       i++;
       continue;
     }
-    if (token.kind !== "at-keyword") return "all";
+    if (tokens[i].kind !== "at-keyword") return "all";
     const rule = topLevelRule(tokens, i);
-    if (isKeyword(token.value, "@layer")) {
-      if (rule.ending !== ";") return "all";
-      stop = "after-import";
-    } else if (
-      !isKeyword(token.value, "@import") &&
-      !isKeyword(token.value, "@charset") &&
-      !isKeyword(token.value, "@supports-condition")
-    )
-      return "all";
+    const place = importPlace(tokens, rule);
+    if (place === "other") return "all";
+    if (place === "layer statement") stop = "after-import";
+    else if (stop === "blank") stop = "none";
     i = rule.end;
   }
   return stop;

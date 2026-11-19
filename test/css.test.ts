@@ -204,6 +204,8 @@ describe("import conditions (#144, #151)", () => {
       [" layer(/**/a/**/)", { layer: "a" }],
       [String.raw` layer(\31 a.b\.c)`, { layer: String.raw`\31 a.b\.c` }],
       [" layer(initial)", { layer: "initial" }],
+      // Comments beside a dot, which Chromium 114 and 150 read as nothing there.
+      [" layer(a/**/./**/b)", { layer: "a.b" }],
       [" supports(display: grid)", { supports: "display: grid" }],
       [" SUPPORTS( display: grid )", { supports: " display: grid " }],
       [
@@ -248,8 +250,7 @@ describe("import conditions (#144, #151)", () => {
       // Chromium 150 drops an import whose support conditions are empty.
       " supports()",
       " supports( /**/ )",
-      // Not one in Chromium 114 and 150, which this does not read.
-      " layer(a/**/.b)",
+      " layer(a/**/ .b)",
     ])
       assert.equal(conditions(css), null, JSON.stringify(css));
   });
@@ -259,11 +260,12 @@ describe("what a stylesheet's text keeps later imports from (#152)", () => {
   const stop = (css: string) => importStop(cssTokens(css), 0, css.length);
 
   it("tells text that imports may follow from text that keeps them from counting", () => {
+    for (const css of ["", " /* a */ <!-- -->"])
+      assert.equal(stop(css), "blank", JSON.stringify(css));
     for (const css of [
-      "",
-      " /* a */ <!-- -->",
       '@charset "utf-8";',
       "@supports-condition --x { (a: b) }",
+      " /**/ @charset 'x';",
     ])
       assert.equal(stop(css), "none", JSON.stringify(css));
     for (const css of ["@layer a;", "@layer a, b; @charset 'x';"])
@@ -286,6 +288,7 @@ describe("what a stylesheet's text keeps later imports from (#152)", () => {
     assert.equal(importStop(tokens, 0, first.start), "after-import");
     assert.equal(importStop(tokens, first.end, css.length), "all");
     assert.equal(importStop(tokens, first.start, first.end), "none");
+    assert.equal(importStop(tokens, first.end, first.end + 1), "blank");
   });
 });
 

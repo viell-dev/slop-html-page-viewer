@@ -465,10 +465,18 @@ describe("A page's local files in Obsidian", function () {
       `<style>@import "Import rules/supported.css" supports(display: grid);</style>`,
       `<style>@import "Import rules/unsupported.css" supports(display: nonsense);</style>`,
       `<style>@import "Import rules/scoped.css" scope(.scope);</style>`,
+      // An empty stylesheet still declares its layer where its import is, and
+      // a layer name with a comment beside its dot is still one.
+      `<style>@import "Import rules/empty.css" layer(ea); @import "Import rules/empty b.css" layer(eb); @layer ea { #empty { color: ${red} } }</style>`,
+      `<style>@import "Import rules/comment name.css" layer(cm/**/.x);</style>`,
       // #152: imports that stay imports count after an inlined stylesheet's
       // rules, and inside a stylesheet imported with a media query list, whose
-      // "<!--" and "-->" between rules start none.
-      `<style>@import "Import rules/local.css"; @import url("${web}/kept.css");</style>`,
+      // "<!--" and "-->" between rules start none. The one into a layer
+      // declares it, so its place matters, as that of Google Fonts would. An
+      // SVG <style> applies on Chromium 114 only with a lowercase type, which
+      // the stylesheet split from it keeps.
+      `<style>@import "Import rules/local.css"; @import url("${web}/kept.css") layer(kept);</style>`,
+      `<svg width="0" height="0"><style type="TEXT/CSS">@import "Import rules/svg a.css"; @import url("${web}/svg.css") layer(svgk); #svgown { color: ${green} }</style></svg>`,
       `<style>@import "Import rules/web fonts.css" screen;</style>`,
       `<style>@import "Import rules/markers.css" screen;</style>`,
       // #155: the page's own stylesheets end where CSS ends them too. A linked
@@ -483,7 +491,8 @@ describe("A page's local files in Obsidian", function () {
       [
         ...["string", "comment", "url", "block", "ghost", "placed", "bom", "layered"],
         ...["linktail", "styletail", "urltail", "ordered", "declared", "conditional"],
-        ...["supported", "unsupported", "local", "webfonts", "markers"],
+        ...["supported", "unsupported", "local", "webfonts", "markers", "empty"],
+        ...["commentname", "svgown", "svgimported"],
       ]
         .map((id) => `<p id="${id}">${id}</p>`)
         .join("") + `<div class="scope"><p id="scoped">scoped</p></div>`;
@@ -511,6 +520,10 @@ describe("A page's local files in Obsidian", function () {
       "Import rules/local.css": `#local { color: ${green} }`,
       "Import rules/web fonts.css": `@import url("${web}/fonts.css"); #webfonts { color: ${green} }`,
       "Import rules/markers.css": `<!-- #markers { color: ${green} } -->`,
+      "Import rules/empty.css": "",
+      "Import rules/empty b.css": `#empty { color: ${green} }`,
+      "Import rules/comment name.css": `#commentname { color: ${green} }`,
+      "Import rules/svg a.css": `#svgimported { color: ${green} }`,
       "Import rules.html":
         `${styles}<p id="plain">plain</p>${paragraphs}` +
         `<div id="host"><template shadowrootmode="open">${styles}${paragraphs}</template></div>`,
@@ -615,14 +628,32 @@ describe("A page's local files in Obsidian", function () {
         local: root.local.color,
         webfonts: root.webfonts.color,
         markers: root.markers.color,
+        empty: root.empty.color,
+        commentname: root.commentname.color,
+        svgown: root.svgown.color === plain ? "not applied" : root.svgown.color,
+        svgimported: root.svgimported.color === plain ? "not applied" : root.svgimported.color,
       }));
     }
 
     // Whether this host's Chromium applies an import's support conditions,
     // which Chromium 114 never does (#151).
     let importSupports = false;
+    // Whether it applies an SVG <style> whose type is not in lowercase, which
+    // Chromium 114 does not (#147).
+    let svgTypeAnyCase = false;
     before(async function () {
       importSupports = await browser.execute(() => "supportsText" in CSSImportRule.prototype);
+      svgTypeAnyCase = await browser.execute(() => {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+        style.setAttribute("type", "TEXT/CSS");
+        style.textContent = "#e2e-svg-type-probe {}";
+        svg.append(style);
+        document.body.append(svg);
+        const applies = (style as SVGStyleElement).sheet !== null;
+        svg.remove();
+        return applies;
+      });
     });
 
     /** What Chromium shows, and the viewer too, on this host. */
@@ -649,6 +680,10 @@ describe("A page's local files in Obsidian", function () {
         local: green,
         webfonts: green,
         markers: green,
+        empty: green,
+        commentname: green,
+        svgown: svgTypeAnyCase ? green : "not applied",
+        svgimported: svgTypeAnyCase ? green : "not applied",
       };
     }
 
@@ -666,6 +701,8 @@ describe("A page's local files in Obsidian", function () {
         "kept.css",
         "missing.css",
         "scoped.css scope(.scope)",
+        // Only where the SVG <style> applies.
+        ...(svgTypeAnyCase ? ["svg.css"] : []),
         ...(importSupports
           ? []
           : [
