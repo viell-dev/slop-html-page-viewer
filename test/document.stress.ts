@@ -100,12 +100,15 @@ describe("preparing a page whose stylesheets import each other many times (#154)
     const rule = 'a.card:hover { color: blue; content: "example"; } /* ordinary comment */\n';
     const rules = rule.repeat(Math.ceil(20_000 / rule.length));
     const { text, copies } = await prepareFanOut(rules);
-    // Every level's file has the same length, so as many fit as the limit holds.
-    const fit = Math.floor(STYLESHEET_TEXT_LIMIT / sheet(0, rules).length);
+    // Every level's file has the same length, and each of its imports takes
+    // the length that it would have as a kept import, made absolute (#177),
+    // so as many fit as the limit holds.
+    const kept =
+      `@import url("${context.vaultUrl}Saved/1.css");`.length - '@import "1.css";'.length;
+    const fit = Math.floor(STYLESHEET_TEXT_LIMIT / (sheet(0, rules).length + FAN * kept));
     assert.ok(fit < STYLESHEET_COUNT_LIMIT);
     assert.equal(copies, fit);
-    // The imports left, made absolute, add a little to the text taken in.
-    assert.ok(text.length < STYLESHEET_TEXT_LIMIT + 1_000_000, `${text.length} characters`);
+    assert.ok(text.length <= STYLESHEET_TEXT_LIMIT, `${text.length} characters`);
   });
 
   it("shows whole a page of thousands of components that each link or import the same stylesheet", async () => {
@@ -138,6 +141,62 @@ describe("preparing a page whose stylesheets import each other many times (#154)
     assert.equal(output.split(sheet).length - 1, count);
     assert.doesNotMatch(output, /<link|@import/);
     assert.deepEqual(reads, ["Saved/item.css", "Saved/tokens.css"]);
+  });
+});
+
+describe("preparing a page whose stylesheets name many URLs (#177)", () => {
+  /** A vault at an ordinary path, as Obsidian names one on Linux. */
+  const vault = `app://${"0123456789abcdef".repeat(2)}/home/user/Documents/My%20Vault/`;
+
+  /**
+   * Prepares a page with these files, which must not throw, and returns its
+   * copy and how much longer it is than the page and its files.
+   */
+  async function prepareWith(html: string, files: Record<string, string>) {
+    const ctx = {
+      pageUrl: `${vault}Saved/Example%20article.html`,
+      vaultUrl: vault,
+      read: (path: string) => Promise.resolve(files[path.replace(/^Saved\//, "")] ?? null),
+    };
+    const { html: output } = await preparePage(html, ctx);
+    const input = html.length + Object.values(files).reduce((sum, text) => sum + text.length, 0);
+    return { output, added: output.length - input };
+  }
+
+  it("keeps the copy of stylesheets whose URLs it makes absolute within the text limit", async () => {
+    // In #177, a link of the first stylesheet took the copy to 97 million
+    // characters, 8.8 times the stylesheet, in 5.6 to 6.6 s; on main at
+    // 6acb438, each of these added 78 or 82 million. Each stylesheet's text
+    // fits within the limit, but not with its URLs, or its imports that stay
+    // imports, made absolute.
+    const urls = "a{b:url(c)}".repeat(1_000_000);
+    const imports = '@import"a";'.repeat(1_000_000);
+    const link = (href: string) => `<link rel="stylesheet" href="${href}">`;
+    const kept = `@import url("${vault}Saved/urls.css");`;
+    // Each case's page, its files, and the link or import that stays one.
+    const cases: [string, string, Record<string, string>, string][] = [
+      ["a link of URLs", link("urls.css"), { "urls.css": urls }, link("urls.css")],
+      ["an import of URLs", '<style>@import "urls.css";</style>', { "urls.css": urls }, kept],
+      [
+        "an import of URLs in a linked stylesheet",
+        link("main.css"),
+        { "main.css": '@import "urls.css";', "urls.css": urls },
+        kept,
+      ],
+      [
+        "a link of imports that stay imports",
+        link("imports.css"),
+        { "imports.css": imports },
+        link("imports.css"),
+      ],
+    ];
+    for (const [name, html, files, left] of cases) {
+      const { output, added } = await prepareWith(html, files);
+      assert.ok(added <= STYLESHEET_TEXT_LIMIT, `${name}: ${added} characters added`);
+      // A stylesheet that would pass the limit stays a link or an import, as
+      // one too large does.
+      assert.ok(output.includes(left), `${name}: no link or import left`);
+    }
   });
 });
 

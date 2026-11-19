@@ -18,6 +18,7 @@ import {
   cssImports,
   cssTokens,
   importStop,
+  type CssImport,
   type CssToken,
   type ImportConditions,
   type ImportStop,
@@ -73,8 +74,9 @@ const MAX_IMPORT_DEPTH = 8;
  * A page's limits on its vault stylesheets (`StylesheetBudget`): how many
  * links and imports of them preparation follows, and how much of their text,
  * in UTF-16 code units, the copy takes in: a stylesheet's file text when it
- * is followed, and its prepared text, as copied, for each repeat of the page's
- * own link or import of it that gets that text again. The depth limit bounds an
+ * is followed, with what preparing adds to it (`StylesheetBudget.add`), and
+ * its prepared text, as copied, for each repeat of the page's own link or
+ * import of it that gets that text again. The depth limit bounds an
  * import chain, not how many imports each stylesheet has, so without these
  * the work and the copy would grow with that number raised to the depth
  * (#154). Web pages load a median of 7 stylesheets with 68 KB of CSS, and 22
@@ -387,11 +389,15 @@ class StylesheetBudget {
   }
 
   /**
-   * Takes into the text limit what the copy adds around a stylesheet's own
-   * text, which fits in `room`: the blocks of an import's conditions, and the
-   * conditions that it adds to kept imports (`placedParts`). It only ever
-   * adds: what the copy leaves out of a stylesheet's text stays counted, so
-   * that the room never grows back.
+   * Takes into the text limit what the copy adds to stylesheets' own text,
+   * which fits in `room`. For a stylesheet file, the text that closes it at
+   * its end (`closedSheet`); for it and for a page's `<style>` whose imports
+   * it copies, what rewriting adds to their URLs, made absolute or found by
+   * name, and to their imports, written as the copy keeps those that stay
+   * imports (`ownRewrites`); and around an imported stylesheet, the blocks of
+   * its import's conditions and the conditions that it adds to kept imports
+   * (`placedParts`). It only ever adds: what the copy leaves out of a
+   * stylesheet's text stays counted, so that the room never grows back.
    */
   add(length: number): void {
     this.text += Math.max(0, length);
@@ -418,7 +424,8 @@ class StylesheetBudget {
    * The text of a stylesheet to put in the copy in place of a link or an
    * import of it, or null to leave the link or import as it is: when the
    * page has followed as many links and imports as it may, or the file cannot
-   * be read, or its text would take the page past its limit. A smaller one
+   * be read, or its text would take the page past its limit. What preparing
+   * the text adds to it is taken after (`fileSheet`). A smaller one
    * after it can still fit, as with the copy limits. Every call counts, the
    * ones that return null too, and so does a stylesheet whose text the caller
    * then leaves out, so that the count bounds the work, not only the copy. A
@@ -832,10 +839,12 @@ function closedSheet(css: string): {
  * (`closedSheet`), with its imports of vault stylesheets replaced by their
  * text, within the limits of a page of its own (`StylesheetBudget`), and
  * every reference made absolute. Imports from elsewhere stay as they are, for
- * the browser to load or refuse, as do those past the limits. The plugin
- * prepares stylesheets only through `preparePage`; the tests and
- * `scripts/css-benchmark.mjs` use this to check and time a stylesheet's
- * preparation without a page around it.
+ * the browser to load or refuse, as do those past the limits. Its own text
+ * counts as a page's `<style>` does: only what rewriting adds to it, and past
+ * the text limit it keeps its text, with only the references found by name
+ * replaced. The plugin prepares stylesheets only through `preparePage`; the
+ * tests and `scripts/css-benchmark.mjs` use this to check and time a
+ * stylesheet's preparation without a page around it.
  */
 export async function inlineStylesheet(
   css: string,
@@ -845,6 +854,7 @@ export async function inlineStylesheet(
   const budget = new StylesheetBudget(context);
   const { text, tokens } = closedSheet(css);
   const sheet = await inlineImports(text, sheetUrl, context, new Set(), tokens, budget);
+  if (sheet === null) return [locateCssUrls(text, sheetUrl, context, tokens)];
   return stylesheetTexts(sheet.parts, () => budget.addStyle(0));
 }
 
@@ -855,6 +865,15 @@ export async function inlineStylesheet(
  * import's conditions (#152). `seen` holds the stylesheets that import it, and
  * is empty for the page's own links and the imports of its own `<style>`
  * elements.
+ *
+ * It is also null when what closing and rewriting add to its text would take
+ * the page past the text limit (`ownRewrites`): with its URLs left relative,
+ * which would resolve against the page instead, its images and fonts would
+ * not load, and its kept imports would name other files. Its text then still
+ * counts, as `take` took it, so that the work of reading and scanning it is
+ * bounded: uncounted, it would be scanned again for each repeat of its link
+ * or import, and for each other URL of the same file, such as one with a
+ * query, which no record of refusals by URL would catch.
  */
 async function fileSheet(
   path: string,
@@ -874,13 +893,106 @@ async function fileSheet(
     sheet.tokens,
     budget,
     sheet.markers,
+    sheet.text.length - read.length,
   );
+  if (inner === null) return null;
   return { ...inner, strayCloser: sheet.strayCloser || inner.strayCloser };
 }
 
 /** Whether an import has no conditions: its stylesheet's parts go in the importing one as they are. */
 function unconditional({ layer, supports, media }: ImportConditions): boolean {
   return layer === null && supports === null && media === null;
+}
+
+/** An import rule of a stylesheet, and the vault path of the stylesheet that it names, or null. */
+interface ImportEntry {
+  readonly match: CssImport;
+  /** The rule as the copy keeps it if it stays an import. */
+  readonly kept: KeptImport;
+  readonly path: string | null;
+}
+
+/**
+ * An import rule, with its reference made absolute against its stylesheet's
+ * URL, or located by name (`locatedUrl`), in the rule that the copy keeps if
+ * it stays an import.
+ */
+function importEntry(
+  match: CssImport,
+  css: string,
+  sheetUrl: string,
+  context: PageContext,
+): ImportEntry {
+  const reference = match.reference;
+  const absolute = resolve(reference, sheetUrl);
+  const located = absolute === null ? null : locatedUrl(reference, absolute, context);
+  const target = located ?? absolute;
+  // Trim only CSS whitespace, only at the start. JavaScript's whitespace also
+  // covers characters such as U+FEFF that CSS reads as part of a name. Keep
+  // the end as written: a newline there ends a bad string, and a space after
+  // a backslash keeps it from escaping what follows.
+  const written = css.slice(match.conditionsStart, match.end - 1).replace(/^[\t\n\f\r ]+/, "");
+  const kept: KeptImport = {
+    kind: "import",
+    text:
+      target === null
+        ? css.slice(match.start, match.end)
+        : `@import url(${cssString(target)})${written ? ` ${written}` : ""};`,
+    url: target,
+    conditions: match.conditions,
+  };
+  return { match, kept, path: target === null ? null : vaultPath(target, context.vaultUrl) };
+}
+
+/** A span of a stylesheet's own text, from `start` to `end`, and the text that the copy puts there. */
+interface Rewrite {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+}
+
+/**
+ * What rewriting makes of a stylesheet's own text: each of its import rules
+ * as the copy keeps it if it stays an import (`importEntry`), and each of its
+ * other URLs made absolute against its URL (`absoluteUrl`). Also how much
+ * longer that, with `closing`, makes the text, or null once that passes
+ * `room`, where the work stops. A rewrite that shortens its text, as one
+ * without the spaces around a reference does, gives nothing back, as the
+ * text limit never does (`StylesheetBudget.add`). Each rewrite is made once,
+ * and the copy uses the text that was measured.
+ */
+function ownRewrites(
+  css: string,
+  sheetUrl: string,
+  context: PageContext,
+  tokens: readonly CssToken[],
+  closing: number,
+  room: number,
+): { imports: ImportEntry[]; rewrites: Rewrite[]; added: number } | null {
+  let added = closing;
+  if (added > room) return null;
+  const imports: ImportEntry[] = [];
+  for (const match of cssImports(css, tokens)) {
+    const entry = importEntry(match, css, sheetUrl, context);
+    added += Math.max(0, entry.kept.text.length - (match.end - match.start));
+    if (added > room) return null;
+    imports.push(entry);
+  }
+  // Imports and URLs share the same scan; never rescan each intervening segment.
+  const rewrites: Rewrite[] = [];
+  let next = 0;
+  for (const token of tokens) {
+    if (token.kind !== "url") continue;
+    // A URL inside an import rule, as in `@import url(...)`, is part of the
+    // rule's replacement. Rules and tokens both come in order.
+    while (next < imports.length && imports[next].match.end <= token.start) next++;
+    if (next < imports.length && imports[next].match.start <= token.start) continue;
+    const text = absoluteUrl(css.slice(token.start, token.end), token.value, sheetUrl, context);
+    added += Math.max(0, text.length - (token.end - token.start));
+    if (added > room) return null;
+    rewrites.push({ start: token.start, end: token.end, text });
+  }
+  return { imports, rewrites, added };
 }
 
 /**
@@ -891,6 +1003,11 @@ function unconditional({ layer, supports, media }: ImportConditions): boolean {
  * any block, put in it without a block around it. `seen` holds the
  * stylesheet's own file and those that import it, and is empty for a page's
  * own `<style>`.
+ *
+ * What rewriting adds to its own text (`ownRewrites`), with `closing`, the
+ * length of the text that closed it (`closedSheet`), takes from the text
+ * limit before the stylesheets that it imports do, as its own text does.
+ * When that would pass the limit, it is null.
  */
 async function inlineImports(
   css: string,
@@ -900,16 +1017,17 @@ async function inlineImports(
   tokens: readonly CssToken[],
   budget: StylesheetBudget,
   markers: readonly CssToken[] = [],
-): Promise<PreparedSheet> {
+  closing = 0,
+): Promise<PreparedSheet | null> {
   const importSupports = context.importSupports ?? hostImportSupports();
-  let strayCloser = false;
-  // Imports and URLs share the same scan; never rescan each intervening segment.
-  const rewrites: { start: number; end: number; text: string }[] = [];
-  for (const token of tokens) {
-    if (token.kind !== "url") continue;
-    const text = absoluteUrl(css.slice(token.start, token.end), token.value, sheetUrl, context);
-    rewrites.push({ start: token.start, end: token.end, text });
+  const rewritten = ownRewrites(css, sheetUrl, context, tokens, closing, budget.room);
+  if (rewritten === null) {
+    budget.refuse();
+    return null;
   }
+  budget.add(rewritten.added);
+  let strayCloser = false;
+  const rewrites: Rewrite[] = rewritten.rewrites;
   if (markers.length > 0) {
     for (const { start, end } of markers) rewrites.push({ start, end, text: " " });
     rewrites.sort((a, b) => a.start - b.start);
@@ -922,9 +1040,6 @@ async function inlineImports(
     let text = "";
     for (; next < rewrites.length && rewrites[next].start < to; next++) {
       const { start, end, text: rewrite } = rewrites[next];
-      // A URL inside an import rule, as in `@import url(...)`, is part of the
-      // rule's replacement already.
-      if (start < cursor) continue;
       text += css.slice(cursor, start) + rewrite;
       cursor = end;
     }
@@ -934,28 +1049,10 @@ async function inlineImports(
   };
 
   const parts: (TextPart | KeptImport)[] = [];
-  for (const match of cssImports(css, tokens)) {
+  for (const { match, kept, path } of rewritten.imports) {
     addPart(parts, own(match.start));
     cursor = match.end;
-    const reference = match.reference;
-    const absolute = resolve(reference, sheetUrl);
-    const located = absolute === null ? null : locatedUrl(reference, absolute, context);
-    const target = located ?? absolute;
-    const path = target === null ? null : vaultPath(target, context.vaultUrl);
-    // Trim only CSS whitespace, only at the start. JavaScript's whitespace also
-    // covers characters such as U+FEFF that CSS reads as part of a name. Keep
-    // the end as written: a newline there ends a bad string, and a space after
-    // a backslash keeps it from escaping what follows.
-    const written = css.slice(match.conditionsStart, match.end - 1).replace(/^[\t\n\f\r ]+/, "");
-    const kept: KeptImport = {
-      kind: "import",
-      text:
-        target === null
-          ? css.slice(match.start, match.end)
-          : `@import url(${cssString(target)})${written ? ` ${written}` : ""};`,
-      url: target,
-      conditions: match.conditions,
-    };
+    const target = kept.url;
     // An import with a scope, or with support conditions where the host
     // never applies them, stays an import, as the browser reads it (#151).
     const conditions =
@@ -1184,13 +1281,20 @@ async function inlineStylesheets(
     // CSS reads them there. The copy keeps the closed text, which the copying
     // of files then reads as well.
     const { text: css, tokens } = closedSheet(own);
-    const texts =
+    // Its own text is the page's, which the text limit does not count, but
+    // what copying its imports adds to it, its URLs made absolute among them,
+    // counts. When that would pass the limit, its imports stay imports, and
+    // only its references found by name change, as without imports.
+    const inlined =
       cssImports(css, tokens).length > 0
-        ? stylesheetTexts(
-            (await inlineImports(css, baseUrl, context, new Set(), tokens, budget)).parts,
-            () => budget.addStyle(copiedLength(style, STYLE_ATTRIBUTES)),
-          )
-        : [locateCssUrls(css, baseUrl, context, tokens)];
+        ? await inlineImports(css, baseUrl, context, new Set(), tokens, budget)
+        : null;
+    const texts =
+      inlined === null
+        ? [locateCssUrls(css, baseUrl, context, tokens)]
+        : stylesheetTexts(inlined.parts, () =>
+            budget.addStyle(copiedLength(style, STYLE_ATTRIBUTES)),
+          );
     // The element keeps the last stylesheet, which holds its own rules, and
     // the others go before it, in its namespace (`styleFor`).
     const text = styleElementText(texts.pop() ?? "");
