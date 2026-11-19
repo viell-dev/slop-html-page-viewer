@@ -30,12 +30,14 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   attributes and `javascript:` links, and forms, popups, and navigation of Obsidian's window stay
   blocked.
 
-  **Unreleased (#196):** the copy of such a page also holds the files that its text tracks name, as
-  `data:` URLs. Chromium loads a text track, unless its video has a `crossorigin` attribute, only
-  from the frame's own origin, Obsidian's, and Obsidian serves the vault's files from another, so
-  such a track's own URL does not load there. Only `.vtt` files are copied, from inside the vault,
-  within the per-file and per-page limits of **Local files with scripts on**, and no script runs
-  that could read them. Version 0.6.0 copies nothing into a page with scripts off
+  The copy of such a page holds no vault file's contents but its `.css` stylesheets', whose text
+  goes into `<style>` elements; its other files load by their URLs, or not at all. CSS runs without
+  scripts, and an attribute selector such as `:has(track[src*="…"])` can test an attribute's value
+  piece by piece and turn each answer into a request to the web, through a `url()` that applies
+  only when the selector matches, which the copy's policy lets load. A file copied into an
+  attribute as a `data:` URL could so be read out of the page. So a text track, which Chromium
+  loads only from the frame's own origin unless its video has a `crossorigin` attribute, does not
+  load with scripts off, rather than be copied
   ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
 
 - **Scripts on, by choice.** The toolbar's scripts button turns scripts on for the open page, and
@@ -162,9 +164,6 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   ([#124](https://github.com/viell-dev/slop-html-page-viewer/issues/124)). That covers its shadow
   DOM, which comes from such templates, and also a template that declares no shadow root, because a
   page with scripts on can use its content.
-
-  **Unreleased (#196):** with scripts off, it also reads the `.vtt` files that the page's text
-  tracks name, which it copies into the page.
 
   Of the page's `<style>` and `<link>` elements, it reads and copies only for an HTML or SVG
   `<style>` element's own text and for HTML stylesheet `<link>` elements, the ones whose namespace

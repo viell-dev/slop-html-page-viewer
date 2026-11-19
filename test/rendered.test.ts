@@ -347,30 +347,25 @@ describe("rendered view", () => {
 });
 
 describe("text tracks with scripts off (#196)", () => {
-  it("are copied into the page, with no other file, only while its scripts are off", async () => {
-    const harness = await Harness.load({ copyLocalFiles: false });
+  it("are not copied into the page, whose CSS could read a copy, only with scripts on", async () => {
+    // With scripts off, no script runs, but CSS does: an attribute selector
+    // could test a copied data: URL piece by piece and signal it to the web.
+    const harness = await Harness.load({ copyLocalFiles: true });
     harness.app.files.set("Saved/subs.vtt", "WEBVTT");
-    harness.app.files.set("Saved/figure.png", "PNG bytes");
     const view = harness.newView();
-    harness.open(
-      view,
-      "Saved/Clip.html",
-      `<img src="figure.png"><video><track default src="subs.vtt"></video>`,
-    );
+    harness.open(view, "Saved/Clip.html", `<video><track default src="subs.vtt"></video>`);
     await settle();
     const shown = () => new DOMParser().parseFromString(frame(view)!.srcdoc, "text/html");
+    assert.equal(shown().querySelector("track")?.getAttribute("src"), "subs.vtt");
+    assert.deepEqual(harness.app.binaryReads, []);
+
+    button(view, "Scripts OFF").click();
+    await settle();
+    assert.deepEqual(sandboxTokens(frame(view)!), ["allow-scripts"]);
     assert.equal(
       shown().querySelector("track")?.getAttribute("src"),
       `data:text/vtt;base64,${btoa("WEBVTT")}`,
     );
-    assert.equal(shown().querySelector("img")?.getAttribute("src"), "figure.png");
-    assert.deepEqual(harness.app.binaryReads, ["Saved/subs.vtt"]);
-
-    // With scripts on, the page's scripts could read a copy: only the setting copies files then.
-    button(view, "Scripts OFF").click();
-    await settle();
-    assert.deepEqual(sandboxTokens(frame(view)!), ["allow-scripts"]);
-    assert.equal(shown().querySelector("track")?.getAttribute("src"), "subs.vtt");
     assert.deepEqual(harness.app.binaryReads, ["Saved/subs.vtt"]);
   });
 });

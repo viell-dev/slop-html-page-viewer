@@ -1737,9 +1737,6 @@ describe("A page's local files in Obsidian", function () {
       const xlink = "http://www.w3.org/1999/xlink";
       const shadow = document.getElementById("host")!.shadowRoot!;
       const repeats = document.querySelectorAll<HTMLImageElement>('img[src$="repeat.png"]');
-      // With scripts off, the copy has the track as a data: URL (#196), whose
-      // last line is the word of its folder.
-      const track = at("#track").src;
       return {
         repeat: [...repeats].map((repeat) => repeat.currentSrc),
         srcset: at("img[srcset]").currentSrc,
@@ -1748,9 +1745,7 @@ describe("A page's local files in Obsidian", function () {
         poster: at("#poster").poster,
         video: at("#video").currentSrc,
         vsource: at("#vsource").currentSrc,
-        track: track.startsWith("data:")
-          ? atob(track.split(",")[1]).trim().split("\n").at(-1)!
-          : track,
+        track: at("#track").src,
         audio: at("#audio").currentSrc,
         frame: at("#frame").src,
         script: at("script[src]").src,
@@ -2064,11 +2059,11 @@ describe("A page's local files in Obsidian", function () {
     // With scripts off, the viewer's frame has Obsidian's origin, which no
     // vault file has. Chromium loads a text track, without a crossorigin
     // attribute, and the document of an SVG <use> only from the frame's own
-    // origin, so the copy has the track as a data: URL, and the <use> shows
-    // nothing. A poster loads, but where scripts cannot run, Chromium shows its
-    // media controls on every video, as HTML says, which cover the bottom of a
-    // poster: the served page, whose scripts run, shows them only with the
-    // controls attribute.
+    // origin, so neither shows. The copy puts no copy of a file in such a page,
+    // whose CSS could read it. A poster loads, but where scripts cannot run,
+    // Chromium shows its media controls on every video, as HTML says, which
+    // cover the bottom of a poster: the served page, whose scripts run, shows
+    // them only with the controls attribute.
     const res = "Media parts";
     const elements = (controls: boolean) =>
       [
@@ -2143,11 +2138,14 @@ describe("A page's local files in Obsidian", function () {
       expect(controlled.poster).toBeLessThan(POSTER_PIXELS * 0.7);
     });
 
-    it("loads the track, shows the poster under Chromium's controls, and shows no symbol of another file, with scripts off", async function () {
+    it("shows the poster under Chromium's controls, and neither the track nor a symbol of another file, with scripts off", async function () {
       const controlled = await served(true);
       await openInActiveTab("Saved/Media parts.html");
       await waitForPage();
-      const track = await inViewerFrame(trackCue);
+      const track = await inViewerFrame(async () => ({
+        cue: await trackCue(),
+        src: await browser.execute(() => document.getElementById("track")!.getAttribute("src")),
+      }));
       // As long as the served page's symbol can take to show.
       await browser.pause(1000);
       await saveScreenshot("media-parts");
@@ -2157,7 +2155,11 @@ describe("A page's local files in Obsidian", function () {
         // As the served page with the controls attribute shows it.
         poster: Math.abs(poster - controlled.poster) <= controlled.poster * 0.05,
         symbol: await framePixels(BLUE),
-      }).toEqual({ track: "page", poster: true, symbol: 0 });
+      }).toEqual({
+        track: { cue: null, src: `${res}/track.vtt` },
+        poster: true,
+        symbol: 0,
+      });
     });
 
     it("copies the poster and the track, but not the <use>'s file, into a page with scripts on", async function () {
