@@ -543,7 +543,10 @@ went on to scroll and move the tab of the test after it, which then failed, and 
 run's refusal of late requests, and without the paint test's own stop, those two tests and the paint
 test cut short at 10 s each failed alone, and each failure named the requests that its code still
 sent. Not refusing late requests failed `harness.e2e.ts`, and running tests outside their scopes
-failed every request in it.
+failed every request in it. While the refusal began only with Mocha's result, with a failure
+screenshot made a second slower, the cut `move.e2e.ts` test moved its tab and the cut `find.e2e.ts`
+test typed into the find bar during the `afterTest` hook; ending the test's code where that hook
+starts left neither test a step after it, and the screenshot was taken.
 
 ## Limits
 
