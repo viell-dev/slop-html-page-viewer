@@ -2,8 +2,10 @@
 # Runs the end-to-end suite on Linux. Without a display, it starts Xvfb as a
 # virtual X server and herbstluftwm as the window manager, which Obsidian needs
 # for focus and window events. CI and the Docker image both run this script;
-# E2E_ONLY selects spec file names. Afterwards it compares the archive corpus's results
-# with the prototype's (corpus/compare.mjs).
+# E2E_ONLY selects spec file names. It first checks, without Obsidian, that the
+# run refuses the requests of a test that has its result
+# (support/late-requests.check.ts). Afterwards it compares the archive corpus's
+# results with the prototype's (corpus/compare.mjs).
 set -eu
 
 # Validate before starting a display, downloading hosts or clearing results.
@@ -46,6 +48,7 @@ export E2E_OUTPUT_DIR="${E2E_OUTPUT_DIR:-$root/test-results/e2e}"
 
 cd "$(dirname "$0")"
 status=0
+node --test support/late-requests.check.ts || status=1
 npx wdio run wdio.conf.mts || status=$?
 # Compares the corpus results with the prototype's, when both ran.
 node corpus/compare.mjs "$E2E_OUTPUT_DIR" || status=1

@@ -85,8 +85,13 @@ separate dependency audit
 
 Update every `@wdio/*` package together; the service and reporter must support that major. Follow
 the [v10 migration guide](https://webdriver.io/docs/v10-migration), including strict selectors
-and namespaced capability spec lists. The Docker image installs `unzip` for driver downloads, and
-`lifecycle.e2e.ts` uses it to unzip the packaged plugin as a user does.
+and namespaced capability spec lists. Keep `mocha` at the version that `@wdio/mocha-framework`
+installs: `test/e2e/support/late-requests.ts` wraps its `Runnable#run`, and every test fails when
+the run's Mocha is another copy. Dependabot leaves out new `mocha` majors until the framework
+depends on one; remove that rule from `.github/dependabot.yml` then. `late-requests.check.ts` runs
+tests through `@wdio/utils`, the `@wdio/*` package that wraps them. The Docker image installs
+`unzip` for driver downloads, and `lifecycle.e2e.ts` uses it to unzip the packaged plugin as a user
+does.
 
 With Docker, on any system, Windows included:
 

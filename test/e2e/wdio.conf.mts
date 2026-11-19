@@ -18,6 +18,8 @@ import path from "node:path";
 import { browser } from "@wdio/globals";
 import { parseObsidianVersions } from "wdio-obsidian-service";
 import { selectedSpecs, rejectSpecArguments } from "../../scripts/e2e-selection.ts";
+import { testHooks } from "./support/hooks.ts";
+import { scopeRunnables } from "./support/late-requests.ts";
 
 rejectSpecArguments(process.argv.slice(2));
 // E2E_ONLY lists spec file names to run, such as "links.e2e.ts", for a quick
@@ -73,6 +75,10 @@ if (setting(process.env.PRINT_OBSIDIAN_CACHE_KEY) !== undefined) {
     },
   );
   if (generated.status !== 0) throw new Error("Generating the archive corpus failed.");
+} else {
+  // Each worker runs the code of each test and hook in its own scope, so that the requests of a
+  // test that has its result can be refused (support/late-requests.ts).
+  scopeRunnables();
 }
 
 /** A host to run `files` on, with `plugin` installed, or with no plugin when it is null. */
@@ -117,6 +123,7 @@ export const config: WebdriverIO.Config = {
           specs("split.e2e.ts"),
           specs("move.e2e.ts"),
           specs("read-only.e2e.ts"),
+          specs("harness.e2e.ts"),
         ],
       ),
       capability(appVersion, installerVersion, pluginDir, corpusDir, [specs("corpus.e2e.ts")]),
@@ -139,17 +146,11 @@ export const config: WebdriverIO.Config = {
   // WebdriverIO 10 rejects ambiguous single-element queries.
   strictSelectors: true,
   mochaOpts: { ui: "bdd", timeout: 60_000 },
-  // A failed test leaves a screenshot of Obsidian's window among the results
-  // that CI keeps, named for the Obsidian version and the test (#77).
-  afterTest: async function (test, _context, { passed }) {
-    if (passed) return;
-    const name = `${test.parent} ${test.title}`
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 100);
-    const file = `failed-${browser.getObsidianVersion()}-${name}.png`;
-    await browser.saveScreenshot(path.join(outputDir, "screenshots", file)).catch(() => undefined);
-  },
+  // transformRequest, before, beforeTest, and afterTest. A test that times out
+  // fails, but its code goes on running; its WebDriver requests are refused
+  // from then on, so that it cannot drive Obsidian during the tests after it
+  // (#170). A failed test leaves a screenshot of Obsidian's window among the
+  // results that CI keeps, named for the Obsidian version and the test (#77).
+  ...testHooks(browser, path.join(outputDir, "screenshots")),
   logLevel: "warn",
 };
