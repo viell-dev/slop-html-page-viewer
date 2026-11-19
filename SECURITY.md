@@ -100,6 +100,27 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   each read still passes the vault-path, `.css`, depth, cycle, and page-limit checks
   ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
 
+  **Unreleased (#179):** a string directly inside `image-set()` or `-webkit-image-set()` is a URL
+  argument too, as Chromium reads it. The copy makes it absolute or finds it by name, and with
+  **Local files with scripts on** copies its file into the page, by the same file types, limits,
+  and vault-only paths as a `url()`'s. Such strings cause no stylesheet reads. Other strings, such
+  as those of `type()`, `format()`, and `local()`, a font source that is a bare string, which
+  Chromium does not load, and the strings of `image()` and `src()`, which Obsidian's Chromium
+  does not support, still cause no reads or copying. Version 0.6.0 leaves these strings as
+  written, so that one in a linked stylesheet in another folder names a file beside the page, and
+  copies none of their files
+  ([#179](https://github.com/viell-dev/slop-html-page-viewer/issues/179)).
+
+  **Unreleased (#185):** each of the page's stylesheets resolves against the base that Chromium
+  applies where it stands: a `<style>` and its imports, a stylesheet link, and a `style`
+  attribute before the page's `<base>` resolve against the page's own address. So the viewer reads
+  the stylesheet of such a link or import, and with **Local files with scripts on** copies the
+  files that such stylesheets name, from the page's folder, where 0.6.0 reads and copies them from
+  the `<base>`'s. It also ignores a `<base>` inside SVG or MathML and one with a `data:` or
+  `javascript:` URL, as Chromium does. Either way, the page names these files in CSS that
+  applies, and each read and copy passes the same vault-path, `.css`, file-type, and limit checks
+  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
+
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
   files, that only CSS strings or comments named, or that imports named which never apply: one
   after a style rule, and one into a cascade layer written with a comment or an escape before
@@ -147,6 +168,16 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   SVG `<style>` only with a lowercase `text/css`, an SVG `<style>` with that type in other case is
   still prepared, though it applies nothing
   ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
+
+  **Unreleased (#169):** of those, it reads and copies only for the stylesheets of the set that
+  Chromium applies. In the page itself, they are the untitled ones and those titled with the name
+  of the preferred set, which the page's first title of a `<style>` or a stylesheet link, or a
+  `<meta http-equiv="Default-Style">` before it, gives, `alternate stylesheet` links of that title
+  among them; in shadow DOM and in templates, every one but alternate links. A titled stylesheet
+  of another set causes no reads or copying, and the copy keeps it as the page has it. Version
+  0.6.0 reads and copies for every titled stylesheet, and none for an `alternate stylesheet` link,
+  also one in the preferred set, which Chromium applies
+  ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with

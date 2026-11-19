@@ -429,6 +429,262 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with titled stylesheets of several sets (#169)", function () {
+    const COLOR = "rgb(46, 125, 50)";
+    const FIGURE = "Saved/2026-01-15/figure.png";
+    const titled = (title: string | null) => (title === null ? "" : ` title="${title}"`);
+    /** A stylesheet link to a file that colors `#id`. */
+    const link = (title: string | null, id: string, rel = "stylesheet") =>
+      `<link id="${id}-link" rel="${rel}"${titled(title)} href="Style sets/${id}.css">`;
+    /** A <style> that colors `#id`, names the figure, and imports a file that colors `#id-imported`. */
+    const style = (title: string | null, id: string) =>
+      `<style id="${id}-style"${titled(title)}>@import "Style sets/${id}.css";` +
+      ` #${id} { color: ${COLOR}; background-image: url("${FIGURE}") }</style>`;
+    const svgStyle = (title: string, id: string) =>
+      `<svg width="0" height="0">${style(title, id)}</svg>`;
+    const meta = (content: string) => `<meta http-equiv="Default-Style" content="${content}">`;
+    // The first title is that of a link to a missing file, which still names
+    // its set; a <meta> at the end changes nothing. A shadow root applies its
+    // stylesheets whatever their titles, but not an alternate link.
+    const sets = [
+      `<link rel="stylesheet" title="A" href="Style sets/missing.css">`,
+      link("B", "b1"),
+      link(null, "c1"),
+      link("A", "a1"),
+      link("A", "alt1", "alternate stylesheet"),
+      link("B", "alt2", "alternate stylesheet"),
+      link(null, "p1", "alternate stylesheet"),
+      link(" ", "sp"),
+      style("A", "sa"),
+      style("B", "sb"),
+      style("a", "sl"),
+      svgStyle("A", "svga"),
+      svgStyle("B", "svgb"),
+    ];
+    const shadow = [link("B", "hb"), style("B", "hs"), link("A", "halt", "alternate stylesheet")];
+    const defaults = [
+      meta("B"),
+      link("A", "ma"),
+      link("B", "mb"),
+      style("A", "msa"),
+      style("B", "msb"),
+    ];
+    // A first titled link whose href is no URL names no set, as Chromium has it.
+    const badHref = [
+      `<link id="bad-link" rel="stylesheet" title="A" href="http://[bad">`,
+      link("B", "bb"),
+      link("A", "ba"),
+    ];
+    const linkIds = [
+      ...["b1", "c1", "a1", "alt1", "alt2", "p1", "sp", "hb", "halt", "ma", "mb"],
+      ...["bb", "ba"],
+    ];
+    const styleIds = ["sa", "sb", "sl", "svga", "svgb", "hs", "msa", "msb"];
+    const paragraphs = (ids: string[]) =>
+      ids
+        .flatMap((id) => (styleIds.includes(id) ? [id, `${id}-imported`] : [id]))
+        .map((id) => `<p id="${id}">${id}</p>`)
+        .join("");
+    const files: Record<string, string> = {
+      ...Object.fromEntries(
+        linkIds.map((id) => [`Style sets/${id}.css`, `#${id} { color: ${COLOR} }`]),
+      ),
+      ...Object.fromEntries(
+        styleIds.map((id) => [`Style sets/${id}.css`, `#${id}-imported { color: ${COLOR} }`]),
+      ),
+      "Style sets.html": [
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Style sets</title>`,
+        sets.join(""),
+        `</head><body>`,
+        paragraphs([
+          "b1",
+          "c1",
+          "a1",
+          "alt1",
+          "alt2",
+          "p1",
+          "sp",
+          "sa",
+          "sb",
+          "sl",
+          "svga",
+          "svgb",
+        ]),
+        `<div id="host"><template shadowrootmode="open">${shadow.join("")}${paragraphs(["hb", "hs", "halt"])}</template></div>`,
+        meta("B"),
+        `</body></html>`,
+      ].join(""),
+      "Default style.html": [
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Default style</title>`,
+        defaults.join(""),
+        `</head><body>${paragraphs(["ma", "mb", "msa", "msb"])}</body></html>`,
+      ].join(""),
+      "Bad href.html": [
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Bad href</title>`,
+        badHref.join(""),
+        `</head><body>${paragraphs(["bb", "ba"])}</body></html>`,
+      ].join(""),
+    };
+    const FRAME = `${ACTIVE} iframe.html-page-viewer__frame`;
+    const PAGES = ["Style sets.html", "Default style.html", "Bad href.html"];
+
+    // What Chromium applies in each page, as headless Chrome 158 applied it.
+    const APPLIED: Record<string, { page: string[]; shadow: string[] }> = {
+      "Style sets.html": {
+        page: ["a1", "alt1", "c1", "sa", "sa-imported", "svga", "svga-imported"],
+        shadow: ["hb", "hs", "hs-imported"],
+      },
+      "Default style.html": { page: ["mb", "msb", "msb-imported"], shadow: [] },
+      "Bad href.html": { page: ["bb"], shadow: [] },
+    };
+    /** The vault stylesheets of the elements that apply, which the copy reads. */
+    const READS: Record<string, string[]> = {
+      "Style sets.html": ["a1", "alt1", "c1", "hb", "hs", "sa", "svga"],
+      "Default style.html": ["mb", "msb"],
+      "Bad href.html": ["bb"],
+    };
+
+    /** What Chromium applies to each page outside Obsidian, on this host. */
+    const chromium: Record<string, unknown> = {};
+
+    before(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        if (!app.vault.getAbstractFileByPath("Style sets"))
+          await app.vault.createFolder("Style sets");
+      });
+      for (const [path, text] of Object.entries(files)) await writeVaultFile(path, text);
+      for (const page of PAGES)
+        chromium[page] = await inServedPage(files, page, () => browser.execute(read, COLOR));
+    });
+
+    after(async function () {
+      await browser.executeObsidian(
+        async ({ app }, paths) => {
+          for (const path of paths) {
+            const file = app.vault.getAbstractFileByPath(path);
+            if (file) await app.vault.delete(file, true);
+          }
+        },
+        [...PAGES, "Style sets"],
+      );
+    });
+
+    afterEach(async function () {
+      await restoreHost();
+    });
+
+    /**
+     * Which paragraphs a stylesheet colors, in the document and in its shadow
+     * root, and which <style> and <link> elements are as the page has them: a
+     * <style> that keeps its import, and a link. Run inside the frame.
+     */
+    function read(color: string) {
+      const tree = (root: Document | ShadowRoot | null) =>
+        root === null
+          ? []
+          : [...root.querySelectorAll("p[id]")]
+              .filter((p) => getComputedStyle(p).color === color)
+              .map((p) => p.id)
+              .sort();
+      const kept = (root: Document | ShadowRoot | null) =>
+        root === null
+          ? []
+          : [
+              ...[...root.querySelectorAll("style[id]")]
+                .filter((style) => (style.textContent ?? "").includes("@import"))
+                .map((style) => style.id),
+              ...[...root.querySelectorAll("link")].map(
+                (link) => link.id || link.getAttribute("href"),
+              ),
+            ].sort();
+      const shadow = document.getElementById("host")?.shadowRoot ?? null;
+      return {
+        applied: { page: tree(document), shadow: tree(shadow) },
+        kept: { page: kept(document), shadow: kept(shadow) },
+      };
+    }
+
+    /** What the viewer's frame shows, and how many copied images its copy holds. */
+    async function shown() {
+      const copy = await browser.execute(
+        (selector) => document.querySelector<HTMLIFrameElement>(selector)!.srcdoc,
+        FRAME,
+      );
+      await browser.switchFrame(browser.$(FRAME));
+      try {
+        return {
+          ...(await browser.execute(read, COLOR)),
+          copied: copy.split("data:image/png").length - 1,
+        };
+      } finally {
+        await browser.switchFrame(null);
+      }
+    }
+
+    /**
+     * The elements that do not apply, which the copy keeps as the page has
+     * them, and the missing file's link, which stays a link.
+     */
+    const KEPT: Record<string, { page: string[]; shadow: string[] }> = {
+      "Style sets.html": {
+        page: [
+          "Style sets/missing.css",
+          ...["b1", "alt2", "p1", "sp"].map((id) => `${id}-link`),
+          ...["sb", "sl", "svgb"].map((id) => `${id}-style`),
+        ].sort(),
+        shadow: ["halt-link"],
+      },
+      "Default style.html": { page: ["ma-link", "msa-style"], shadow: [] },
+      "Bad href.html": { page: ["ba-link", "bad-link"], shadow: [] },
+    };
+
+    it("is measured against what Chromium applies to the same pages outside Obsidian", async function () {
+      for (const page of PAGES)
+        expect({ page, applied: (chromium[page] as ReturnType<typeof read>).applied }).toEqual({
+          page,
+          applied: APPLIED[page],
+        });
+    });
+
+    it("reads and prepares only the stylesheets of the set that applies, and keeps the others as written", async function () {
+      for (const page of PAGES) {
+        await recordReads("Style sets/");
+        await openInActiveTab(page);
+        await waitForPage();
+        await saveScreenshot(`style-sets-${PAGES.indexOf(page)}`);
+        const result = { ...(await shown()), reads: await recordedReads() };
+        expect({ page, ...result }).toEqual({
+          page,
+          applied: (chromium[page] as ReturnType<typeof read>).applied,
+          kept: KEPT[page],
+          copied: 0,
+          reads: READS[page].map((id) => `Style sets/${id}.css`).sort(),
+        });
+        await restoreHost();
+      }
+    });
+
+    it("copies only the files of the stylesheets of that set into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Style sets.html");
+        await waitForPage();
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("style-sets-scripts-on");
+        const result = await shown();
+        // The figure, once for each <style> that applies: sa, svga, and hs.
+        expect({ applied: result.applied, copied: result.copied }).toEqual({
+          applied: (chromium["Style sets.html"] as ReturnType<typeof read>).applied,
+          copied: 3,
+        });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   describe("with stylesheet imports (#136, #139, #144, #151, #152, #155)", function () {
     const green = "rgb(46, 125, 50)";
     const red = "rgb(198, 40, 40)";
@@ -984,6 +1240,335 @@ describe("A page's local files in Obsidian", function () {
         await waitForPage();
         await saveScreenshot("relative-style-urls-scripts-on");
         expect(await framePixels(PURPLE)).toBeGreaterThanOrEqual(3 * IMAGE_PIXELS * 0.9);
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
+  describe("with strings that image-set() takes as URLs (#179)", function () {
+    // A stylesheet in another folder than the page names its square with
+    // strings, which resolve against the stylesheet, as url()s do: the green
+    // square beside it, not the red one of the same name beside the page.
+    const SHEET = "Set strings/theme/site.css";
+    const square = (id: string, css = "") =>
+      `<div id="${id}" class="square"${css === "" ? "" : ` style='${css}'`}></div>`;
+    const tree = [
+      `<link rel="stylesheet" href="../${SHEET}">`,
+      `<style>#own { background: image-set("../Set strings/theme/set-square.png" 1x) }</style>`,
+      ...["set", "webkit", "typed", "own"].map((id) => square(id)),
+      square("attribute", `background: image-set("../Set strings/theme/set-square.png" 1x)`),
+      `<p id="text"></p>`,
+    ].join("");
+    const files: Record<string, string> = {
+      [SHEET]: [
+        `.square { display: inline-block; width: 64px; height: 64px }`,
+        `#set { background: image-set("set-square.png" 1x) }`,
+        `#webkit { background: -webkit-image-set("set-square.png" 1x) }`,
+        `#typed { background: image-set("set-square.png" type("image/png") 1x) }`,
+        // A bare string names nothing, and neither does a font format.
+        `#text::after { content: "set-square.png" }`,
+        `@font-face { font-family: Set; src: url(set.woff2) format("set-square.png") }`,
+      ].join("\n"),
+      "Saved/Set strings.html": `${tree}<div id="host"><template shadowrootmode="open">${tree}</template></div>`,
+    };
+    const IDS = ["set", "webkit", "typed", "own", "attribute"];
+
+    before(async function () {
+      await browser.executeObsidian(
+        async ({ app }, files, green, red) => {
+          for (const folder of ["Set strings", "Set strings/theme"])
+            await app.vault.createFolder(folder);
+          const binary = (base64: string) =>
+            Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)).buffer;
+          await app.vault.createBinary("Set strings/theme/set-square.png", binary(green));
+          await app.vault.createBinary("Saved/set-square.png", binary(red));
+          for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+        },
+        files,
+        solidPng(64, GREEN).toString("base64"),
+        solidPng(64, RED).toString("base64"),
+      );
+    });
+
+    after(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        for (const path of ["Saved/Set strings.html", "Saved/set-square.png", "Set strings"]) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file, true);
+        }
+      });
+    });
+
+    /**
+     * Where each square's image comes from, in the document and in its shadow
+     * root, and the text after the paragraph. Run inside the frame.
+     */
+    function read() {
+      const where = (value: string) =>
+        value.includes("/Set%20strings/theme/set-square.png")
+          ? "beside the stylesheet"
+          : value.includes("/Saved/set-square.png")
+            ? "beside the page"
+            : value;
+      const tree = (root: Document | ShadowRoot) => ({
+        squares: Object.fromEntries(
+          [...root.querySelectorAll(".square")].map((square) => [
+            square.id,
+            where(getComputedStyle(square).backgroundImage),
+          ]),
+        ),
+        text: getComputedStyle(root.querySelector("#text")!, "::after").content,
+      });
+      return { page: tree(document), shadow: tree(document.getElementById("host")!.shadowRoot!) };
+    }
+
+    function expected() {
+      const tree = {
+        squares: Object.fromEntries(IDS.map((id) => [id, "beside the stylesheet"])),
+        text: '"set-square.png"',
+      };
+      return { page: tree, shadow: tree };
+    }
+
+    /** What the viewer's frame shows, asked inside it. */
+    async function shown() {
+      await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+      try {
+        return await browser.execute(read);
+      } finally {
+        await browser.switchFrame(null);
+      }
+    }
+
+    afterEach(async function () {
+      await restoreHost();
+    });
+
+    it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
+      const served = await inServedPage(files, "Saved/Set strings.html", () =>
+        browser.execute(read),
+      );
+      // The functions that Chromium supports, and a bare string as a font's source.
+      const supported = await browser.execute(() => {
+        const style = document.createElement("style");
+        style.textContent = `@font-face { font-family: Bare; src: "set.woff2" }`;
+        document.head.append(style);
+        const bare = (style.sheet!.cssRules[0] as CSSFontFaceRule).style.getPropertyValue("src");
+        style.remove();
+        const image = (value: string) => CSS.supports("background-image", value);
+        return {
+          imageSet: image('image-set("a.png" 1x)'),
+          webkitImageSet: image('-webkit-image-set("a.png" 1x)'),
+          image: image('image("a.png")'),
+          src: image('src("a.png")'),
+          bare,
+        };
+      });
+      expect({ served, supported }).toEqual({
+        served: expected(),
+        supported: { imageSet: true, webkitImageSet: true, image: false, src: false, bare: "" },
+      });
+    });
+
+    it("resolves them against their stylesheet", async function () {
+      await recordReads("Set strings/");
+      await openInActiveTab("Saved/Set strings.html");
+      await waitForPage();
+      await saveScreenshot("image-set-strings");
+      expect(await shown()).toEqual(expected());
+      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(2 * IDS.length * IMAGE_PIXELS * 0.9);
+      expect(await framePixels(RED)).toBe(0);
+      // Only the stylesheet is read as one.
+      expect(await recordedReads()).toEqual([SHEET]);
+    });
+
+    it("copies their files into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Set strings.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("image-set-strings-scripts-on");
+        expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(
+          2 * IDS.length * IMAGE_PIXELS * 0.9,
+        );
+        expect(await framePixels(RED)).toBe(0);
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
+  describe("with a <base> after the page's stylesheets (#185)", function () {
+    // Each square names "Late img/sq.png": green beside the page, and blue in
+    // the folder of the page's <base>, which comes after most of them. Two
+    // pages have a <base> that Chromium ignores: one inside SVG, whose folder
+    // has a red image of that name, and one of a data: URL.
+    const url = `url("Late img/sq.png")`;
+    const square = (id: string, style = "") =>
+      `<div id="${id}" class="sq"${style === "" ? "" : ` style='${style}'`}></div>`;
+    const sheets = {
+      "Saved/Late sheet.css": `#imported { background: ${url} }`,
+      "Saved/Late link.css": `#linked { background: ${url} }`,
+      "Saved/Late base/Late sheet.css": `#imported { background: ${url} }`,
+      "Saved/Late base/Late link.css": `#linked { background: ${url} }`,
+    };
+    const page = [
+      `<style>.sq { display: inline-block; width: 64px; height: 64px } #own { background: ${url} }</style>`,
+      `<style>@import "Late sheet.css";</style>`,
+      `<link rel="stylesheet" href="Late link.css">`,
+      `<svg width="0" height="0"><style>#svg { background: ${url} }</style></svg>`,
+      ...["own", "imported", "linked", "svg"].map((id) => square(id)),
+      square("attribute", `background: ${url}`),
+      `<div><template shadowrootmode="open"><style>.sq { display: inline-block; width: 64px; height: 64px } #shadow { background: ${url} }</style>`,
+      `${square("shadow")}${square("shadowattribute", `background: ${url}`)}</template></div>`,
+      `<template id="later"><style>#later { background: ${url} }</style>${square("later")}</template>`,
+      `<base href="Late base/">`,
+      `<style>#after { background: ${url} }</style>${square("after")}`,
+      square("afterattribute", `background: ${url}`),
+      `<script>document.body.append(document.getElementById("later").content.cloneNode(true));</script>`,
+    ].join("");
+    const ignored = (base: string) =>
+      `${base}<style>.sq { display: inline-block; width: 64px; height: 64px } #ignored { background: ${url} }</style>${square("ignored")}`;
+    const files: Record<string, string> = {
+      ...sheets,
+      "Saved/Late base.html": page,
+      "Saved/SVG base.html": ignored(`<svg width="0" height="0"><base href="Elsewhere/"/></svg>`),
+      "Saved/Data base.html": ignored(`<base href="data:text/html,x">`),
+    };
+    const IGNORED = ["Saved/SVG base.html", "Saved/Data base.html"];
+    const BEFORE = ["own", "imported", "linked", "svg", "attribute", "shadow", "shadowattribute"];
+    const AFTER = ["after", "afterattribute"];
+
+    before(async function () {
+      await browser.executeObsidian(
+        async ({ app }, files, green, blue, red) => {
+          for (const folder of [
+            "Saved/Late img",
+            "Saved/Late base",
+            "Saved/Late base/Late img",
+            "Saved/Elsewhere",
+            "Saved/Elsewhere/Late img",
+          ])
+            await app.vault.createFolder(folder);
+          const binary = (base64: string) =>
+            Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)).buffer;
+          await app.vault.createBinary("Saved/Late img/sq.png", binary(green));
+          await app.vault.createBinary("Saved/Late base/Late img/sq.png", binary(blue));
+          await app.vault.createBinary("Saved/Elsewhere/Late img/sq.png", binary(red));
+          for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+        },
+        files,
+        solidPng(64, GREEN).toString("base64"),
+        solidPng(64, BLUE).toString("base64"),
+        solidPng(64, RED).toString("base64"),
+      );
+    });
+
+    after(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        for (const path of [
+          "Saved/Late base.html",
+          "Saved/SVG base.html",
+          "Saved/Data base.html",
+          "Saved/Elsewhere",
+          "Saved/Late sheet.css",
+          "Saved/Late link.css",
+          "Saved/Late img",
+          "Saved/Late base",
+        ]) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file, true);
+        }
+      });
+    });
+
+    /** Which folder each square's image comes from, in the document and its shadow roots. Run inside the frame. */
+    function read() {
+      const where = (element: Element) => {
+        const value = getComputedStyle(element).backgroundImage;
+        return value.includes("/Saved/Late%20base/Late%20img/sq.png")
+          ? "the <base>'s folder"
+          : value.includes("/Saved/Late%20img/sq.png")
+            ? "the page's folder"
+            : value;
+      };
+      const squares: Record<string, string> = {};
+      const visit = (root: Document | ShadowRoot) => {
+        for (const element of root.querySelectorAll(".sq")) squares[element.id] = where(element);
+        for (const host of root.querySelectorAll("*"))
+          if (host.shadowRoot !== null) visit(host.shadowRoot);
+      };
+      visit(document);
+      return squares;
+    }
+
+    /** Where each square's image comes from in Chromium, with or without the template's square. */
+    function expected(later: boolean) {
+      return Object.fromEntries([
+        ...BEFORE.map((id) => [id, "the page's folder"]),
+        ...[...AFTER, ...(later ? ["later"] : [])].map((id) => [id, "the <base>'s folder"]),
+      ]);
+    }
+
+    async function shown() {
+      await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+      try {
+        return await browser.execute(read);
+      } finally {
+        await browser.switchFrame(null);
+      }
+    }
+
+    it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
+      const late = await inServedPage(files, "Saved/Late base.html", () => browser.execute(read));
+      const ignored: Record<string, string>[] = [];
+      for (const page of IGNORED)
+        ignored.push(await inServedPage(files, page, () => browser.execute(read)));
+      expect({ late, ignored }).toEqual({
+        late: expected(true),
+        ignored: IGNORED.map(() => ({ ignored: "the page's folder" })),
+      });
+    });
+
+    it("resolves the stylesheets before it against the page, and the others against it", async function () {
+      await openInActiveTab("Saved/Late base.html");
+      await waitForPage();
+      await saveScreenshot("late-base");
+      expect(await shown()).toEqual(expected(false));
+      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(BEFORE.length * IMAGE_PIXELS * 0.9);
+      expect(await framePixels(BLUE)).toBeGreaterThanOrEqual(AFTER.length * IMAGE_PIXELS * 0.9);
+    });
+
+    it("ignores a <base> that Chromium ignores", async function () {
+      const shownIn: Record<string, unknown> = {};
+      for (const ignored of IGNORED) {
+        await openInActiveTab(ignored);
+        await waitForPage();
+        shownIn[ignored] = await shown();
+      }
+      expect(shownIn).toEqual(
+        Object.fromEntries(IGNORED.map((page) => [page, { ignored: "the page's folder" }])),
+      );
+    });
+
+    it("copies the files that each resolves to into a page with scripts on, also in a template's content", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Late base.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("late-base-scripts-on");
+        // The template's square, which the page's script adds, resolves against the <base>.
+        const green = await framePixels(GREEN);
+        const blue = await framePixels(BLUE);
+        expect({
+          green: Math.round(green / IMAGE_PIXELS),
+          blue: Math.round(blue / IMAGE_PIXELS),
+        }).toEqual({ green: BEFORE.length, blue: AFTER.length + 1 });
       } finally {
         await clickToolbarButton("Scripts ON");
         await copyLocalFiles(false);

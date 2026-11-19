@@ -258,6 +258,34 @@ describe("preparing a page whose stylesheets name many URLs (#177)", () => {
     assert.equal(looked("c"), 20 * count, `${ms} ms`);
     assert.equal(output.split(`<style>${"url(c)".repeat(count)}{}</style>`).length - 1, 20);
   });
+
+  it("keeps what making style attributes before a later <base> absolute adds within the text limit (#185)", async () => {
+    // 2,500 style attributes of 100 URLs each, before the page's <base>: made
+    // absolute, each URL adds 78 characters, 19.5 million in all, so the
+    // attributes take what fits in the limit, and the others stay as written.
+    // `document.test.ts` counts a <style> before the <base> to the character.
+    const declarations = "b:url(c);".repeat(100);
+    const html = `${`<p style="${declarations}">x</p>`.repeat(2_500)}<base href="sub/">`;
+    const { output, ms } = await prepareWith(html, {});
+    // The limit counts the text that preparing writes, which serializing the
+    // copy lengthens, as each quote in an attribute becomes `&quot;` (#183).
+    const written = [...output.matchAll(/<p style="([^"]*)">/g)].map(([, style]) =>
+      style.replaceAll("&quot;", '"').replaceAll("&amp;", "&"),
+    );
+    assert.equal(written.length, 2_500);
+    const added = written.join("").length - 2_500 * declarations.length;
+    assert.ok(added <= STYLESHEET_TEXT_LIMIT, `${added} characters added in ${ms} ms`);
+    const absolute = `b:url("${vault}Saved/c");`.repeat(100);
+    const made = written.filter((style) => style === absolute).length;
+    const kept = written.filter((style) => style === declarations).length;
+    assert.deepEqual(
+      { made, kept },
+      {
+        made: Math.floor(STYLESHEET_TEXT_LIMIT / (absolute.length - declarations.length)),
+        kept: 2_500 - made,
+      },
+    );
+  });
 });
 
 describe("preparing a page whose links have long types (#147)", () => {

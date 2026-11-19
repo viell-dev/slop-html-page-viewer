@@ -95,10 +95,40 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   stylesheet, as the viewer's frame loads no linked stylesheets but Google Fonts
   ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
+  **Unreleased (#169):** the viewer also reads only the titled stylesheets that Chromium applies.
+  In the page itself, an untitled `<style>` or stylesheet link applies, and a titled one only with
+  the title of the preferred set: the first title of a `<style>` or a stylesheet link, also one
+  whose file is missing, or the content of a `<meta http-equiv="Default-Style">` before it. An
+  `alternate stylesheet` link applies only with that title. In shadow DOM, titles do not matter,
+  and no alternate link applies. The others stay as the page has them, and nothing is read or
+  copied for them; a page whose script switches to another set gets none of that set's linked
+  stylesheets, and its `<style>` elements without their imports
+  ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
+
   **Unreleased (#155):** each of the page's own stylesheets ends where CSS ends it, as an imported
   one does: an import without its `;` at the end of a `<style>` or a linked stylesheet counts, and
   an unquoted URL at the end of a linked stylesheet is that stylesheet's, resolved from its folder
   ([#155](https://github.com/viell-dev/slop-html-page-viewer/issues/155)).
+
+  **Unreleased (#179):** a string in `image-set()` or `-webkit-image-set()`, as in
+  `image-set("icon.png" 1x, "icon@2x.png" 2x)`, names a file as a `url()` does: in a linked or
+  imported stylesheet, it resolves from that stylesheet's folder, a name that does not resolve as a
+  path is found by name, and with **Local files with scripts on** its file is copied into the page.
+  What making it absolute adds counts toward the page's limits on stylesheets, as for a `url()`.
+  Other strings, such as those of `type()`, `format()`, and `local()`, still name nothing
+  ([#179](https://github.com/viell-dev/slop-html-page-viewer/issues/179)).
+
+  **Unreleased (#185):** the page's stylesheets resolve as Chromium resolves them while it reads the
+  page, against the base that applies where each stands. A `<style>`, with its imports, a stylesheet
+  link, and a `style` attribute before the page's `<base>`, such as one at the end of its `<head>`,
+  resolve against the page's own folder, also in shadow DOM before the `<base>`; the others, and the
+  content of templates that a script adds, resolve against the `<base>`. The viewer makes the URLs
+  of those before it absolute, and what that adds counts toward the page's limits on stylesheets;
+  past them, such a stylesheet keeps its URLs as written, which then resolve against the `<base>`,
+  though with **Local files with scripts on** their files are still copied from the page's folder. A
+  `<base>` that Chromium ignores, one inside SVG and one with a `data:` or `javascript:` URL, no
+  longer moves the page's files. Images, media, and the page's other references before a `<base>`
+  still resolve against it ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
@@ -256,10 +286,11 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   the copy that the view then serializes from it, which character references and escapes can make
   several times longer ([#183](https://github.com/viell-dev/slop-html-page-viewer/issues/183)). A
   page's own `<style>` keeps its URLs as written, which the copy's `<base>` resolves as the page
-  does, unless the page's `<base>` comes after it
-  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)), apart from those found
-  by name, and only what its imports that stay imports add counts.
-  Its own text, `style` attributes, and the page's other references count nothing, and the
+  does, apart from those found by name, and only what its imports that stay imports add counts; one
+  before the page's `<base>`, and a `style` attribute there, get their URLs made absolute instead,
+  and what that adds counts too
+  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
+  Its own text, its other `style` attributes, and the page's other references count nothing, and the
   references found by name there can make the copy far longer than the page
   ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)). A stylesheet whose text,
   so rewritten, would not fit stays a link or import, as one too large does, takes nothing from the
@@ -274,6 +305,15 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   stays within that limit, apart from the text that closes the last of them, which counts at once
   and can be as long as that stylesheet
   ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
+
+- **Unreleased (#185):** an element after a page's late `<base>` that repeats one before it can
+  show its `style` attribute's images from the `<base>`'s folder, where Chromium shows them from
+  the page's. Chromium reuses what it parsed for an element with the same tag and the same
+  attributes in the same order, and so resolves the repeat against the page, also in shadow DOM.
+  Chromium 114, in Obsidian 1.5.3, also does this for another tag with the same attributes, and
+  for a `<style>` with the same text and no imports. The viewer resolves every element after the
+  `<base>` against it, and does not imitate this caching, which Chromium versions do differently
+  ([#191](https://github.com/viell-dev/slop-html-page-viewer/issues/191)).
 
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets

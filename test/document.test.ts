@@ -1052,6 +1052,13 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
     assert.equal(await linked("", located(sheetOf(rule, copied, LIMIT + 1))), null);
   });
 
+  it("counts its strings that image-set() takes as URLs as made absolute (#179)", async () => {
+    const unit = 'a{b:image-set("c")}';
+    const copied = `a{b:image-set("${VAULT}Saved/${folder}/c")}`.length;
+    assert.equal(await linked(sheetOf(unit, copied, LIMIT)), LIMIT);
+    assert.equal(await linked(sheetOf(unit, copied, LIMIT + 1)), null);
+  });
+
   it("counts its imports that stay imports as the copy writes them", async () => {
     // Imports of a file that is not a stylesheet, which stay imports.
     const unit = '@import "c";';
@@ -1234,6 +1241,120 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
       onlyStyle(await prepare(style(most + 1), context({}, page))),
       unit.repeat(most + 1),
     );
+  });
+
+  it("finds by name against its own base a <style> or a style attribute before a <base> that does not fit (#185)", async () => {
+    // Past the limit, each keeps its URLs as written. A reference that does
+    // not resolve as a path against the page is found by name, though one of
+    // that name exists in the folder of the copy's <base>.
+    const page = `Saved/${folder}/page.html`;
+    const most = Math.floor(LIMIT / (copied - rule.length));
+    const declaration = "b:url(c);";
+    const most2 = Math.floor(
+      LIMIT / (`b:url("${VAULT}Saved/${folder}/c");`.length - declaration.length),
+    );
+    const ctx: PageContext = {
+      ...context({}, page),
+      exists: (path) => path !== `Saved/${folder}/f.png`,
+      locate: (linktext) => (linktext === "f.png" ? "Found/f.png" : null),
+    };
+    const found = `url("${VAULT}Found/f.png")`;
+    const copy = parse(
+      await prepare(
+        `<style>${rule.repeat(most + 1)}p{b:url(f.png)}</style>` +
+          `<p style='${declaration.repeat(most2 + 1)}b:url(f.png)'>x</p><base href="sub/">`,
+        ctx,
+      ),
+    );
+    assert.equal(copy.querySelector("style")!.textContent, `${rule.repeat(most + 1)}p{b:${found}}`);
+    assert.equal(
+      copy.querySelector("p")!.getAttribute("style"),
+      `${declaration.repeat(most2 + 1)}b:${found}`,
+    );
+  });
+
+  it("gives no room back for a rewrite that shortens a style attribute before a <base>, and stops at the room (#185)", async () => {
+    const page = `Saved/${folder}/page.html`;
+    const late = '<base href="sub/">';
+    const declaration = "b:url(c);";
+    const each = `b:url("${VAULT}Saved/${folder}/c");`.length - declaration.length;
+    const most = Math.floor(LIMIT / each);
+    // Made absolute, each of these loses 100 spaces. Before URLs that pass
+    // the limit by less than 30 of them save, the attribute still does not fit.
+    const short = `b:url(${" ".repeat(50)}"https://e.example/a"${" ".repeat(50)});`;
+    assert.ok(30 * 100 > each);
+    const attribute = short.repeat(30) + declaration.repeat(most + 1);
+    const copy = parse(await prepare(`<p style='${attribute}'>x</p>${late}`, context({}, page)));
+    assert.equal(copy.querySelector("p")!.getAttribute("style"), attribute);
+    // Rewriting stops once the attribute passes the room: about half of
+    // twice as many URLs as fit are rewritten, and then each is asked about
+    // once more, to be found by name as the attribute stays as written.
+    const { ctx, looked } = counting({}, page);
+    await prepare(`<p style='${declaration.repeat(2 * most)}'>x</p>${late}`, ctx);
+    const asked = looked(`Saved/${folder}/c`);
+    assert.ok(asked <= most + 1 + 2 * most, `${asked} lookups`);
+  });
+
+  it("counts what making the URLs of a <style> or a style attribute before a <base> absolute adds (#185)", async () => {
+    // A page in the folder, whose <base> comes after them: Chromium resolves
+    // them against the page's address, so the copy makes them absolute, as
+    // far as the limit allows, and past it keeps them as written.
+    const page = `Saved/${folder}/page.html`;
+    const each = copied - rule.length;
+    const most = Math.floor(LIMIT / each);
+    const late = '<base href="sub/">';
+    const made = `a{b:url("${VAULT}Saved/${folder}/c")}`;
+    const style = (count: number) => `<style>${rule.repeat(count)}</style>${late}`;
+    assert.equal(onlyStyle(await prepare(style(most), context({}, page))), made.repeat(most));
+    assert.equal(
+      onlyStyle(await prepare(style(most + 1), context({}, page))),
+      rule.repeat(most + 1),
+    );
+    const declaration = "b:url(c);";
+    const absolute = `b:url("${VAULT}Saved/${folder}/c");`;
+    const most2 = Math.floor(LIMIT / (absolute.length - declaration.length));
+    const attribute = async (count: number) =>
+      parse(
+        await prepare(`<p style='${declaration.repeat(count)}'>x</p>${late}`, context({}, page)),
+      )
+        .querySelector("p")!
+        .getAttribute("style");
+    assert.equal(await attribute(most2), absolute.repeat(most2));
+    assert.equal(await attribute(most2 + 1), declaration.repeat(most2 + 1));
+    // What one takes, the next cannot: of two that each take three fifths, the second stays.
+    const three = Math.floor((most2 * 3) / 5);
+    const both = parse(
+      await prepare(
+        `<p style='${declaration.repeat(three)}'>x</p><p style='${declaration.repeat(three)}'>y</p>${late}`,
+        context({}, page),
+      ),
+    );
+    assert.deepEqual(
+      [...both.querySelectorAll("p")].map((p) => p.getAttribute("style")),
+      [absolute.repeat(three), declaration.repeat(three)],
+    );
+    // With copying, the files of those kept as written come from the page's
+    // folder still, where Chromium finds them.
+    const copies = new Set<string>();
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.add(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    const png = "a{b:url(c.png)}";
+    const pngs = Math.floor(
+      LIMIT / (`a{b:url("${VAULT}Saved/${folder}/c.png")}`.length - png.length),
+    );
+    const d = "b:url(d.png);";
+    const ds = Math.floor(LIMIT / (`b:url("${VAULT}Saved/${folder}/d.png");`.length - d.length));
+    await prepare(
+      `<style>${png.repeat(pngs + 1)}</style><p style="${d.repeat(ds + 1)}">x</p>${late}`,
+      context({}, page),
+      { copyFiles },
+    );
+    assert.deepEqual([...copies].sort(), [`Saved/${folder}/c.png`, `Saved/${folder}/d.png`]);
   });
 
   it("finds by name the references of a <style> whose imports stay as written", async () => {
@@ -1970,6 +2091,510 @@ describe("the end of a page's own stylesheet (#155)", () => {
       [...page.querySelectorAll("style")].map((style) => style.textContent),
       ["p { color: red}", "q { color: blue }"],
     );
+  });
+});
+
+describe("strings that image-set() takes as URLs (#179)", () => {
+  // A stylesheet in another folder than the page, whose strings resolve
+  // against it, as its url()s do.
+  const sheetUrl = `${VAULT}Theme/site.css`;
+  const css = [
+    `a { background: image-set("icon.png" 1x, "icon@2x.png" type("image/png") 2x) }`,
+    `b { background: -webkit-image-set('x.png' 1x), url(y.png) }`,
+  ].join("\n");
+  const absolute = [
+    `a { background: image-set("${VAULT}Theme/icon.png" 1x, "${VAULT}Theme/icon@2x.png" type("image/png") 2x) }`,
+    `b { background: -webkit-image-set("${VAULT}Theme/x.png" 1x), url("${VAULT}Theme/y.png") }`,
+  ].join("\n");
+
+  function copying(): LocalFiles & { copies: string[] } {
+    const copies: string[] = [];
+    return {
+      copies,
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+  }
+
+  it("makes them absolute against their stylesheet, keeping them strings", async () => {
+    assert.equal(absoluteUrls(css, sheetUrl), absolute);
+    assert.deepEqual(await inlineStylesheet(css, sheetUrl, context({})), [absolute]);
+  });
+
+  it("makes them absolute in every place that a page links or imports a stylesheet, and copies their files", async () => {
+    const shadow = (html: string) =>
+      `<div><template shadowrootmode="open">${html}</template></div>`;
+    const sheets = [
+      '<link rel="stylesheet" href="../Theme/site.css">',
+      '<style>@import "../Theme/site.css";</style>',
+      '<link rel="stylesheet" href="../Theme/main.css">',
+    ];
+    for (const html of [...sheets, ...sheets.map(shadow)]) {
+      for (const copy of [undefined, copying()]) {
+        const ctx = context({ "Theme/site.css": css, "Theme/main.css": '@import "site.css";' });
+        const page = parse(await prepare(html, ctx, { copyFiles: copy }));
+        const root = page.querySelector("template")?.content ?? page;
+        const text = root.querySelector("style")!.textContent;
+        const what = `${html}, copying: ${copy !== undefined}`;
+        if (copy === undefined) assert.equal(text, absolute, what);
+        else {
+          // The 2x image is copied too: Chromium loads the one for the screen's density.
+          assert.deepEqual(
+            copy.copies.sort(),
+            ["Theme/icon.png", "Theme/icon@2x.png", "Theme/x.png", "Theme/y.png"],
+            what,
+          );
+          assert.ok(text.includes(`image-set("data:image/png;base64,AQ==" 1x`), what);
+          assert.ok(text.includes(`-webkit-image-set("data:image/png;base64,AQ==" 1x)`), what);
+        }
+      }
+    }
+  });
+
+  it("copies the files of the page's own <style> and style attributes, and finds them by name", async () => {
+    const own = `background: image-set("icon.png" 1x, "found.png" 2x)`;
+    const html = `<style>a { ${own} }</style><p style='${own}'>x</p>`;
+    const ctx: PageContext = {
+      ...context({}),
+      exists: (path) => path !== "Saved/found.png",
+      locate: (linktext) => (linktext === "found.png" ? "Elsewhere/found.png" : null),
+    };
+    // Found by name, and otherwise as written, for the copy's <base>.
+    const located = `background: image-set("icon.png" 1x, "${VAULT}Elsewhere/found.png" 2x)`;
+    const page = parse(await prepare(html, ctx));
+    assert.equal(page.querySelector("style")!.textContent, `a { ${located} }`);
+    assert.equal(page.querySelector("p")!.getAttribute("style"), located);
+    const copy = copying();
+    await prepare(html, ctx, { copyFiles: copy });
+    assert.deepEqual(copy.copies.sort(), ["Elsewhere/found.png", "Saved/icon.png"]);
+  });
+
+  it("leaves the other strings as they are, and reads and copies nothing for them", async () => {
+    const strings = [
+      `a::after { content: "ghost.png" }`,
+      `@font-face { font-family: X; src: url(font.woff2) format("ghost.woff2"), local("ghost.ttf") }`,
+      `b { background: image("ghost.png"); c: src("ghost.png"); d: cross-fade("ghost.png", "ghost.png") }`,
+      `e { background: image-set(url(real.png) type("ghost.png") 1x) }`,
+    ].join("\n");
+    const ctx = context({ "Theme/site.css": strings });
+    const copy = copying();
+    const page = parse(
+      await prepare('<link rel="stylesheet" href="../Theme/site.css">', ctx, { copyFiles: copy }),
+    );
+    assert.deepEqual(copy.copies.sort(), ["Theme/font.woff2", "Theme/real.png"]);
+    const text = page.querySelector("style")!.textContent;
+    for (const kept of strings.match(/"ghost[^"]*"/g)!) assert.ok(text.includes(kept), kept);
+  });
+});
+
+describe("a <base> after the page's stylesheets (#185)", () => {
+  // As headless Chrome 158 and Obsidian 1.5.3 and 1.15.1 resolve them, and
+  // resources.e2e.ts checks: the stylesheets that Chromium parses before the
+  // <base> resolve against the page's own address, and the rest against the
+  // <base>, which the copy's own <base> gives them. Each tree's elements have
+  // attributes of their own: Chromium can resolve an element that repeats one
+  // before the <base> against the page, as the last test here says (#191).
+  const page = `${VAULT}Saved/`;
+  const sub = `${VAULT}Saved/sub/`;
+  const files = {
+    "Saved/css/s.css": "#l { background: url(../img/l.png) }",
+    "Saved/sub/css/s.css": "#l { color: red }",
+    "Saved/css/i.css": "#i { background: url(../img/i.png) }",
+    "Saved/sub/css/i.css": "#i { color: red }",
+  };
+  const tree = (id: string) =>
+    [
+      `<style>#${id}a { background: url(img/a.png) }</style>`,
+      `<style>@import "css/i.css"; #${id}b { background: image-set("img/b.png" 1x) }</style>`,
+      `<link rel="stylesheet" href="css/s.css">`,
+      `<svg><style>#${id}c { fill: url(img/c.svg#p) }</style></svg>`,
+      `<p style="background: url(img/${id}d.png)">x</p>`,
+    ].join("");
+  const html = [
+    `<body style="background: url(img/body.png)">`,
+    tree("doc"),
+    `<div><template shadowrootmode="open">${tree("shadow")}<div><template shadowrootmode="open">${tree("nested")}</template></div></template></div>`,
+    `<template id="later">${tree("later")}</template>`,
+    `<base href="sub/">`,
+    tree("after"),
+    `<div><template shadowrootmode="open">${tree("shadowafter")}</template></div>`,
+  ].join("");
+
+  /** The texts of a root's `<style>` elements, and of its `style` attributes, in order. */
+  function texts(root: ParentNode) {
+    return {
+      styles: [...root.querySelectorAll("style")].map((style) => style.textContent),
+      attributes: [...root.querySelectorAll("[style]")].map((element) =>
+        element.getAttribute("style"),
+      ),
+    };
+  }
+
+  /**
+   * What the copy makes of a `tree`: its `<style>` elements, the link's in
+   * its place, and its `style` attribute, made absolute against `base`, or
+   * kept as written, for the copy's <base>.
+   */
+  function expected(id: string, base: string | null) {
+    if (base === null)
+      return {
+        styles: [
+          `#${id}a { background: url(img/a.png) }`,
+          `#i { color: red } #${id}b { background: image-set("img/b.png" 1x) }`,
+          "#l { color: red }",
+          `#${id}c { fill: url(img/c.svg#p) }`,
+        ],
+        attributes: [`background: url(img/${id}d.png)`],
+      };
+    return {
+      styles: [
+        `#${id}a { background: url("${base}img/a.png") }`,
+        `#i { background: url("${base}img/i.png") } #${id}b { background: image-set("${base}img/b.png" 1x) }`,
+        `#l { background: url("${base}img/l.png") }`,
+        `#${id}c { fill: url("${base}img/c.svg#p") }`,
+      ],
+      attributes: [`background: url("${base}img/${id}d.png")`],
+    };
+  }
+
+  it("resolves the stylesheets before it against the page, and gives the copy its address", async () => {
+    const copy = parse(await prepare(html, context(files)));
+    assert.equal(copy.querySelector("base")!.getAttribute("href"), sub);
+    const [shadow, later, shadowAfter] = [...copy.querySelectorAll("template")].map(
+      (template) => template.content,
+    );
+    const nested = shadow.querySelector("template")!.content;
+    const own = texts(copy);
+    const before = expected("doc", page);
+    const after = expected("after", null);
+    assert.deepEqual(
+      {
+        document: own,
+        shadow: texts(shadow),
+        nested: texts(nested),
+        later: texts(later),
+        shadowAfter: texts(shadowAfter),
+      },
+      {
+        // The body is an ancestor of the <base>, which Chromium parses first.
+        document: {
+          styles: [...before.styles, ...after.styles],
+          attributes: [
+            `background: url("${page}img/body.png")`,
+            ...before.attributes,
+            ...after.attributes,
+          ],
+        },
+        shadow: expected("shadow", page),
+        nested: expected("nested", page),
+        later: expected("later", null),
+        shadowAfter: expected("shadowafter", null),
+      },
+    );
+  });
+
+  it("copies the files that each resolves to into a page with scripts on", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    await prepare(html, context(files), { copyFiles });
+    const each = ["a.png", "b.png", "c.svg"];
+    const attributes = (ids: string[], folder: string) =>
+      ids.map((id) => `${folder}img/${id}d.png`);
+    // Each root's own files, and the imported and linked stylesheets' in their folder.
+    const before = [
+      ...each.map((name) => `Saved/img/${name}`),
+      ...attributes(["doc", "shadow", "nested"], "Saved/"),
+      "Saved/img/i.png",
+      "Saved/img/l.png",
+    ];
+    const after = [
+      ...each.map((name) => `Saved/sub/img/${name}`),
+      ...attributes(["later", "after", "shadowafter"], "Saved/sub/"),
+    ];
+    assert.deepEqual(
+      [...new Set(copies)].sort(),
+      [...before, ...after, "Saved/img/body.png"].sort(),
+    );
+  });
+
+  it("applies the base that Chromium applies, or none", async () => {
+    const style = `<style>a { b: url(img/x.png) }</style>`;
+    for (const [head, base, text] of [
+      // The first HTML <base> with an href, also an empty one, which is the page's address.
+      [
+        `<base href="">${style}<base href="sub/">`,
+        `${page}Example%20article.html`,
+        "url(img/x.png)",
+      ],
+      [`${style}<base href="sub/"><base href="other/">`, sub, `url("${page}img/x.png")`],
+      // Chromium ignores a <base> in SVG, of a data: or javascript: URL, and in a template.
+      [`<svg><base href="svg/"/></svg>${style}<base href="sub/">`, sub, `url("${page}img/x.png")`],
+      [`${style}<base href="data:text/html,x">`, `${page}Example%20article.html`, "url(img/x.png)"],
+      // An ignored first <base> lets no later one apply.
+      [
+        `<base href="data:text/html,x">${style}<base href="sub/">`,
+        `${page}Example%20article.html`,
+        "url(img/x.png)",
+      ],
+      [
+        `${style}<base href="JavaScript:void(0)">`,
+        `${page}Example%20article.html`,
+        "url(img/x.png)",
+      ],
+      [
+        `<template><base href="sub/"></template>${style}`,
+        `${page}Example%20article.html`,
+        "url(img/x.png)",
+      ],
+      // One at the top of the <head> comes before the stylesheets, as most do.
+      [`<base href="../Other/">${style}`, `${VAULT}Other/`, "url(img/x.png)"],
+    ]) {
+      const copy = parse(await prepare(head, context({})));
+      assert.equal(copy.querySelector("base")!.getAttribute("href"), base, head);
+      assert.equal(copy.querySelector("style")!.textContent, `a { b: ${text} }`, head);
+    }
+  });
+
+  it("resolves the style attribute of an element around the <base>, which Chromium parses first", async () => {
+    const copy = parse(
+      await prepare(
+        `<html style="b: url(img/x.png)"><head><base href="sub/"></head><body style="b: url(img/y.png)">`,
+        context({}),
+      ),
+    );
+    assert.equal(copy.documentElement.getAttribute("style"), `b: url("${page}img/x.png")`);
+    assert.equal(copy.body.getAttribute("style"), "b: url(img/y.png)");
+  });
+
+  it("finds by name a reference before it that does not resolve as a path against the page", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: (path) => path === "Saved/img/here.png" || path === "Saved/sub/img/there.png",
+      locate: (linktext) => (linktext.endsWith(".png") ? `Found/${linktext}` : null),
+    };
+    const copy = parse(
+      await prepare(
+        `<style>a { b: url(img/here.png) } c { d: url(img/there.png) }</style><p style="b: url(img/there.png)">x</p><base href="sub/">`,
+        ctx,
+      ),
+    );
+    const found = `${VAULT}Found/img/there.png`;
+    assert.equal(
+      copy.querySelector("style")!.textContent,
+      `a { b: url("${page}img/here.png") } c { d: url("${found}") }`,
+    );
+    assert.equal(copy.querySelector("p")!.getAttribute("style"), `b: url("${found}")`);
+  });
+
+  it("resolves an element after it against it, also one that repeats an element before it (#191)", async () => {
+    // Chromium can resolve the second <p> against the page: it reuses the
+    // attributes that it parsed for an element of the same tag with the same
+    // attributes, in the same order, with their parsed style. Chromium 114
+    // also reuses them for another tag, and the stylesheet of a <style> with
+    // the same text and no import. The copy does not imitate this caching,
+    // which differs between Chromium versions: the element after the <base>
+    // resolves against the <base>, as every other one there does.
+    const copy = parse(
+      await prepare(
+        `<p style="b: url(img/1.png)">a</p><base href="sub/"><p style="b: url(img/1.png)">b</p>`,
+        context({}),
+      ),
+    );
+    assert.deepEqual(
+      [...copy.querySelectorAll("p")].map((p) => p.getAttribute("style")),
+      [`b: url("${page}img/1.png")`, "b: url(img/1.png)"],
+    );
+  });
+});
+
+describe("stylesheet sets (#169)", () => {
+  // As headless Chrome 158 and Obsidian 1.5.3 and 1.15.1 apply them, and
+  // resources.e2e.ts checks: in a document, untitled stylesheets and those of
+  // the set that the first title names. Each link names a file of its own,
+  // and each <style> imports one, so that the reads show what is prepared.
+  const titled = (title: string | null) => (title === null ? "" : ` title="${title}"`);
+  const link = (title: string | null, name: string, extra = "") =>
+    `<link rel="stylesheet"${titled(title)} href="${name}.css"${extra}>`;
+  const alternate = (title: string | null, name: string) =>
+    `<link rel="alternate stylesheet"${titled(title)} href="${name}.css">`;
+  const style = (title: string | null, name: string, extra = "") =>
+    `<style${titled(title)}${extra}>@import "${name}.css";</style>`;
+  const meta = (content: string) => `<meta http-equiv="Default-Style" content="${content}">`;
+
+  /** The names of the files that preparing the page reads, sorted: each exists but missing.css. */
+  async function read(html: string): Promise<string[]> {
+    const reads: string[] = [];
+    await prepare(html, {
+      ...context({}),
+      async read(path) {
+        reads.push(path);
+        return path.endsWith("/missing.css") ? null : "p{}";
+      },
+    });
+    return reads.map((path) => path.replace(/^Saved\/(.*)\.css$/, "$1")).sort();
+  }
+
+  it("prepares untitled stylesheets and those of the set that the first title names", async () => {
+    for (const [what, html, expected] of [
+      [
+        "links, with alternate ones, a repeat of the first title, and a title of a space",
+        [
+          link("A", "a1"),
+          link("B", "b1"),
+          link(null, "c1"),
+          link("A", "a2"),
+          alternate("A", "alt1"),
+          alternate("B", "alt2"),
+          alternate(null, "p1"),
+          link(" ", "sp"),
+          link("B", "b2"),
+        ],
+        ["a1", "a2", "alt1", "c1"],
+      ],
+      [
+        "a <style> first",
+        [style("B", "sb"), link("A", "a1"), link("B", "b1"), style("A", "sa"), style(null, "ss")],
+        ["b1", "sb", "ss"],
+      ],
+      [
+        "a link first, which names its set before it loads",
+        [link("A", "a1"), style("B", "sb"), link("B", "b1"), style("A", "sa")],
+        ["a1", "sa"],
+      ],
+      [
+        "a missing first link, which names its set too",
+        [link("A", "missing"), link("B", "b1"), link("A", "a1")],
+        ["a1", "missing"],
+      ],
+      [
+        "a disabled first link, which names none",
+        [link("A", "a1", " disabled"), link("B", "b1"), link("A", "a2")],
+        ["b1"],
+      ],
+      [
+        "a Default-Style <meta> first",
+        [meta("B"), link("A", "a1"), link("B", "b1"), style("A", "sa"), style("B", "sb")],
+        ["b1", "sb"],
+      ],
+      ["a Default-Style <meta> after", [link("A", "a1"), style("B", "sb"), meta("B")], ["a1"]],
+      [
+        "an empty Default-Style <meta>, then two",
+        [meta(""), meta("B"), meta("A"), link("A", "a1"), link("B", "b1")],
+        ["b1"],
+      ],
+      [
+        "titled elements that name no set: a link of another type or without an href, an alternate link, and a <style> of another type",
+        [
+          link("A", "t1", ' type="text/plain"'),
+          `<link rel="stylesheet" title="A" href="">`,
+          `<link rel="stylesheet" title="A" href=" \t">`,
+          alternate("A", "alt1"),
+          style("A", "sx", ' type="text/x-scss"'),
+          link("B", "b1"),
+          link("A", "a2"),
+        ],
+        ["b1"],
+      ],
+      [
+        "SVG <style> elements",
+        [
+          `<svg><style title="B">@import "svgb.css";</style><style title="A">@import "svga.css";</style></svg>`,
+          link("A", "a1"),
+          link("B", "b1"),
+        ],
+        ["b1", "svgb"],
+      ],
+      [
+        "a Default-Style <meta> whose http-equiv is in another case",
+        [`<meta http-equiv="DEFAULT-style" content="B">`, link("A", "a1"), link("B", "b1")],
+        ["b1"],
+      ],
+      [
+        "a Default-Style <meta> in the <body>, before the titles",
+        [`<p>x</p>`, meta("B"), link("A", "a1"), link("B", "b1")],
+        ["b1"],
+      ],
+      [
+        "a first link whose href is no URL, which names no set",
+        [`<link rel="stylesheet" title="A" href="http://[bad">`, link("B", "b1"), link("A", "a2")],
+        ["b1"],
+      ],
+      [
+        "titles that differ in case or spaces",
+        [link("a", "lower"), link("A", "upper"), link(" a ", "spaced"), meta("A")],
+        ["lower"],
+      ],
+      [
+        "a Default-Style <meta> with spaces",
+        [meta(" B "), link(" B ", "spaced"), link("B", "b1")],
+        ["spaced"],
+      ],
+    ] as const) {
+      assert.deepEqual(await read(html.join("")), [...expected].sort(), what);
+    }
+  });
+
+  it("prepares every stylesheet but alternate links in shadow roots and templates, whose titles name no set", async () => {
+    const html = [
+      link("A", "a1"),
+      `<div><template shadowrootmode="open">`,
+      [link("B", "b2"), style("B", "sb"), alternate("A", "alt1"), link(null, "c1"), meta("B")].join(
+        "",
+      ),
+      `</template></div>`,
+      `<template>${link("B", "t1")}${alternate("A", "t2")}</template>`,
+      link("B", "b1"),
+    ].join("");
+    assert.deepEqual(await read(html), ["a1", "b2", "c1", "sb", "t1"]);
+  });
+
+  it("keeps the others as the page has them, and copies nothing for them", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    const html = [
+      `<style title="A">a { b: url(a.png) }</style>`,
+      `<style title="B">c { d: url(b.png) }</style>`,
+      `<style>e { f: url(c.png) }</style>`,
+      link("B", "b1"),
+      alternate("B", "alt2"),
+    ].join("");
+    const copy = parse(await prepare(html, context({ "Saved/b1.css": "g{}" }), { copyFiles }));
+    assert.deepEqual(copies.sort(), ["Saved/a.png", "Saved/c.png"]);
+    assert.equal(copy.querySelector('style[title="B"]')!.textContent, "c { d: url(b.png) }");
+    assert.deepEqual(
+      [...copy.querySelectorAll("link")].map((element) => element.outerHTML),
+      [link("B", "b1"), alternate("B", "alt2")],
+    );
+  });
+
+  it("gives the reading style to a page whose only stylesheets are outside the set", async () => {
+    for (const [html, own] of [
+      [`<style title="A">p{}</style>`, true],
+      [`${meta("X")}<style title="A">p{}</style>`, false],
+      [`${meta("X")}${link("A", "a1")}${alternate("X", "x")}`, true],
+      [`${style("A", "sa")}${alternate("B", "alt")}`, true],
+      [`${style(null, "plain")}${meta("X")}`, true],
+      [`${link("A", "a1")}${link("B", "b1")}`, true],
+      [`${meta("X")}${link("A", "a1")}`, false],
+    ] as const) {
+      const prepared = await preparePage(html, context({}), { readingStyle: "p{}" });
+      assert.equal(prepared.ownStyles, own, html);
+    }
   });
 });
 
