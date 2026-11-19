@@ -1042,7 +1042,10 @@ starts left neither test a step after it, and the screenshot was taken.
   once the page is parsed; a script before the `<base>` that adds it at once would resolve it
   against the page. Images, media, frames, scripts, and the page's other references before a
   `<base>` still resolve against it, where headless Chrome 158 resolves most against the page
-  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)). A `<style>` or a
+  `style` attribute before the `<base>` whose URLs would not fit in the text limit made absolute
+  keeps them as written, so in the frame they resolve against the `<base>`: no markup gives one
+  element a base of its own. With copying, their files still come from the page's folder.
 - **Unreleased (#179):** a string that reaches `image-set()` only through `var()`, as in
   `--icon: "icon.png"` and `image-set(var(--icon) 1x)`, is not between that function's
   parentheses in the stylesheet's text, so the copy keeps it as written, and copies nothing for
