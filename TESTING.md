@@ -1281,6 +1281,13 @@ starts left neither test a step after it, and the screenshot was taken.
   vault do not show in the viewer, also without a `<base>`, while the same page served outside
   Obsidian shows them. `resources.e2e.ts` reads their URLs from the copy, not what they show
   ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+- With scripts on, a `<base>` that the page's script adds does not apply when it comes after the
+  copy's own `<base>`, which is first in the `<head>`: in Obsidian 1.5.3 and 1.15.1, what the page
+  named after it resolved against the page's folder, where a served page resolved it against the
+  added `<base>`. One that the script puts before the copy's applies, but resolves a relative
+  address against the frame's fallback base, Obsidian's `app://obsidian.md/`, instead of the
+  page's. No `<base>` that the copy places lets a script's relative one resolve against the page
+  ([#193](https://github.com/viell-dev/slop-html-page-viewer/issues/193)).
 
 - **Unreleased (#179):** a string that reaches `image-set()` only through `var()`, as in
   `--icon: "icon.png"` and `image-set(var(--icon) 1x)`, is not between that function's parentheses

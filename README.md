@@ -362,6 +362,13 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   later, but against the `<base>` when it reads that first, as it can when the `<base>` follows
   them closely. The viewer cannot tell which a browser would do
   ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+
+- **With scripts on, a `<base>` that a page's script adds** does not apply in the viewer, where a
+  browser resolves the URLs that the page names after it against it: the viewer's copy has a
+  `<base>` of its own first, which applies instead. If the script puts its `<base>` before that
+  one, a relative address in it resolves against Obsidian's own address instead of the page's
+  ([#193](https://github.com/viell-dev/slop-html-page-viewer/issues/193)).
+
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets
   still apply, and the **Local files with scripts on** setting copies the page's images, media, text
