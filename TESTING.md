@@ -746,6 +746,10 @@ breakages failed the check named:
   #139, #143, and #147, and the work stress test.
 - Returning a stylesheet given alone past the limit unlocated, or a page's `<style>` past it as
   written: the test of each, and three more of locating by name.
+- Leaving the copy's `<base>` out: in Obsidian 1.15.1, the new `resources.e2e.ts` test with
+  scripts off, where the images of the `<style>` URLs kept as written did not show, and six other
+  tests of the spec. With scripts on and files copied, preparing resolves the URLs itself, and that
+  test passed.
 
 The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
 keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
