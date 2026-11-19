@@ -85,8 +85,9 @@ interface PageState {
   inWindow: boolean;
   /** The number of the first paragraph that the page shows at its top. */
   top: number;
-  /** How far the page is scrolled down, in CSS pixels. */
+  /** How far the page is scrolled down, and sideways, in CSS pixels. */
   scrollY: number;
+  scrollX: number;
   /** The widths of the page's text and of the frame's viewport, in CSS pixels. */
   text: number;
   viewport: number;
@@ -137,6 +138,7 @@ async function pageState(moved: boolean): Promise<PageState | null> {
       inWindow: frame.ownerDocument !== document,
       top: Number(/Paragraph (\d+)/.exec(paragraph?.textContent ?? "")?.[1] ?? 0),
       scrollY: win.scrollY,
+      scrollX: win.scrollX,
       text: doc.body.getBoundingClientRect().width,
       viewport: doc.documentElement.clientWidth,
       background: win.getComputedStyle(doc.documentElement).backgroundColor,
@@ -1677,14 +1679,23 @@ interface ShownAgain {
  *
  * Given `width`, the tab's view has that width, in CSS pixels, while the tab
  * is hidden and when it shows again, as where a sidebar opened meanwhile.
+ * Given `scrolledTo`, the id of an element of the page, the page is first
+ * scrolled to that element's top, and the tab hides two frames later, once
+ * Chromium has reported that scroll and before it has settled.
  */
 async function showTabAgain({
   inFrame = false,
   marked = false,
   width,
-}: { inFrame?: boolean; marked?: boolean; width?: number } = {}): Promise<ShownAgain> {
+  scrolledTo,
+}: {
+  inFrame?: boolean;
+  marked?: boolean;
+  width?: number;
+  scrolledTo?: string;
+} = {}): Promise<ShownAgain> {
   const shown = await browser.executeObsidian(
-    async ({ app }, inFrame, marked, width) => {
+    async ({ app }, inFrame, marked, width, scrolledTo) => {
       const kept = window as unknown as {
         e2eShownAgain: NonNullable<ReturnType<typeof app.workspace.getMostRecentLeaf>>;
       };
@@ -1696,9 +1707,12 @@ async function showTabAgain({
       const task = (): Promise<void> => new Promise((resolve) => view.setTimeout(resolve, 0));
       // A new tab opens in the tab group of the active tab.
       if (marked) app.workspace.setActiveLeaf(leaf, { focus: true });
-      await frame();
-      await frame();
       const iframe = container.querySelector<HTMLIFrameElement>("iframe");
+      const page = iframe?.contentWindow;
+      const element = scrolledTo ? iframe?.contentDocument?.getElementById(scrolledTo) : null;
+      if (page && element) page.scrollTo(0, page.scrollY + element.getBoundingClientRect().top);
+      await frame();
+      await frame();
       const source = container.querySelector<HTMLElement>(".html-page-viewer__source");
       iframe?.setAttribute("data-e2e-moved", "");
       source?.setAttribute("data-e2e-moved", "");
@@ -1730,9 +1744,142 @@ async function showTabAgain({
     inFrame,
     marked,
     width,
+    scrolledTo,
   );
   expect(shown.shows).toBe(true);
   return shown;
+}
+
+/**
+ * Hides the active tab behind a new tab of its tab group, marks it, its frame,
+ * and its source as moveActiveTab marks them, and waits until the frame has no
+ * height. Returns nothing; the tab is `e2eShownAgain` in the main window.
+ */
+async function hideActiveTab(): Promise<void> {
+  await browser.executeObsidian(async ({ app }) => {
+    const leaf = app.workspace.getMostRecentLeaf()!;
+    const container = leaf.view.containerEl;
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    await frame();
+    await frame();
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe")!;
+    iframe.dataset.e2eMoved = "";
+    iframe.contentDocument!.documentElement.dataset.e2eBefore = "";
+    container.querySelector(".html-page-viewer__source")?.setAttribute("data-e2e-moved", "");
+    (window as unknown as { e2eShownAgain: typeof leaf }).e2eShownAgain = leaf;
+    app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
+    for (let count = 0; iframe.clientHeight !== 0 && count < 120; count += 1) await frame();
+    await frame();
+    await frame();
+  });
+}
+
+/**
+ * Runs Obsidian's **Split down** command, `workspace:split-horizontal`, on the
+ * tab in front of the hidden tab that hideActiveTab hid. Obsidian lays the tab
+ * group out anew, so the hidden tab's frame drops its document and loads its
+ * copy again, while the tab stays hidden and the frame has no size (#186).
+ * With `closeAgain`, it then closes the new pane below, with the tab in front
+ * still active; Obsidian 1.15.1 then lays the tab group out anew once more.
+ * It waits until the frame's document has loaded, and returns that frame's
+ * height.
+ */
+async function splitDownWhileHidden(closeAgain: boolean): Promise<number> {
+  return browser.executeObsidian(async ({ app }, closeAgain) => {
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    const leaf = (window as unknown as { e2eShownAgain: { view: { containerEl: HTMLElement } } })
+      .e2eShownAgain;
+    const iframe = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe")!;
+    const loaded = async (): Promise<void> => {
+      for (let count = 0; count < 240; count += 1) {
+        const doc = iframe.contentDocument;
+        if (
+          doc?.URL === "about:srcdoc" &&
+          doc.readyState === "complete" &&
+          doc.documentElement.dataset.e2eBefore === undefined
+        )
+          break;
+        await frame();
+      }
+      await frame();
+      await frame();
+    };
+    const front = app.workspace.getMostRecentLeaf()!;
+    const commands = (app as unknown as { commands: { executeCommandById(id: string): boolean } })
+      .commands;
+    if (!commands.executeCommandById("workspace:split-horizontal"))
+      throw new Error("Split down did not run");
+    await loaded();
+    if (closeAgain) {
+      // The pane below is every tab of the main area outside the hidden
+      // tab's tab group.
+      const group = (leaf as unknown as { parent: unknown }).parent;
+      const below: (typeof front)[] = [];
+      app.workspace.iterateRootLeaves((each) => {
+        if ((each as unknown as { parent: unknown }).parent !== group) below.push(each);
+      });
+      if (below.length === 0) throw new Error("Split down made no pane below");
+      for (const each of below) each.detach();
+      app.workspace.setActiveLeaf(front, { focus: true });
+      for (let count = 0; count < 30; count += 1) await frame();
+      await loaded();
+    }
+    return iframe.clientHeight;
+  }, closeAgain);
+}
+
+/**
+ * Shows the hidden tab that hideActiveTab hid, as the reader's click on its
+ * tab header does: the header's `click()` in a task of its own, as
+ * showTabAgain shows a tab.
+ */
+async function showHiddenTab(): Promise<void> {
+  const shows = await browser.executeObsidian(async () => {
+    const leaf = (
+      window as unknown as {
+        e2eShownAgain: { tabHeaderEl: HTMLElement; view: { containerEl: HTMLElement } };
+      }
+    ).e2eShownAgain;
+    const container = leaf.view.containerEl;
+    const view = container.ownerDocument.defaultView!;
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => view.requestAnimationFrame(() => resolve()));
+    await new Promise((resolve) => view.setTimeout(resolve, 0));
+    leaf.tabHeaderEl.click();
+    await frame();
+    await frame();
+    return container.isConnected && view.getComputedStyle(container).display !== "none";
+  });
+  expect(shows).toBe(true);
+}
+
+/**
+ * Moves the hidden tab that hideActiveTab hid to a new tab group beside it,
+ * with the calls that Obsidian makes when a tab is dropped on another tab
+ * group, as moveActiveTab does for the active tab. It shows there.
+ */
+async function moveHiddenTabToGroup(): Promise<void> {
+  await browser.executeObsidian(({ app }) => {
+    // Not in Obsidian's API types; 1.5.3 and 1.15.1 have them.
+    interface Parent {
+      children: unknown[];
+      removeChild(child: unknown): void;
+      insertChild(index: number, child: unknown): void;
+      selectTabIndex(index: number): void;
+    }
+    const leaf = (window as unknown as { e2eShownAgain: unknown }).e2eShownAgain as {
+      parent: Parent;
+      setDimension(size: null): void;
+    };
+    const split = app.workspace.getLeaf("split", "vertical") as unknown as { parent: Parent };
+    leaf.parent.removeChild(leaf);
+    leaf.setDimension(null);
+    split.parent.insertChild(-1, leaf);
+    split.parent.selectTabIndex(split.parent.children.indexOf(leaf));
+    app.workspace.setActiveLeaf(leaf as never, { focus: true });
+  });
 }
 
 /**
@@ -1745,24 +1892,14 @@ async function showTabAgain({
  * moveActiveTab marks them.
  */
 async function moveHiddenTabByMenu(): Promise<void> {
-  const item = await browser.executeObsidian(async ({ app }) => {
-    const leaf = app.workspace.getMostRecentLeaf()!;
-    const container = leaf.view.containerEl;
+  await hideActiveTab();
+  const item = await browser.executeObsidian(async () => {
+    const leaf = (window as unknown as { e2eShownAgain: { tabHeaderEl: HTMLElement } })
+      .e2eShownAgain;
     const frame = (): Promise<void> =>
       new Promise((resolve) => requestAnimationFrame(() => resolve()));
     const task = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
-    await frame();
-    await frame();
-    const iframe = container.querySelector<HTMLIFrameElement>("iframe")!;
-    iframe.dataset.e2eMoved = "";
-    iframe.contentDocument!.documentElement.dataset.e2eBefore = "";
-    container.querySelector(".html-page-viewer__source")?.setAttribute("data-e2e-moved", "");
-    (window as unknown as { e2eShownAgain: typeof leaf }).e2eShownAgain = leaf;
-    app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
-    for (let count = 0; iframe.clientHeight !== 0 && count < 120; count += 1) await frame();
-    await frame();
-    await frame();
-    const header = (leaf as unknown as { tabHeaderEl: HTMLElement }).tabHeaderEl;
+    const header = leaf.tabHeaderEl;
     const box = header.getBoundingClientRect();
     header.dispatchEvent(
       new MouseEvent("contextmenu", {
@@ -1773,10 +1910,13 @@ async function moveHiddenTabByMenu(): Promise<void> {
         clientY: box.top + box.height / 2,
       }),
     );
-    await frame();
-    const found = [...document.querySelectorAll<HTMLElement>(".menu .menu-item")].find(
-      (candidate) => candidate.textContent?.trim() === "Move to new window",
-    );
+    let found: HTMLElement | undefined;
+    for (let count = 0; !found && count < 60; count += 1) {
+      await frame();
+      found = [...document.querySelectorAll<HTMLElement>(".menu .menu-item")].find(
+        (candidate) => candidate.textContent?.trim() === "Move to new window",
+      );
+    }
     await task();
     found?.click();
     return found?.textContent?.trim() ?? null;
@@ -2347,5 +2487,151 @@ describe("A tab shown again after Obsidian hid it", function () {
     expect(after.inWindow).toBe(true);
     await browser.pause(500);
     expect(await pageState(true)).toMatchObject({ top: 30, line: before.line });
+  });
+
+  for (const mode of ["rendered", "split"] as const) {
+    it(`keeps the ${mode} view's place after its hidden tab moved to another tab group (#186)`, async function () {
+      await writeParagraphsPage();
+      await openInActiveTab(PARAGRAPHS);
+      if (mode === "split") await clickToolbarButton("Split");
+      await waitForPage();
+      await scrollToParagraph(30, 0.5);
+      await browser.pause(300);
+      const before = (await pageState(false))!;
+      expect(before.top).toBe(30);
+
+      await hideActiveTab();
+      await moveHiddenTabToGroup();
+      await waitForMovedPage(
+        (state) =>
+          state.readyState === "complete" && state.top === 30 && state.line === before.line,
+        `its page at paragraph 30${mode === "split" ? ` and its source at line ${before.line}` : ""}`,
+      );
+      await browser.pause(500);
+      expect(await pageState(true)).toMatchObject({ top: 30, line: before.line });
+    });
+  }
+
+  // Obsidian lays the tab group out anew for Split down, and the hidden
+  // tab's frame drops its document and loads its copy again with no size.
+  // With the view as this change first had it, at 800babe, and as main at
+  // c3411ee has it, the page then showed from its top, beside the split
+  // view's source at line 37, on both versions.
+  for (const mode of ["rendered", "split"] as const) {
+    for (const closeAgain of [false, true]) {
+      it(`keeps the ${mode} view's place where Split down in the tab in front reloads its hidden frame${closeAgain ? ", and that pane closes again" : ""} (#186)`, async function () {
+        await writeParagraphsPage();
+        await openInActiveTab(PARAGRAPHS);
+        if (mode === "split") await clickToolbarButton("Split");
+        await waitForPage();
+        await scrollToParagraph(30, 0.5);
+        await browser.pause(300);
+        const before = (await pageState(false))!;
+        expect(before.top).toBe(30);
+
+        await hideActiveTab();
+        // The premise: the frame has its next document, with no height.
+        expect(await splitDownWhileHidden(closeAgain)).toBe(0);
+        await showHiddenTab();
+        for (const wait of [0, 500]) {
+          await browser.pause(wait);
+          expect(await pageState(true)).toMatchObject({ top: 30, line: before.line });
+        }
+      });
+    }
+  }
+
+  // The view restyles the page in place, and Chromium leaves it as far down
+  // as it was, at another part: paragraph 38 in place of 30. With the view as
+  // 800babe had it, the page went back to paragraph 30 when the tab showed
+  // again, on both versions.
+  it("stays where Readable line length moved its page's text while it showed (#182)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    await browser.pause(300);
+    try {
+      await setReadableLineLength(false);
+      await browser.waitUntil(async () => ((await pageState(false))?.top ?? 30) > 32, {
+        timeout: 5000,
+        timeoutMsg: "the page did not take the pane's width",
+      });
+      await browser.pause(300);
+      const before = (await pageState(false))!;
+
+      await showTabAgain();
+      await expectShownAgainAt(before);
+    } finally {
+      await setReadableLineLength(true);
+    }
+  });
+
+  // With scroll anchoring off, Chromium leaves a page that narrows while it
+  // shows as far down as it was, at another part. With the view as 800babe
+  // had it, the page went back to paragraph 30 when the tab showed again.
+  it("stays where its page went when it narrowed while it showed, without scroll anchoring (#182)", async function () {
+    await writePage(
+      PARAGRAPHS,
+      "Long paragraphs",
+      "<style>html, body { overflow-anchor: none }</style>\n",
+      `${paragraphs(1, 60)}\n`,
+    );
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Theme ON");
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    await browser.pause(300);
+    await browser.executeObsidian(({ app }) => {
+      app.workspace
+        .getMostRecentLeaf()!
+        .view.containerEl.querySelector<HTMLElement>(".view-content")!
+        .style.setProperty("width", "500px");
+    });
+    await browser.waitUntil(async () => ((await pageState(false))?.top ?? 30) < 25, {
+      timeout: 5000,
+      timeoutMsg: "the narrowed page did not show another part",
+    });
+    await browser.pause(300);
+    const before = (await pageState(false))!;
+
+    await showTabAgain();
+    await expectShownAgainAt(before);
+  });
+
+  it("keeps how far its page was scrolled sideways, where its view narrowed while the tab was hidden (#182)", async function () {
+    await writeParagraphsPage(PARAGRAPHS, '<div style="width: 3000px; height: 1px"></div>');
+    await openInActiveTab(PARAGRAPHS);
+    await clickToolbarButton("Theme ON");
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    await browser.execute((active) => {
+      const win = document.querySelector<HTMLIFrameElement>(
+        `${active} iframe.html-page-viewer__frame`,
+      )!.contentWindow!;
+      win.scrollTo(300, win.scrollY);
+    }, ACTIVE);
+    await browser.pause(300);
+    const before = (await pageState(false))!;
+    expect(before).toMatchObject({ top: 30, scrollX: 300 });
+
+    await showTabAgain({ width: 500 });
+    await browser.pause(500);
+    expect(await pageState(true)).toMatchObject({ top: 30, scrollX: 300 });
+  });
+
+  // The view measures what the page shows once its scrolling has settled.
+  // Here the tab hides before then, and the page goes back to the pixel that
+  // it was last reported at, not to paragraph 30, measured before.
+  it("goes back as far down as its page was, where the tab hid while its scrolling had not settled (#182)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    await browser.pause(300);
+
+    await showTabAgain({ scrolledTo: "p40" });
+    await browser.pause(500);
+    expect(await pageState(true)).toMatchObject({ top: 40 });
   });
 });

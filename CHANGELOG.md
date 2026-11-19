@@ -35,7 +35,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   as they were scrolled, which showed another part where they wrap differently (#182).
 - A tab moved while hidden, as with **Move to new window** in its tab header's menu while another
   tab of its tab group shows, shows its page where it was, and the split view's sides in step
-  there, instead of the page from its top (#186).
+  there, instead of the page from its top. So does a hidden tab whose tab group Obsidian lays out
+  anew, as for **Split down** in the tab in front of it (#186).
 - A page whose stylesheets import each other many times opens in moments instead of keeping
   Obsidian from responding for seconds to hours: for each page, the viewer follows at most 1,000
   links and imports of vault stylesheets and copies at most 16 million characters of their text,

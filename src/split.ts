@@ -272,15 +272,14 @@ export function topOfLine(lineTops: readonly number[], line: number): number {
 }
 
 /**
- * What a source shows at its top: the index of its line there, from 0, how
- * far its top is into that line, as a share of the line's height, and how
- * far it is scrolled sideways, in pixels. Above its first line, in its top
- * padding, the share is below 0.
+ * What a source shows at its top: the index of its line there, from 0, and
+ * how far its top is into that line, as a share of the line's height. Above
+ * its first line, in its top padding, the index is -1, and `into` is how far
+ * it is scrolled down, in pixels, as the padding does not wrap.
  */
 export interface LinePlace {
   readonly index: number;
   readonly into: number;
-  readonly left: number;
 }
 
 /**
@@ -294,17 +293,16 @@ export function linePlacing(source: HTMLElement): Placing<LinePlace> {
   const topOf = (index: number): number => lines[index].offsetTop;
   return {
     measure: () => {
-      const left = source.scrollLeft;
-      if (lines.length === 0) return { index: 0, into: 0, left };
       const top = source.scrollTop;
-      const index = Math.max(0, lastAtOrBefore(lines.length, top, topOf));
+      const index = lastAtOrBefore(lines.length, top, topOf);
+      if (index === -1) return { index, into: top };
       const height = lines[index].offsetHeight;
-      return { index, into: height > 0 ? (top - topOf(index)) / height : 0, left };
+      return { index, into: height > 0 ? (top - topOf(index)) / height : 0 };
     },
-    position: ({ index, into, left }) => {
+    topFor: ({ index, into }) => {
+      if (index === -1) return into;
       const line = lines[Math.min(index, lines.length - 1)];
-      if (!line) return null;
-      return { top: line.offsetTop + into * line.offsetHeight, left };
+      return line ? line.offsetTop + into * line.offsetHeight : null;
     },
   };
 }

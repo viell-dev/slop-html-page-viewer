@@ -183,8 +183,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   ([#186](https://github.com/viell-dev/slop-html-page-viewer/issues/186)).
 
   **Unreleased (#186):** a tab that moves while hidden no longer shows its page from its top: it
-  shows it where it was, and the split view's two sides in step there. A page that was still
-  scrolling when the tab hid shows where its scrolling last came to rest.
+  shows it where it was, and the split view's two sides in step there. So does a hidden tab whose
+  tab group Obsidian lays out anew, as for **Split down** in the tab in front of it. A page that was
+  still scrolling when the tab hid shows where its scrolling last came to rest.
 
   **Unreleased (#178):** a page that scrolls as a whole also keeps its place when Obsidian shows its
   tab again after hiding it, as after another tab of its tab group or a collapsed sidebar, instead
@@ -195,7 +196,8 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   **Unreleased (#182):** where the pane changed width while the tab was hidden, as when a sidebar
   opened or closed meanwhile, the page shows the part that was at its top, and the split view's
   source the line that was at its top, as they wrap now. A page or a source that was still
-  scrolling when the tab hid goes back as far down as it was, which can show another part there.
+  scrolling when the tab hid, or stopped less than a tenth of a second before, goes back as far
+  down as it was, which can show another part there.
   The **Source** view stays scrolled as far as it was, which can show other lines
   ([#189](https://github.com/viell-dev/slop-html-page-viewer/issues/189)).
 

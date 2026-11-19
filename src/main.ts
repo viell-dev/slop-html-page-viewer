@@ -1039,7 +1039,7 @@ class HtmlPageViewerView extends TextFileView {
       frame.shownIn = shownIn;
       const split =
         this.mode === "split" ? this.syncScrolling(iframe, doc, showing.signal, newWindow) : null;
-      placeNextDocument(
+      const shownPlace = placeNextDocument(
         doc,
         frame.place,
         reader,
@@ -1050,8 +1050,10 @@ class HtmlPageViewerView extends TextFileView {
       placed = true;
       // When Obsidian hides the tab and shows it again, the page goes back to
       // what it showed, and the split view's sides are put in step there
-      // (#178, #182).
-      const pageScrolling = keepPageScrolling(iframe, doc, showing.signal);
+      // (#178, #182). A frame that has no size yet, as one whose tab stays
+      // hidden while Obsidian lays its tab group out anew, shows the place
+      // that it was to show once it has one (#186).
+      const pageScrolling = keepPageScrolling(iframe, doc, showing.signal, shownPlace);
       kept = pageScrolling;
       if (this.iframe === iframe) this.pageScrolling = kept;
       watchHiding(iframe, doc, showing.signal, {

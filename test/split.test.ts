@@ -691,32 +691,35 @@ function placedSource(doc: Document = new JSDOM("<!doctype html><body></body>").
 }
 
 describe("the split view's source's line at its top (#182)", () => {
-  it("is the line there, how far into it, and how far sideways, also above the first line", () => {
+  it("is the line there and how far into it, or how far down the top padding", () => {
     const { source, lines, scroll } = placedSource();
     const placing = linePlacing(source);
     for (const [top, place] of [
-      [150, { index: 7, into: 0, left: 0 }],
-      [155, { index: 7, into: 0.25, left: 0 }],
-      [5, { index: 0, into: -0.25, left: 0 }],
-      [240, { index: 11, into: 0.5, left: 0 }],
+      [150, { index: 7, into: 0 }],
+      [155, { index: 7, into: 0.25 }],
+      [240, { index: 11, into: 0.5 }],
+      [10, { index: 0, into: 0 }],
+      [5, { index: -1, into: 5 }],
+      [0, { index: -1, into: 0 }],
     ] as const) {
       scroll(top);
       assert.deepEqual(placing.measure(), place, `at ${top}`);
-      assert.deepEqual(placing.position(place), { top, left: 0 }, `back at ${top}`);
+      assert.equal(placing.topFor(place), top, `back at ${top}`);
     }
-    scroll(155, 30);
-    assert.deepEqual(placing.measure(), { index: 7, into: 0.25, left: 30 });
-    // The same line, wrapped onto twice as many rows.
+    // The same lines, wrapped onto twice as many rows: the padding does not
+    // wrap.
     lines.height = 40;
-    assert.deepEqual(placing.position({ index: 7, into: 0.25, left: 30 }), { top: 300, left: 30 });
-    assert.deepEqual(placing.position({ index: 40, into: 0, left: 0 }), { top: 450, left: 0 });
+    assert.equal(placing.topFor({ index: 7, into: 0.25 }), 300);
+    assert.equal(placing.topFor({ index: 40, into: 0 }), 450);
+    assert.equal(placing.topFor({ index: -1, into: 5 }), 5);
   });
 
   it("is the source's top without lines", () => {
     const doc = new JSDOM("<!doctype html><body><div></div></body>").window.document;
     const placing = linePlacing(doc.querySelector("div")!);
-    assert.deepEqual(placing.measure(), { index: 0, into: 0, left: 0 });
-    assert.equal(placing.position({ index: 0, into: 0, left: 0 }), null);
+    assert.deepEqual(placing.measure(), { index: -1, into: 0 });
+    assert.equal(placing.topFor({ index: -1, into: 0 }), 0);
+    assert.equal(placing.topFor({ index: 0, into: 0 }), null);
   });
 
   it("is measured in the frames of the window that the source is in, also after it moves to another", () => {
@@ -731,8 +734,7 @@ describe("the split view's source's line at its top (#182)", () => {
     scroll(150);
     second.document.body.append(second.document.adoptNode(source));
     scroll(170);
-    secondFrames.run();
-    secondFrames.run();
+    secondFrames.settle();
     kept.hold();
     jump(0);
     lines.height = 40;
@@ -740,8 +742,7 @@ describe("the split view's source's line at its top (#182)", () => {
     assert.deepEqual(scrolledTo, [330], "line 9, as laid out now");
     // A frame of the first window, from before the move, measures nothing.
     jump(170);
-    firstFrames.run();
-    firstFrames.run();
+    firstFrames.settle();
     kept.hold();
     jump(0);
     kept.back();
@@ -898,16 +899,26 @@ function observingWindow() {
   return { win, ...resizeObservers(win) };
 }
 
-/** Animation frames for a window, which jsdom does not have, that run when `run` says. */
-function animationFrames(win: Window): { run(): void } {
+/**
+ * Animation frames for a window, which jsdom does not have, that run when
+ * `run` says, each 1000 / 60 ms after the one before; `settle` runs those
+ * of 150 ms, after which what a scrolled element shows is measured.
+ */
+function animationFrames(win: Window): { run(): void; settle(): void } {
   const callbacks: FrameRequestCallback[] = [];
   Object.defineProperty(win, "requestAnimationFrame", {
     configurable: true,
     value: (callback: FrameRequestCallback) => callbacks.push(callback),
   });
+  let time = 0;
+  const run = (): void => {
+    time += 1000 / 60;
+    for (const callback of callbacks.splice(0)) callback(time);
+  };
   return {
-    run: () => {
-      for (const callback of callbacks.splice(0)) callback(0);
+    run,
+    settle: () => {
+      for (let count = 0; count < 9; count += 1) run();
     },
   };
 }
@@ -1148,17 +1159,20 @@ describe("the find bar in a page shown again (#157)", () => {
  * are on the source's lines 3 to 12, in a column, each `height` pixels
  * high, in a window 200 pixels high, scrolled down by `scrollY`.
  * `scrolledTo` collects where the window's scrollTo sends it, which
- * reports no scroll; `win` is the window of the page laid out last.
+ * reports no scroll; `win` is the window of the page laid out last. Without
+ * `boxes`, as in a frame that Obsidian hides with `display: none`, its
+ * elements have no boxes, and it has nothing to scroll.
  */
 interface PageLayout {
   height: number;
   scrollY: number;
+  boxes: boolean;
   readonly scrolledTo: number[];
   win: (Window & typeof globalThis) | null;
 }
 
 function pageLayout(): PageLayout {
-  return { height: 100, scrollY: 0, scrolledTo: [], win: null };
+  return { height: 100, scrollY: 0, boxes: true, scrolledTo: [], win: null };
 }
 
 /** Lays a frame's page out as `layout` says, from its top. */
@@ -1169,6 +1183,7 @@ function laidOutPage(layout: PageLayout): (page: Document) => void {
     layout.scrollY = 0;
     Object.defineProperty(win, "scrollY", { configurable: true, get: () => layout.scrollY });
     win.scrollTo = ((options: ScrollToOptions) => {
+      if (!layout.boxes) return;
       layout.scrollY = options.top ?? layout.scrollY;
       layout.scrolledTo.push(layout.scrollY);
     }) as typeof win.scrollTo;
@@ -1179,6 +1194,7 @@ function laidOutPage(layout: PageLayout): (page: Document) => void {
     Object.defineProperty(win.Element.prototype, "getBoundingClientRect", {
       configurable: true,
       value(this: Element) {
+        if (!layout.boxes) return { top: 0, bottom: 0, height: 0, width: 0, left: 0, right: 0 };
         const index = this.localName === "p" ? [...this.parentElement!.children].indexOf(this) : 0;
         const { height } = layout;
         const top = index * height - layout.scrollY;
@@ -1189,7 +1205,7 @@ function laidOutPage(layout: PageLayout): (page: Document) => void {
     Object.defineProperty(win.Element.prototype, "getClientRects", {
       configurable: true,
       value(this: Element) {
-        return [this.getBoundingClientRect()];
+        return layout.boxes ? [this.getBoundingClientRect()] : [];
       },
     });
   };
@@ -1479,7 +1495,7 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
    * observers report. `show` lays the frame out again and has the observers
    * report. Given `sourceAt`, Chromium lays the source out there, and
    * reports it before the frame's observer reports, with `reportsFirst`, or
-   * in the frame after.
+   * in the frame after. While hidden, the page has no boxes.
    */
   async function hiddenView(mode: "Rendered" | "Split") {
     const { report } = resizeObservers(window);
@@ -1510,6 +1526,7 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
       reportSource,
       hide: (): void => {
         layOutFrame(iframe, 0);
+        page.boxes = false;
         page.scrollY = 0;
         page.win!.dispatchEvent(new page.win!.Event("scroll"));
         source?.jump(0);
@@ -1520,6 +1537,7 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
         reportsFirst = false,
       }: { sourceAt?: number; reportsFirst?: boolean } = {}) => {
         layOutFrame(iframe, 200);
+        page.boxes = true;
         if (sourceAt !== undefined) source?.jump(sourceAt);
         if (reportsFirst) reportSource();
         report();
@@ -1538,11 +1556,22 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
           away: () => {
             document.body.append(view.contentEl);
             layOutFrame(iframe, 200);
+            page.boxes = true;
             source?.jump(0);
             harness.app.workspace.trigger("layout-change");
           },
           prepare: laidOutPage(page),
         });
+        report();
+      },
+      /**
+       * Has the hidden tab's frame drop its document and load its copy
+       * again while the tab stays hidden, as when Obsidian lays its tab
+       * group out anew for the Split down command: the next document has
+       * its text while the frame has no size.
+       */
+      reloadHidden: async (): Promise<void> => {
+        await moveFrame(view, { prepare: laidOutPage(page) });
         report();
       },
       end: (): void => {
@@ -1658,8 +1687,8 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
       frames.run();
       page.win!.dispatchEvent(new page.win!.Event("scroll"));
       assert.deepEqual(page.scrolledTo, [500]);
-      // The source measures its line once a frame passes without a report.
-      frames.run();
+      // The source measures its line once its scrolling settles.
+      frames.settle();
       hide();
       page.height = 80;
       source!.lines.height = 40;
@@ -1710,8 +1739,8 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
       source!.readerScrolls(150);
       frames.run();
       page.win!.dispatchEvent(new page.win!.Event("scroll"));
-      frames.run();
-      // Line 10, and the tab hides before Chromium's next frame.
+      frames.settle();
+      // Line 10, and the tab hides before its scrolling settles.
       source!.readerScrolls(190);
       hide();
       source!.lines.height = 40;
@@ -1819,6 +1848,32 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
         // is there and again when it loads.
         await moveHidden();
         assert.deepEqual(page.scrolledTo, [500, 500]);
+      } finally {
+        shown.end();
+      }
+    });
+  }
+
+  for (const mode of ["Rendered", "Split"] as const) {
+    it(`shows the ${mode.toLowerCase()} view's page where it was once its tab shows, after its frame dropped its document twice while the tab stayed hidden (#186)`, async () => {
+      const shown = await hiddenView(mode);
+      try {
+        const { page, source, frames, reportSource, hide, show, reloadHidden } = shown;
+        // Paragraph 6 at the page's top, and in the split view line 8 at
+        // the source's.
+        readerScrollsPage(page, 500);
+        frames.run();
+        reportSource();
+        hide();
+        await reloadHidden();
+        assert.deepEqual(page.scrolledTo, [], "a hidden frame has nothing to scroll");
+        // As when the lower pane closes again, which lays the tab group out
+        // anew once more.
+        await reloadHidden();
+        show();
+        frames.run();
+        assert.deepEqual(page.scrolledTo, [500]);
+        if (source) assert.equal(source.scrolledTo.at(-1), 150, "the source at line 8");
       } finally {
         shown.end();
       }
