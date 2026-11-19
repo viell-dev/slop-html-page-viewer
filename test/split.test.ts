@@ -724,8 +724,7 @@ describe("the split view's source's line at its top (#182)", () => {
     const second = new JSDOM("<!doctype html><body></body>").window;
     const firstFrames = animationFrames(first as unknown as Window);
     const secondFrames = animationFrames(second as unknown as Window);
-    const placed = placedSource(first.document);
-    const { source, lines, scrolledTo, scroll, jump } = placed;
+    const { source, lines, scrolledTo, scroll, jump } = placedSource(first.document);
     const kept = keepScrolling(source, linePlacing(source));
     // Line 8, then the source moves to the second window, whose frames run
     // where the first window's no longer do, as after it closed.
