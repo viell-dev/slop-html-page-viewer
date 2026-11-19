@@ -170,24 +170,42 @@ window's timers never stop for 2 s while it opens. They stopped for at most 0.3 
 6 to 10 minutes for this page.
 
 **Unreleased (#177):** `document.test.ts` checks that the text limit counts a stylesheet's text as
-the copy has it, each to the character, with stylesheets in a folder whose long name makes a short
-stylesheet's copy take the whole limit: one whose copy is exactly the limit is copied, and one a
-character longer stays a link or an import. Its URLs count as made absolute, in a link, in an
+preparing writes it, each to the character, with stylesheets in a folder whose long name makes a
+short stylesheet's copy take the whole limit: one whose copy is exactly the limit is copied, and
+one a character longer stays a link or an import. Its URLs count as made absolute, in a link, in an
 import in the page's `<style>`, and in an import in a linked stylesheet, after what each importer
 adds to its own import; so do its URLs found by name, its imports that stay imports as the copy
-writes them, and the text that closes it at its end. A repeat of the page's link of it counts its
-copy each time, so two of three links of a stylesheet whose copy takes two fifths of the limit are
-copied. One that stays a link still counts its text, each time that a link of it is followed, also
-under another URL of its file, and a stylesheet after it that fits in what remains is copied. A
-page's own `<style>` counts only what copying its imports adds to its URLs and imports, not its own
-text, and past the limit keeps its text as the page has it, its import not read; a `<style>`
-without imports and a `style` attribute, whose references found by name change, count nothing, so
-that a stylesheet of the whole limit is still copied after them. In the fan-out stress test, each
-import counts as long as the copy writes a kept import. `document.stress.ts` prepares #177's
-stylesheets of a million `a{b:url(c)}` and of a million `@import"a";`, through a link, an import,
-and an import in a linked stylesheet, in a vault at an ordinary path: what the copy adds stays
-within the text limit, and each stylesheet stays a link or an import. On `main` at `6acb438`, each
-case added 78 or 82 million characters.
+writes them, and the text that closes it at its end, also without URLs after a stylesheet that
+leaves 100 characters. A rewrite that shortens its text gives nothing back. Rewriting stops once
+the text passes the room: counting the context's `exists` calls, about 45 of 1,000 URLs are
+rewritten in 100,000 characters. A repeat of the page's link of it counts its copy each time, so
+two of three links of a stylesheet whose copy takes two fifths of the limit are copied. One that
+stays a link takes nothing from the text limit, and what its rewriting reached from the discard
+limit, so that a stylesheet after it of what remains of that, one character less than the whole
+text limit, is copied, and one a character longer is not. Its repeats, by link or by import, are
+refused without rewriting it again, while a stylesheet that imports it is prepared again for each
+of its links, the refusal having touched it. Other URLs of its file, with queries, are prepared
+within the discard limit: two, and then nothing more. A page's own `<style>` keeps its URLs as
+written, so that 10,000 URLs that would take 20 million characters made absolute take nothing, and
+counts only what its imports that stay imports add: past the limit, it keeps its text as CSS
+closes it, its imports as written and its references found by name changed. A `<style>` with or
+without imports and a `style` attribute, whose references found by name change, count nothing.
+`inlineStylesheet` past the limit keeps its closed text, with references found by name changed. In
+the fan-out stress test, each import counts as long as the copy writes a kept import.
+
+`document.stress.ts` prepares #177's stylesheets of a million `a{b:url(c)}` and of a million
+`@import"a";`, through a link, an import, and an import in a linked stylesheet, in a vault at an
+ordinary path: what the copy adds stays within the text limit, each stylesheet stays a link or an
+import, and rewriting stops at the room, which its `exists` count bounds. On `main` at `6acb438`,
+each case added 78 or 82 million characters. It also prepares the pages that the review of #180
+measured at 26 to 30 s: 1,000 links of a stylesheet whose 1,362 URLs pass the limit in a folder of
+3,900 bytes of names, rewritten once, and the same with a query each, rewritten twice, each in
+about 0.5 s, where the first fix rewrote over a million URLs; and 20 `<style>` elements each with an
+import and those URLs, whose URLs are asked about once each and stay as written.
+`resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that a page's `<style>` with an import,
+in the document, in a shadow root, and in a template's content that the page's script adds, keeps
+its URL as written and shows its image from the page's folder, through the copy's `<base>`, with
+scripts off, and with scripts on and files copied.
 
 Import position coverage (#136): `css.test.ts` checks where imports count: only where a top-level
 rule starts, before every rule but `@charset`, `@supports-condition`, other imports, and `@layer`
@@ -702,6 +720,33 @@ Each of these breakages failed the check named:
 - Giving back the text of a stylesheet that stays a link: the test of that stylesheet.
 - A repeat that counts nothing: the new test of repeats, and #154's.
 
+**Unreleased (#177):** On 2026-11-19, the preparation at `7ab873d`, which the review of #180 found
+to rewrite a stylesheet that stays a link again for each link of it, failed the work stress test:
+1,000 links of one rewrote 1,014,715 URLs, in 216 s beside the unit tests. It also failed the tests
+of the discard limit, of repeats and importers, and of a page's `<style>`. Each of these
+breakages failed the check named:
+
+- Not remembering by URL a stylesheet whose rewritten text did not fit: the work stress test, which
+  counted 2,724 rewrites for 1,000 links, and the test of repeats and importers.
+- Not counting what such a stylesheet's rewriting reached against the discard limit: the work
+  stress test, with 1,362,000 rewrites for 1,000 queries in 136 s, and both tests of the discard
+  limit.
+- Counting the stylesheet's text against the text limit instead: both tests of the discard limit.
+- Not counting such a refusal as a refusal, so that its importer's result was kept: the test of
+  repeats and importers.
+- Comparing the rewritten text with the room only at its end: the #177 stress test, with 1,000,000
+  rewrites, and the test of rewriting that stops at the room.
+- Giving room back for a rewrite that shortens its text: the test of such rewrites.
+- Not counting the text that closes a stylesheet: both tests of it. Leaving out the check of that
+  text and the room check of `StylesheetBudget.add` together: the second of them, #152's stress
+  test of conditions, #154's repeat test, and the new repeat test.
+- A `StylesheetBudget.add` that takes what it is given: #152's stress test of conditions, which
+  added 100 million characters, #154's repeat test, and the new repeat test.
+- Making a page's `<style>`'s URLs absolute: six tests in `document.test.ts`, among them those of
+  #139, #143, and #147, and the work stress test.
+- Returning a stylesheet given alone past the limit unlocated, or a page's `<style>` past it as
+  written: the test of each, and three more of locating by name.
+
 The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
 keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
 preparation's measurements in Obsidian, with up to five imports a stylesheet.
@@ -809,13 +854,16 @@ starts left neither test a step after it, and the screenshot was taken.
   page's scripts find more `<style>` elements and stylesheets, the first of which may hold only
   imported rules. The review of #174 saw `:nth-child` match another element in Obsidian 1.5.3 and
   1.15.1; no test covers what selectors or scripts see.
-- **Unreleased (#177):** the text limit counts what preparing adds to the stylesheets that the
-  viewer copies, not the page's own markup: references found by name in a `<style>` without
-  imports, in `style` attributes, and in other attributes lengthen the copy with the page, and
-  nothing bounds that but the page's own length. An import whose stylesheet the viewer copies counts
-  as long as a kept import, so the limit can count up to a URL's length more than the copy holds
-  for each of them. No test opens a page of #177's sizes in Obsidian; the counting happens in
-  preparation, which the unit tests run, and `resources.e2e.ts` passed unchanged.
+- **Unreleased (#177):** the text limit counts the stylesheet text that preparing writes into the
+  page, not the copy that the view serializes from it: character references in an SVG `<style>`
+  and in copied `media` and `title` attributes, and the escaping of `</style`, can make the copy
+  up to six times longer (#183). It does not count the page's own markup: references found by name
+  in `<style>` elements, `style` attributes, and other attributes can make the copy hundreds of
+  times the page's length, and locating them costs time with each reference and the length of the
+  page's URL (#184). An import whose stylesheet the viewer copies counts as long as a kept import,
+  so the limit can count up to a URL's length more than the copy holds for each of them. No test
+  opens a page of #177's sizes in Obsidian; the counting happens in preparation, which the unit
+  tests run.
 - The bundle check in `policy.test.ts` sees only the plugin's own code. Obsidian's TextFileView,
   which the view extends, saves a view's data to its file from Obsidian's own code. The unit tests
   model that saving as Obsidian 1.5.3 and 1.15.1 implement it, and `read-only.e2e.ts` checks in

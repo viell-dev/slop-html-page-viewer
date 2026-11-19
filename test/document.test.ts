@@ -5,6 +5,7 @@ import {
   absoluteUrls,
   COPY_FILE_LIMIT,
   COPY_PAGE_LIMIT,
+  DISCARD_LIMIT,
   inlineStylesheet,
   type LocalFiles,
   type PageContext,
@@ -245,7 +246,8 @@ describe("<style> text that Chromium applies (#143)", () => {
     for (const place of places) {
       for (const { copying, reads, copies, root } of await prepared(place(html))) {
         const style = root.querySelector("style")!;
-        const url = copying ? "data:image/png;base64,AQ==" : `${VAULT}Saved/real.png`;
+        // Without copying, the URL keeps its text, which the copy's <base> resolves (#177).
+        const url = copying ? 'url("data:image/png;base64,AQ==")' : "url(real.png)";
         assert.deepEqual(
           {
             reads,
@@ -258,7 +260,7 @@ describe("<style> text that Chromium applies (#143)", () => {
             reads: ["Saved/real.css"],
             copies: copying ? ["Saved/real.png"] : [],
             nodes: ["#text", "desc", "g"],
-            text: `REAL{} c { d: url("${url}") }`,
+            text: `REAL{} c { d: ${url} }`,
             desc: "a { b: url(ghost.png) }",
           },
           `${place(html)}, copying: ${copying}`,
@@ -349,13 +351,14 @@ describe("<style> and <link> elements that Chromium applies, by type and disable
       for (const { what, copying, reads, copies, root } of await prepared(
         `<style${typed(type)}>${css}</style>`,
       )) {
-        const url = copying ? "data:image/png;base64,AQ==" : `${VAULT}Saved/real.png`;
+        // Without copying, the URL keeps its text, which the copy's <base> resolves (#177).
+        const url = copying ? 'url("data:image/png;base64,AQ==")' : "url(real.png)";
         assert.deepEqual(
           { reads, copies, text: root.querySelector("style")!.textContent },
           {
             reads: ["Saved/real.css"],
             copies: copying ? ["Saved/real.png"] : [],
-            text: `REAL{} p { b: url("${url}") }`,
+            text: `REAL{} p { b: ${url} }`,
           },
           what,
         );
@@ -949,6 +952,8 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
   const rule = "a{b:url(c)}";
   /** How long the copy writes `rule`, in the folder or in another. */
   const ruleIn = (path: string) => `a{b:url("${VAULT}${path}/c")}`.length;
+  /** How long the copy writes `rule` in the folder. */
+  const copied = ruleIn(`Saved/${folder}`);
 
   /**
    * A stylesheet of `unit`s, each `copied` characters long in the copy, then a
@@ -960,6 +965,9 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
     const comment = `/*${"x".repeat(length - 4 - count * copied)}`;
     return unit.repeat(count) + comment + (open ? "" : "*/");
   }
+
+  /** A stylesheet of a comment, `length` characters long. */
+  const comment = (length: number) => `/*${"x".repeat(length - 4)}*/`;
 
   /** The text of the copy's only `<style>`, read from the copy's text, or null if there is none. */
   function onlyStyle(copy: string): string | null {
@@ -973,6 +981,24 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
   async function linked(css: string, ctx: PageContext = context({ [`Saved/${file}`]: css })) {
     const copy = await prepare(link(file), ctx);
     return copy.includes("<link") ? null : onlyStyle(copy)?.length;
+  }
+
+  /**
+   * A context that counts how often preparing asks whether each path exists:
+   * once for each URL and import that it rewrites, and each link that it
+   * resolves. Every path exists, so nothing is found by name.
+   */
+  function counting(files: Record<string, string>, page?: string) {
+    const asked = new Map<string, number>();
+    const ctx: PageContext & { reads: string[] } = {
+      ...context(files, page),
+      exists(path) {
+        asked.set(path, (asked.get(path) ?? 0) + 1);
+        return true;
+      },
+      locate: () => null,
+    };
+    return { ctx, looked: (path: string) => asked.get(path) ?? 0 };
   }
 
   it("counts its URLs as made absolute, wherever the page has it", async () => {
@@ -1003,7 +1029,6 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
         left: kept,
       },
     ];
-    const copied = ruleIn(`Saved/${folder}`);
     for (const { place, html, files, room, left } of places) {
       const fits = sheetOf(rule, copied, room);
       assert.ok(fits.length < LIMIT / 100, place);
@@ -1037,15 +1062,60 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
 
   it("counts the text that closes it at its end", async () => {
     // Its comment is left open, so CSS closes it with two characters.
-    const copied = ruleIn(`Saved/${folder}`);
     assert.equal(await linked(sheetOf(rule, copied, LIMIT, true)), LIMIT);
     assert.equal(await linked(sheetOf(rule, copied, LIMIT + 1, true)), null);
+  });
+
+  it("checks the text that closes it against the room, also without URLs", async () => {
+    // After a stylesheet that leaves 100 characters, 50 "{" closed with 50
+    // "}" fit, and 51 do not.
+    for (const [open, fits] of [
+      [50, true],
+      [51, false],
+    ] as const) {
+      const ctx = context({
+        "Saved/fill.css": comment(LIMIT - 100),
+        [`Saved/${file}`]: "{".repeat(open),
+      });
+      const copy = await prepare(link("fill.css") + link(file), ctx);
+      assert.equal(copy.includes(`<style>${"{".repeat(open)}${"}".repeat(open)}</style>`), fits);
+      assert.equal(copy.includes(link(file)), !fits);
+    }
+  });
+
+  it("stops rewriting once its text passes the room", async () => {
+    // After a stylesheet that leaves 100,000 characters, a stylesheet of
+    // 1,000 URLs, each 2 KB longer when made absolute, has rewritten about 45
+    // of them when it passes the room.
+    const room = 100_000;
+    const { ctx, looked } = counting({
+      "Saved/fill.css": comment(LIMIT - room),
+      [`Saved/${file}`]: rule.repeat(1_000),
+    });
+    const copy = await prepare(link("fill.css") + link(file), ctx);
+    assert.ok(copy.includes(link(file)));
+    const most = Math.ceil(room / (copied - rule.length)) + 1;
+    const rewritten = looked(`Saved/${folder}/c`);
+    assert.ok(rewritten > 0 && rewritten <= most, `${rewritten} URLs rewritten`);
+  });
+
+  it("gives nothing back for a rewrite that shortens its text", async () => {
+    // Made absolute, `url(  https://e.example/a  )` loses its two spaces on
+    // each side but gains two quotes. The copy would be 2,000 characters
+    // shorter than what counts, but a stylesheet that counts one more than
+    // the limit still stays a link.
+    const short = "a{b:url(  https://e.example/a  )}";
+    const shorts = short.repeat(1_000);
+    const sheet = (length: number) => shorts + sheetOf(rule, copied, length - shorts.length);
+    const fits = await linked(sheet(LIMIT));
+    assert.equal(fits, LIMIT - 2_000);
+    assert.equal(await linked(sheet(LIMIT + 1)), null);
   });
 
   it("counts a repeat of the page's link of it as copied, each time", async () => {
     // Its text takes little of the limit, and its copy two fifths: the
     // first link takes its copy as each repeat does, so two fit.
-    const css = sheetOf(rule, ruleIn(`Saved/${folder}`), (2 * LIMIT) / 5);
+    const css = sheetOf(rule, copied, (2 * LIMIT) / 5);
     const ctx = context({ [`Saved/${file}`]: css });
     const copy = await prepare(link(file).repeat(3), ctx);
     assert.equal(copy.split("<style>").length - 1, 2);
@@ -1053,61 +1123,135 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
     assert.deepEqual(ctx.reads, [`Saved/${file}`]);
   });
 
-  it("keeps counting the text of one that stays a link, and copies a smaller one after it", async () => {
-    // The work of reading and scanning it counts, each time, so that a repeat
-    // of it, or another URL of its file, is never prepared without counting.
-    const over = sheetOf(rule, ruleIn(`Saved/${folder}`), LIMIT + 1);
-    for (const [length, copied] of [
-      [LIMIT - 2 * over.length, true],
-      [LIMIT - 2 * over.length + 1, false],
+  it("takes nothing from the text limit for one that stays a link, and its rewriting from the discard limit", async () => {
+    // Its text, rewritten, reached one more than the limit when preparing it
+    // stopped. A stylesheet after it may take what remains of the discard
+    // limit, one less than the whole text limit, which it would have left
+    // whole.
+    const over = sheetOf(rule, copied, LIMIT + 1);
+    const remains = DISCARD_LIMIT - (LIMIT + 1);
+    assert.ok(remains < LIMIT);
+    for (const [length, fits] of [
+      [remains, true],
+      [remains + 1, false],
     ] as const) {
-      const ctx = context({
-        [`Saved/${file}`]: over,
-        "Saved/after.css": `/*${"x".repeat(length - 4)}*/`,
-      });
-      const copy = await prepare(link(file) + link(`${file}?again`) + link("after.css"), ctx);
-      assert.equal(copy.split("<link").length - 1, copied ? 2 : 3);
-      assert.equal(onlyStyle(copy)?.length, copied ? length : undefined);
+      const ctx = context({ [`Saved/${file}`]: over, "Saved/after.css": comment(length) });
+      const copy = await prepare(link(file) + link("after.css"), ctx);
+      assert.ok(copy.includes(link(file)));
+      assert.equal(onlyStyle(copy)?.length, fits ? length : undefined);
       assert.deepEqual(ctx.reads, [`Saved/${file}`, "Saved/after.css"]);
     }
   });
 
-  it("counts what copying a <style>'s imports adds to its URLs, but not its own text", async () => {
-    // A page in the folder, whose <style> imports an empty stylesheet.
+  it("refuses a repeat of one that stays a link without preparing it again, and prepares its importer again", async () => {
+    // Its importer's first link finds that it does not fit, which touches
+    // the importer's result: each of its two links prepares it, and rewrites
+    // its URL. The stylesheet's own URLs are rewritten once, for all five.
+    const over = sheetOf(rule, copied, LIMIT + 1);
+    const { ctx, looked } = counting({
+      [`Saved/${file}`]: over,
+      "Saved/wrap.css": `@import "${file}"; w { b: url(w.png) }`,
+    });
+    const copy = await prepare(link("wrap.css").repeat(2) + link(file).repeat(3), ctx);
+    // At most once: after what the importer takes, it passes the room a URL
+    // or so before its end.
+    const rewritten = looked(`Saved/${folder}/c`);
+    assert.ok(rewritten > 0 && rewritten <= over.split("url(c)").length - 1, `${rewritten}`);
+    assert.equal(looked("Saved/w.png"), 2);
+    assert.equal(copy.split(link(file)).length - 1, 3);
+    const wrap = `<style>@import url("${VAULT}Saved/${file}"); w { b: url("${VAULT}Saved/w.png") }</style>`;
+    assert.equal(copy.split(wrap).length - 1, 2);
+  });
+
+  it("prepares another URL of its file only within the discard limit", async () => {
+    // Each URL of the file with a query of its own is another stylesheet's.
+    // Two of them reach the limit, which leaves nothing of the discard limit:
+    // the rest, and a small stylesheet after them, stay links unprepared.
+    const over = sheetOf(rule, copied, LIMIT + 1);
+    const { ctx, looked } = counting({ [`Saved/${file}`]: over, "Saved/after.css": "p{}" });
+    const links = Array.from({ length: 5 }, (_, i) => link(`${file}?${i}`));
+    const copy = await prepare(links.join("") + link("after.css"), ctx);
+    assert.equal(looked(`Saved/${folder}/c`), 2 * (over.split("url(c)").length - 1));
+    assert.equal(copy.split("<link").length - 1, 6);
+    assert.equal(onlyStyle(copy), null);
+  });
+
+  it("counts what copying a <style>'s imports writes, but not its own text or its URLs", async () => {
+    // A page in the folder. Its <style> keeps its URLs as written, which the
+    // copy's <base> resolves as the page does, so 10,000 of them, which would
+    // take 20 million characters made absolute, take nothing.
     const page = `Saved/${folder}/page.html`;
-    const kept = `@import url("${VAULT}Saved/${folder}/e.css");`.length - '@import "e.css";'.length;
-    const perUrl = ruleIn(`Saved/${folder}`) - rule.length;
-    const most = Math.floor((LIMIT - kept) / perUrl);
-    for (const [count, copied] of [
-      [most, true],
-      [most + 1, false],
-    ] as const) {
-      const ctx = context({ [`Saved/${folder}/e.css`]: "" }, page);
-      const style = `@import "e.css";${rule.repeat(count)}`;
-      const text = onlyStyle(await prepare(`<style>${style}</style>`, ctx));
-      if (copied) {
-        assert.equal(text, `a{b:url("${VAULT}Saved/${folder}/c")}`.repeat(count));
-        assert.deepEqual(ctx.reads, [`Saved/${folder}/e.css`]);
-      } else {
-        // Its import stays an import, and its text is as the page has it.
-        assert.equal(text, style);
-        assert.deepEqual(ctx.reads, []);
-      }
-    }
+    const ctx = context({ [`Saved/${folder}/e.css`]: "" }, page);
+    const urls = rule.repeat(10_000);
+    assert.equal(onlyStyle(await prepare(`<style>@import "e.css";${urls}</style>`, ctx)), urls);
+    assert.deepEqual(ctx.reads, [`Saved/${folder}/e.css`]);
+    // Its imports that stay imports count as the copy writes them: past the
+    // limit, they stay as written, and so does its text.
+    const unit = '@import "c";';
+    const each = `@import url("${VAULT}Saved/${folder}/c");`.length - unit.length;
+    const most = Math.floor(LIMIT / each);
+    const kept = `@import url("${VAULT}Saved/${folder}/c");`;
+    const style = (count: number) => `<style>${unit.repeat(count)}</style>`;
+    assert.equal(onlyStyle(await prepare(style(most), context({}, page))), kept.repeat(most));
+    assert.equal(
+      onlyStyle(await prepare(style(most + 1), context({}, page))),
+      unit.repeat(most + 1),
+    );
+  });
+
+  it("finds by name the references of a <style> whose imports stay as written", async () => {
+    // Past the limit, as without imports, its references found by name change.
+    const page = `Saved/${folder}/page.html`;
+    const unit = '@import "c";';
+    const each = `@import url("${VAULT}Saved/${folder}/c");`.length - unit.length;
+    const ctx: PageContext = {
+      ...context({}, page),
+      exists: (path) => path !== `Saved/${folder}/f.png`,
+      locate: (linktext) => (linktext === "f.png" ? "Found/f.png" : null),
+    };
+    const imports = unit.repeat(Math.floor(LIMIT / each) + 1);
+    const text = onlyStyle(await prepare(`<style>${imports} p { b: url(f.png) }</style>`, ctx));
+    assert.equal(text, `${imports} p { b: url("${VAULT}Found/f.png") }`);
+  });
+
+  it("keeps the closed text of a stylesheet given alone whose URLs would not fit made absolute", async () => {
+    const sheetUrl = `${VAULT}Saved/${folder}/main.css`;
+    const most = Math.floor(LIMIT / (copied - rule.length));
+    const ctx: PageContext = {
+      ...context({}),
+      exists: (path) => path !== `Saved/${folder}/f.png`,
+      locate: (linktext) => (linktext === "f.png" ? "Found/f.png" : null),
+    };
+    const made = `a{b:url("${VAULT}Saved/${folder}/c")}`;
+    assert.deepEqual(await inlineStylesheet(rule.repeat(most), sheetUrl, ctx), [made.repeat(most)]);
+    // Past the limit, it is closed as CSS closes it, and its references found
+    // by name change, as in a page's <style>.
+    const over = rule.repeat(most + 1);
+    assert.deepEqual(await inlineStylesheet(`${over}p{b:url(f.png)}a{`, sheetUrl, ctx), [
+      `${over}p{b:url("${VAULT}Found/f.png")}a{}`,
+    ]);
   });
 
   it("counts nothing for the references found by name in the page's own text", async () => {
-    // Without imports, a <style>, as a style attribute, changes only its
-    // references found by name. A stylesheet of the whole limit still fits.
+    // A <style>, with or without imports, and a style attribute change only
+    // their references found by name. A stylesheet of the whole limit still
+    // fits after them.
     const found = `Found/${folder}/c`;
+    // What the <style>'s import counts, as the copy writes one that stays an import.
+    const importing = `@import url("${VAULT}Saved/e.css");`.length - '@import "e.css";'.length;
     const ctx: PageContext = {
-      ...context({ "Saved/full.css": `/*${"x".repeat(LIMIT - 4)}*/` }),
-      exists: (path) => path === found,
+      ...context({ "Saved/full.css": comment(LIMIT - importing), "Saved/e.css": "" }),
+      exists: (path) => path === found || path === "Saved/e.css" || path === "Saved/full.css",
       locate: (linktext) => (linktext === "c" ? found : null),
     };
-    const html = `<style>${rule}</style><p style="b:url(c)">x</p>${link("full.css")}`;
+    const html = [
+      `<style>${rule}</style>`,
+      `<style>@import "e.css";${rule}</style>`,
+      `<p style="b:url(c)">x</p>`,
+      link("full.css"),
+    ].join("");
     const copy = await prepare(html, ctx);
-    assert.ok(copy.includes(`<style>a{b:url("${VAULT}${found}")}</style>`));
+    assert.equal(copy.split(`<style>a{b:url("${VAULT}${found}")}</style>`).length - 1, 2);
     assert.ok(copy.includes(`style="b:url(&quot;${VAULT}${found}&quot;)"`));
     assert.ok(!copy.includes("<link"));
   });
@@ -1646,10 +1790,13 @@ describe("the end of an imported stylesheet (#139)", () => {
       ["@1;", "@1;{}"],
     ]) {
       for (const { place, copies, text } of await everyPlace(css, { "Saved/a.css": imported })) {
+        // A linked stylesheet's URL is made absolute; a <style>'s keeps its text (#177).
         const url = place.endsWith("copying")
-          ? "data:image/png;base64,AQ=="
-          : `${VAULT}Saved/real.png`;
-        assert.equal(text, `${closed} p { background: url("${url}") }`, place);
+          ? 'url("data:image/png;base64,AQ==")'
+          : place.includes("<link")
+            ? `url("${VAULT}Saved/real.png")`
+            : "url(real.png)";
+        assert.equal(text, `${closed} p { background: ${url} }`, place);
         assert.deepEqual(copies, place.endsWith("copying") ? ["Saved/real.png"] : [], place);
       }
     }
@@ -2065,7 +2212,14 @@ describe("preparePage", () => {
 
   it("prepares a page whose CSS escapes name no character, in each place it reads CSS", async () => {
     const ctx: PageContext = { ...context({}), exists: () => false, locate: () => null };
-    const copyFiles: LocalFiles = { size: () => null, readBinary: async () => null };
+    const sized: string[] = [];
+    const copyFiles: LocalFiles = {
+      size(path) {
+        sized.push(path);
+        return null;
+      },
+      readBinary: async () => null,
+    };
     const html = [
       `<style>@import "\\D800.css"; p { background: url(\\110000.png) }</style>`,
       `<p style="background: url('\\FFFFFF.png')">Text</p>`,
@@ -2074,10 +2228,12 @@ describe("preparePage", () => {
     const [policy, base] = [...page.head.children];
     assert.equal(policy.getAttribute("content"), pagePolicy(VAULT));
     assert.equal(base.getAttribute("href"), ctx.pageUrl);
+    // The import stays one, made absolute; the URL keeps its text (#177).
     assert.equal(
       page.querySelector("style")?.textContent,
-      `@import url("${VAULT}Saved/%EF%BF%BD.css"); p { background: url("${VAULT}Saved/%EF%BF%BD.png") }`,
+      `@import url("${VAULT}Saved/%EF%BF%BD.css"); p { background: url(\\110000.png) }`,
     );
+    assert.deepEqual(sized, ["Saved/\uFFFD.png", "Saved/\uFFFD.png"]);
   });
 
   it("copies only CSS files, never another vault file that a page links as a stylesheet", async () => {
