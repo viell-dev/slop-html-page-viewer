@@ -20,6 +20,7 @@ import { parseObsidianVersions } from "wdio-obsidian-service";
 import { selectedSpecs, rejectSpecArguments } from "../../scripts/e2e-selection.ts";
 import {
   checkScope,
+  endTestCode,
   refuseLateRequest,
   scopeRunnables,
   watchRequests,
@@ -152,14 +153,13 @@ export const config: WebdriverIO.Config = {
   mochaOpts: { ui: "bdd", timeout: 60_000 },
   // A test that times out fails, but its code goes on running; its WebDriver requests are refused
   // from then on, so that it cannot drive Obsidian during the tests after it (#170).
+  //
+  // This replaces wdio-obsidian-service's own transformRequest, which it sets in beforeSession only
+  // when the configuration has none. In 3.5.0 that one removes the Connection and Content-Length
+  // headers, which WebdriverIO 10 never sets (webdriverio/webdriverio#15265, closed); recheck it
+  // when the service changes.
   transformRequest(requestOptions) {
     refuseLateRequest();
-    // wdio-obsidian-service sets only this when the configuration has no transformRequest: its
-    // workaround for https://github.com/webdriverio/webdriverio/issues/15265 on Node.js 26.
-    if (requestOptions.headers instanceof Headers) {
-      requestOptions.headers.delete("Connection");
-      requestOptions.headers.delete("Content-Length");
-    }
     return requestOptions;
   },
   before() {
@@ -169,16 +169,21 @@ export const config: WebdriverIO.Config = {
     checkScope(context.test);
   },
   // A failed test leaves a screenshot of Obsidian's window among the results
-  // that CI keeps, named for the Obsidian version and the test (#77).
-  afterTest: async function (test, _context, { passed }) {
-    if (passed) return;
-    const name = `${test.parent} ${test.title}`
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 100);
-    const file = `failed-${browser.getObsidianVersion()}-${name}.png`;
-    await browser.saveScreenshot(path.join(outputDir, "screenshots", file)).catch(() => undefined);
+  // that CI keeps, named for the Obsidian version and the test (#77). The
+  // test's own code ends as this hook starts, before the screenshot.
+  afterTest(test, _context, { error, passed }) {
+    return endTestCode(error, async () => {
+      if (passed) return;
+      const name = `${test.parent} ${test.title}`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 100);
+      const file = `failed-${browser.getObsidianVersion()}-${name}.png`;
+      await browser
+        .saveScreenshot(path.join(outputDir, "screenshots", file))
+        .catch(() => undefined);
+    });
   },
   logLevel: "warn",
 };

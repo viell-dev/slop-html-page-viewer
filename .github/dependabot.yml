@@ -23,6 +23,12 @@ updates:
     groups:
       e2e:
         patterns: ["*"]
+    ignore:
+      # support/late-requests.ts wraps the Runnable#run of the Mocha that
+      # @wdio/mocha-framework runs, and every test fails under another copy.
+      # Remove this once @wdio/mocha-framework depends on the new major.
+      - dependency-name: "mocha"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /test/e2e
     labels: ["Type: Maintenance", "Target: Fork"]

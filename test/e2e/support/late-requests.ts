@@ -1,13 +1,13 @@
 /**
- * Keeps the code of a test or hook from driving Obsidian once Mocha has its result (#170).
+ * Keeps the code of a test or hook from driving Obsidian once it has its result (#170).
  *
  * WebdriverIO fails a test that runs past its timeout, but it cannot stop the test's code, which
  * goes on sending WebDriver requests while the next tests run, and can change what they see. Here
  * each test's and hook's code runs in a scope of its own, which everything that it starts
- * inherits: its promises, timers, and WebDriver commands. Once Mocha has the result, the run
- * refuses the requests of that scope, and Mocha goes on only once the requests that it had sent
- * before have their answers. A failure's message tells what its code was still doing; a request
- * refused after the result has been reported is printed to the log.
+ * inherits: its promises, timers, and WebDriver commands. Once the test or hook has its result,
+ * the run refuses the requests of that scope, and Mocha goes on only once the requests that it had
+ * sent before have their answers. A failure's message tells what its code was still doing; the
+ * first request refused after the result has been reported is printed to the log.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import Mocha from "mocha";
@@ -21,7 +21,7 @@ const ANSWER_LIMIT_MS = 30_000;
 /** A test or hook that runs or has run, and its WebDriver requests. */
 interface Scope {
   readonly runnable: Mocha.Runnable;
-  /** Set once Mocha has the result, with the error of a failure. */
+  /** Set once the test or hook has its result, with the error of a failure. */
   result?: { error: unknown };
   /** Set once Mocha's runner has the result, and reports it. */
   reported: boolean;
@@ -29,11 +29,18 @@ interface Scope {
   readonly unanswered: string[];
   /** The commands of its requests that were refused. */
   readonly refused: string[];
+  /** Set once a refusal after the report has been printed to the log. */
+  logged: boolean;
   /** Called on each answer while Mocha waits for the unanswered ones. */
   onAnswer?: () => void;
 }
 
-const scopes = new AsyncLocalStorage<Scope>();
+/** The scope of the code that runs; none for Mocha's runner and WebdriverIO's session hooks. */
+const scopes = new AsyncLocalStorage<Scope | undefined>();
+
+function scopeOf(runnable: Mocha.Runnable): Scope {
+  return { runnable, reported: false, unanswered: [], refused: [], logged: false };
+}
 
 /** Set when a test runs outside its scope, which makes every request fail. */
 let inactive: Error | undefined;
@@ -46,16 +53,19 @@ export function scopeRunnables(): void {
   scoped = true;
   const { run } = Mocha.Runnable.prototype;
   Mocha.Runnable.prototype.run = function (this: Mocha.Runnable, done: Mocha.Done): void {
-    const scope: Scope = { runnable: this, reported: false, unanswered: [], refused: [] };
+    const scope = scopeOf(this);
     scopes.run(scope, () => {
       run.call(this, (error?: unknown) => {
         scope.result = { error };
         // Mocha's runner, which goes on to the next hook or test, runs in no scope.
         const report = () => {
           scope.reported = true;
-          scopes.exit(() => done(error));
+          scopes.run(undefined, () => done(error));
         };
-        if (scope.unanswered.length === 0) return report();
+        if (scope.unanswered.length === 0) {
+          if (scope.refused.length > 0) describeLateCode(scope, [], true);
+          return report();
+        }
         const waited = [...scope.unanswered];
         void answers(scope).then((answered) => {
           try {
@@ -67,6 +77,20 @@ export function scopeRunnables(): void {
       });
     });
   };
+}
+
+/**
+ * Ends the code of the test that runs, from WebdriverIO's `afterTest` hook, and runs `work` in a
+ * scope of its own. WebdriverIO fails a test that times out, runs its `afterTest` hooks, and only
+ * then gives Mocha the result: without this, the test's code would go on driving Obsidian while
+ * they run. It ends with the first of those hooks, which is the configuration's, so that a
+ * service's own `afterTest` requests are refused too.
+ */
+export function endTestCode<T>(error: unknown, work: () => T): T {
+  const scope = scopes.getStore();
+  if (scope === undefined) return work();
+  scope.result ??= { error };
+  return scopes.run(scopeOf(scope.runnable), work);
 }
 
 /**
@@ -100,14 +124,15 @@ function commands(names: readonly string[]): string {
   return `${names.length} request${names.length === 1 ? "" : "s"} (${names.join(", ")})`;
 }
 
-/** Adds what a test's or hook's code was doing at its result to the failure that Mocha reports. */
+/** Adds what a test's or hook's code still did after its result to the failure that Mocha reports. */
 function describeLateCode(scope: Scope, waited: readonly string[], answered: boolean): void {
-  const parts = [
-    `the run waited for the answers to ${commands(waited)}`,
-    ...(answered ? [] : [`which had none after ${ANSWER_LIMIT_MS / 1000} s`]),
-    ...(scope.refused.length > 0 ? [`and refused ${commands(scope.refused)}`] : []),
-  ];
-  const note = `Its code was still running at its result (#170): ${parts.join(", ")}. The run refuses its later requests.`;
+  const parts: string[] = [];
+  if (waited.length > 0) {
+    const late = answered ? "" : `, which had none after ${ANSWER_LIMIT_MS / 1000} s`;
+    parts.push(`waited for the answers to ${commands(waited)}${late}`);
+  }
+  if (scope.refused.length > 0) parts.push(`refused ${commands(scope.refused)}`);
+  const note = `Its code was still running after its result (#170): the run ${parts.join(", and ")}. The run refuses its later requests.`;
   const { error } = scope.result!;
   if (error instanceof Error) {
     // V8 writes out a stack when it is first read, with the message at that time.
@@ -146,8 +171,11 @@ export function refuseLateRequest(): void {
   const command = scope.unanswered.at(-1) ?? "a request";
   scope.refused.push(command);
   const message = `Refused ${command} from ${title(scope)}: its code was still running after its result (#170).`;
-  if (scope.reported && scope.refused.length === 1)
+  // A refusal before the report is in the failure's message.
+  if (scope.reported && !scope.logged) {
+    scope.logged = true;
     console.error(`[late requests] ${message} The run refuses its later requests too.`);
+  }
   throw new Error(message);
 }
 

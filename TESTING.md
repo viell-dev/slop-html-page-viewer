@@ -25,11 +25,24 @@ test covers. [CONTRIBUTING.md](CONTRIBUTING.md#checks) explains how to run the c
 
 A test in Obsidian that runs past its timeout fails, but WebdriverIO cannot stop its code. Each
 test's and hook's code therefore runs in a scope of its own (`test/e2e/support/late-requests.ts`),
-and once Mocha has the result, the run refuses that code's WebDriver requests, so that it cannot
-drive Obsidian during the tests after it (#170). Mocha goes on only once the requests that the code
-had already sent have their answers, for at most 30 s, and the failure's message names them and the
-requests refused meanwhile; a request refused later is printed to the log. `harness.e2e.ts` checks
-that a request from code that goes on after its test passed is refused and never reaches Obsidian.
+and once the test or hook has its result, the run refuses that code's WebDriver requests, so that
+it cannot drive Obsidian during the tests after it (#170). A test has its result when WebdriverIO's
+`afterTest` hooks start; the configuration's takes a failed test's screenshot in a scope of its own,
+but a service's own `afterTest` requests would be refused with the test's. Mocha goes on only once
+the requests that the code had already sent have their answers, for at most 30 s. The failure's
+message names those requests and the ones refused before Mocha went on; the first request refused
+after that is printed to the log. So code that a test or hook starts can send requests only until
+that test or hook has its result: a `before` hook cannot leave work running for the tests after it.
+
+`test/e2e/support/late-requests.check.ts`, which `session.sh` runs before the tests in Obsidian,
+checks this without Obsidian, in Mocha with WebdriverIO's own wrapping of tests and a stand-in
+browser. A test that times out sends no request once its `afterTest` hook starts, while the
+screenshot goes through; Mocha waits for a request still outstanding at the result; each failure
+says what its code still did; and the first refusal after a test passed is printed. Breaking each
+of these fails the check. `harness.e2e.ts` checks in Obsidian that a request from code that goes on
+after its test passed is refused and never reaches Obsidian. Each run therefore prints one such
+refusal to the log for each host, as expected:
+`[late requests] Refused executeScript from "The test run in Obsidian leaves code running after it passes"…`.
 A test that runs outside its scope, as under a copy of Mocha other than the one that
 `@wdio/mocha-framework` runs, makes every request fail.
 
@@ -621,11 +634,11 @@ failed every request in it.
   attributes are not searched. Shadow matches stay within one tree; SVG `<use>` copies live in
   inaccessible browser shadow trees and are not searched (#122, #124).
 - The 15 s limit for a corpus page is a ceiling against a page that hangs, not a measure of speed.
-- The code of a test in Obsidian that runs past its timeout stops at its next WebDriver request,
-  which the run refuses (#170). Until then it goes on, and what it does without WebDriver, such as
-  writing the vault's files on disk as `read-only.e2e.ts` does, can still change what the tests
-  after it see. A request refused once the failure has been reported is printed to the log, not
-  added to the failure.
+- The code of a test in Obsidian that runs past its timeout stops at its first WebDriver request
+  after WebdriverIO fails the test, which the run refuses (#170). Until then it goes on, and what it
+  does without WebDriver, such as writing the vault's files on disk as `read-only.e2e.ts` does, can
+  still change what the tests after it see. Once Mocha has gone on, a refusal is no longer added to
+  the failure, and only the first is printed to the log.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request
   records.
