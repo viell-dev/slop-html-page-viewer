@@ -40,8 +40,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - The **Source** view shows the line that was at its top when its tab moves to another tab group
   or window, or shows again after its pane changed width while the tab was hidden, as its long
   lines wrap there, instead of going back as far down as it was scrolled, which showed other lines.
-  The split view's source keeps its line too where its tab hides or moves right after a scroll
-  (#189).
+  The split view's source keeps its line too where its tab hides or moves within a tenth of a
+  second of a scroll (#189).
 - After a tab moves to another tab group or window, the split view's side that was scrolled last
   leads, as when Obsidian shows a hidden tab again. Where that was the source, it keeps its line
   and the page follows it, instead of the page leading, which took the source to other lines among

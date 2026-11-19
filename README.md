@@ -250,8 +250,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   tab hid, or stopped less than a tenth of a second before, goes back as far down as it was, which
   can show another part there.
 
-  **Unreleased (#189):** the **Source** view shows the line that was at its top there too, and a
-  source keeps its line also where it was scrolled right before its tab hid or moved.
+  **Unreleased (#189):** the **Source** view shows the line that was at its top there too. A
+  source, unlike a page, keeps its line also where its tab hid or moved within a tenth of a second
+  of a scroll; one made in the same instant as the hide or the move is not kept.
 
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
