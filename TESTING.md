@@ -686,6 +686,22 @@ breakages failed the check named:
 - An `@layer` statement that stops no later import, stops them only after an import inside its
   blocks, or stands outside its `@supports` block: `document.test.ts`.
 
+**Unreleased (#177):** On 2026-11-19, the preparation of `main` at `6acb438` failed seven of the
+eight new tests of the text limit in `document.test.ts`, all but the one of what it does not count,
+and both stress tests of the limit's text: a link of #177's stylesheet of `url()`s added 78,000,762
+characters to the copy, and the fan-out of 20 KB stylesheets copied more of them than its count.
+Each of these breakages failed the check named:
+
+- Not counting what making URLs absolute adds: `document.stress.ts`, and six of the new tests in
+  `document.test.ts`.
+- Not counting an import as long as the copy writes a kept import: both stress tests, and three of
+  the new tests.
+- Not counting the text that closes a stylesheet: the test of that text.
+- Not counting what copying a page's `<style>` imports adds to its URLs and imports, or counting
+  its own text too: the test of each place, and the test of a page's `<style>`.
+- Giving back the text of a stylesheet that stays a link: the test of that stylesheet.
+- A repeat that counts nothing: the new test of repeats, and #154's.
+
 The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
 keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
 preparation's measurements in Obsidian, with up to five imports a stylesheet.
