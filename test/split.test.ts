@@ -2188,6 +2188,52 @@ describe("the split view's side that led last, after a move (#195)", () => {
     }
   });
 
+  // Chromium reports a smooth scroll in the frames after the reader's
+  // input, where it no longer ends the hold: the watch of the reader says
+  // that they scrolled.
+  it("keeps where the reader scrolled the source while the frame showed no page, also where Chromium reported it a frame after their input (#189)", async () => {
+    const split = await sourceInHead();
+    try {
+      const { view, page, source, frames } = split;
+      const sourceEl = view.contentEl.querySelector(".html-page-viewer__source")!;
+      await moveFrame(view, {
+        away: () => {
+          sourceEl.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+          frames.run();
+          source.readerScrolls(600);
+        },
+        prepare: laidOutPage(page),
+      });
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [], "not sent back to line 22");
+      assert.equal(page.scrolledTo.length, 1, "the page follows the reader's line");
+    } finally {
+      split.end();
+    }
+  });
+
+  // As where Obsidian lays the tab group out again while the frame's next
+  // document is still loading: no side leads that document.
+  it("has the source that led last lead after the frame dropped a document that it never showed", async () => {
+    const split = await sourceInHead();
+    try {
+      const { view, page, source, frames } = split;
+      await moveFrame(view, {
+        prepare: (next) => {
+          laidOutPage(page)(next);
+          // The document never has its text for the view.
+          next.addEventListener("DOMContentLoaded", (event) => event.stopImmediatePropagation());
+        },
+      });
+      await moveFrame(view, { prepare: laidOutPage(page) });
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [], "the source stays at line 22");
+      assert.deepEqual(page.scrolledTo, [4], "and the page follows it");
+    } finally {
+      split.end();
+    }
+  });
+
   it("has the page follow the source that led last until the page loads, whatever the page reports", async () => {
     const split = await sourceInHead();
     try {

@@ -414,7 +414,8 @@ export interface KeptScrolling {
    * Keeps the place as it is until `back` or `release`, whatever scroll is
    * reported meanwhile, as while Obsidian hides the tab and shows it again
    * (#178), or moves it (#189), apart from the reader's own: a scroll that it
-   * reports after the reader's input in it ends the hold, and is kept.
+   * reports in the frame of the reader's input in it ends the hold, and is
+   * kept. One that Chromium reports a frame later is not.
    */
   hold(): void;
   /**
@@ -479,11 +480,13 @@ interface Scroller {
   window(): Window | null;
   /** Where it is scrolled to. */
   position(): Position;
+  /** How far down it can be scrolled. */
+  furthest(): number;
   /**
-   * How far down it can be scrolled, where Obsidian can put it back in
-   * pixels, as it does the elements of a tab that it moves; not a page.
+   * Whether Obsidian can put it back in pixels, as it does the elements of a
+   * tab that it moves, and never a frame's page (#189).
    */
-  furthest?(): number;
+  readonly obsidianPutsBack: boolean;
   /** Whether it is laid out, and so shows where it is scrolled to. */
   laidOut(): boolean;
   /** Scrolls it at once. */
@@ -652,13 +655,13 @@ function keepPlace<P>(
     "scroll",
     () => {
       if (!scroller.laidOut()) return;
-      // A scroll that it reports after the reader's input in it is theirs.
+      // A scroll that it reports in the frame of the reader's input is theirs.
       if (held && !unreported) return;
       held = false;
       unreported = false;
       const now = scroller.position();
       const putBack =
-        scroller.furthest !== undefined &&
+        scroller.obsidianPutsBack &&
         now.left === kept.left &&
         (now.top === kept.top || (now.top < kept.top && now.top >= scroller.furthest() - 1));
       const to = putBack ? target() : kept;
@@ -757,6 +760,7 @@ export function keepScrolling<P>(element: HTMLElement, placing?: Placing<P>): Ke
       window: () => element.ownerDocument.defaultView,
       position: () => ({ top: element.scrollTop, left: element.scrollLeft }),
       furthest: () => element.scrollHeight - element.clientHeight,
+      obsidianPutsBack: true,
       laidOut: () => element.isConnected && element.clientHeight !== 0,
       scrollTo: (to) => scrollInstantly(element, element, to),
     },
@@ -822,6 +826,8 @@ export function keepPageScrolling(
       events: win,
       window: () => win,
       position: () => ({ top: win.scrollY, left: win.scrollX }),
+      furthest: () => doc.documentElement.scrollHeight - doc.documentElement.clientHeight,
+      obsidianPutsBack: false,
       laidOut: () => frameShows(frame, doc),
       scrollTo: (to) => scrollInstantly(win, doc.documentElement, to),
     },

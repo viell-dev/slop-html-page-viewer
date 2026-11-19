@@ -92,11 +92,13 @@ interface SplitScrolling extends NextDocumentFollowing {
   shown(): void;
 }
 
-/** What the view keeps of the frame's previous document for its next one. */
+/**
+ * What the view keeps of the frame's previous document for its next one:
+ * PreviousDocument's place and leader, which the view writes here, and the
+ * window that the view showed it in.
+ */
 interface FrameHistory extends PreviousDocument {
-  /** Where the previous document was scrolled to when the frame dropped it (#126). */
   place: ScrollPlace | null;
-  /** The split view's side that led last when the frame dropped it, or null where none led (#195). */
   led: SideName | null;
   /** The window that the view showed the previous document in, or null before the first (#165). */
   shownIn: Window | null;
@@ -455,6 +457,38 @@ class HtmlPageViewerView extends TextFileView {
     this.contentEl.empty();
   }
 
+  /**
+   * Keeps the **Source** view's source at the line at its top, which can wrap
+   * otherwise after its tab moves or shows again (#189). Chromium lays it out
+   * again as far down as it was when the tab shows, before the window paints,
+   * and reports no scroll for that; it does not report the scroll to its
+   * start while hidden either. Its place is held while it is hidden.
+   */
+  private keepSourcePlace(source: HTMLElement): void {
+    const scrolling = keepScrolling(source, linePlacing(source));
+    this.sourceScrolling = scrolling;
+    const end = new AbortController();
+    const watch = watchElementHiding(source, end.signal, {
+      hid: () => scrolling.hold(),
+      shown: () => scrolling.back(),
+    });
+    let shownIn = source.ownerDocument.defaultView;
+    const lines = source.querySelector("pre");
+    this.sourceHiding = {
+      moved: () => {
+        watch.moved();
+        const win = source.ownerDocument.defaultView;
+        if (win === shownIn) return;
+        shownIn = win;
+        // Obsidian 1.5.3 lays a new window's elements out before its styles
+        // arrive there, and the source's lines then take other heights under
+        // it: it goes back to its line at each change soon after (#165).
+        if (lines) onResizes(lines, () => scrolling.again(), end.signal, NEW_WINDOW_SETTLING);
+      },
+      end,
+    };
+  }
+
   /** Stops watching whether the **Source** view's source shows. */
   private stopSourceHiding(): void {
     this.sourceHiding?.end.abort();
@@ -511,35 +545,8 @@ class HtmlPageViewerView extends TextFileView {
       const source = renderSource(container, this.data);
       // Focusable, so that the find bar can give the keys back to it.
       source.setAttribute("tabindex", "-1");
-      // It goes back to the line at its top, which can wrap otherwise after
-      // its tab moves or shows again (#189). Chromium lays it out again as
-      // far down as it was when the tab shows, before the window paints, and
-      // reports no scroll for that; it does not report the scroll to its
-      // start while hidden either. Its place is held while it is hidden.
-      const scrolling = keepScrolling(source, linePlacing(source));
-      this.sourceScrolling = scrolling;
+      this.keepSourcePlace(source);
       this.updateWrap();
-      const end = new AbortController();
-      const watch = watchElementHiding(source, end.signal, {
-        hid: () => scrolling.hold(),
-        shown: () => scrolling.back(),
-      });
-      let shownIn = container.ownerDocument.defaultView;
-      const lines = source.querySelector("pre");
-      this.sourceHiding = {
-        moved: () => {
-          watch.moved();
-          const win = source.ownerDocument.defaultView;
-          if (win === shownIn) return;
-          shownIn = win;
-          // Obsidian 1.5.3 lays a new window's elements out before its styles
-          // arrive there, and the source's lines then take other heights
-          // under it: it goes back to its line at each change soon after
-          // (#165).
-          if (lines) onResizes(lines, () => scrolling.again(), end.signal, NEW_WINDOW_SETTLING);
-        },
-        end,
-      };
       this.runFind();
       return;
     }
@@ -1068,14 +1075,16 @@ class HtmlPageViewerView extends TextFileView {
     // place that it was to show. A document in a hidden tab has no layout
     // to tell, and Chromium has scrolled it to its start: the element that
     // was at its top while the tab showed is its place (#186). The split
-    // view's side that led last leads the next document too (#195), and its
+    // view's side that led last leads the next document too, or, where the
+    // frame drops a document before the view has shown it, the side that led
+    // before (#195), and its
     // source keeps its place until then: Obsidian and Chromium put it back as
     // far down as it was, or lay it out anew in a new window, which shows
     // other lines where they wrap otherwise there (#189).
     doc.defaultView?.addEventListener("pagehide", () => {
       showing.abort();
       if (placed) frame.place = hidden ? (kept?.place() ?? null) : scrollPlace(doc);
-      frame.led = split?.follower.leading ?? null;
+      frame.led = split?.follower.leading ?? frame.led;
       if (kept !== null && this.pageScrolling === kept) this.pageScrolling = null;
       if (this.iframe === iframe) {
         this.startReaderWatch();
@@ -1095,9 +1104,11 @@ class HtmlPageViewerView extends TextFileView {
       // The view watches the reader only once the frame has dropped a page:
       // without a watch, this is the frame's first document. The split
       // view's source goes back to the line that it showed, or stays where
-      // the reader scrolled it meanwhile, which ended its hold.
+      // the reader scrolled it meanwhile, as the watch says, also where
+      // Chromium reported that scroll only after the frame of their input.
       const firstDocument = reader === null;
-      if (reader) this.sourceScrolling?.back();
+      if (reader?.scrolled) this.sourceScrolling?.release();
+      else if (reader) this.sourceScrolling?.back();
       this.runFind(firstDocument);
       const shownIn = this.contentEl.ownerDocument.defaultView;
       const newWindow = frame.shownIn !== null && frame.shownIn !== shownIn;
@@ -1276,7 +1287,10 @@ class HtmlPageViewerView extends TextFileView {
       },
       { signal },
     );
-    /** Until when the page follows the source whatever it reports, as a moved page until it loads (#195). */
+    /**
+     * Until when the page follows the source whatever it reports, as a moved
+     * page does until it loads (#195).
+     */
     let pageFollows: AbortSignal | null = null;
     // The hidden page reports its scroll before the frame's observer reports
     // the frame hidden, and while its frame is not laid out.

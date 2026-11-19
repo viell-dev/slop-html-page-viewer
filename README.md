@@ -248,7 +248,8 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   opened or closed meanwhile, the page shows the part that was at its top, and the split view's
   source the line that was at its top, as they wrap now. A page that was still scrolling when the
   tab hid, or stopped less than a tenth of a second before, goes back as far down as it was, which
-  can show another part there.
+  can show another part there. With scripts on, the split view's source still goes back as far
+  down as it was ([#204](https://github.com/viell-dev/slop-html-page-viewer/issues/204)).
 
   **Unreleased (#189):** the **Source** view shows the line that was at its top there too. A
   source, unlike a page, keeps its line also where its tab hid or moved within a tenth of a second

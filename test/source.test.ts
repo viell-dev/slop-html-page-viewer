@@ -739,6 +739,9 @@ describe("the source view's place after its tab moves (#135)", () => {
       const moved = resizeObservers(popout);
       report();
       scroll(300);
+      // A layout change in the window that it shows in watches no lines.
+      harness.app.workspace.trigger("layout-change");
+      assert.equal(observed.length, 1);
       popout.document.body.append(popout.document.adoptNode(view.contentEl));
       harness.app.workspace.trigger("layout-change");
       assert.equal(observed[0].connected, false, "not by its first window");
@@ -815,6 +818,41 @@ describe("the source view's place after its tab moves (#135)", () => {
       // In the window that it was in, nothing watches its lines.
       shown.observed[0].callback();
       assert.equal(scrolledTo.length, 2);
+    } finally {
+      endObservers();
+      (popout as unknown as { close(): void }).close();
+    }
+  });
+
+  // A scroll that the reader has made and that Chromium has yet to report
+  // is theirs, also where the lines change size meanwhile.
+  it("leaves its source where the reader's input in it can still be unreported, when its lines change size after a move to a new window (#189)", async () => {
+    const shown = await movedSource("Source", { data: LONG, observers: true });
+    const popout = new JSDOM("<!doctype html><html><body></body></html>")
+      .window as unknown as Window;
+    try {
+      const { harness, view, source, lines, scroll, scrolledTo, report } = shown;
+      const moved = resizeObservers(popout);
+      // Frames that never run, so that the input stays unreported.
+      Object.defineProperty(popout, "requestAnimationFrame", {
+        configurable: true,
+        value: () => 0,
+      });
+      const pre = source.querySelector("pre")!;
+      Object.defineProperties(pre, {
+        offsetWidth: { configurable: true, value: 600 },
+        offsetHeight: { configurable: true, get: () => 20 + 80 * lines.height },
+      });
+      report();
+      scroll(300);
+      popout.document.body.append(popout.document.adoptNode(view.contentEl));
+      harness.app.workspace.trigger("layout-change");
+      moved.report();
+      const inPopout = popout as unknown as typeof globalThis;
+      source.dispatchEvent(new inPopout.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+      lines.height = 40;
+      moved.report();
+      assert.deepEqual(scrolledTo, []);
     } finally {
       endObservers();
       (popout as unknown as { close(): void }).close();

@@ -692,9 +692,9 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
  * frame 400 pixels high, and the page's window scrolled down by `scrollY`
  * and sideways by `scrollX`. The page's two paragraphs, `One` and `Two`, are
  * each `layout.height` pixels high, 1000 to start with: a narrower frame lays
- * them out higher. The page's root is as high as both. The page's own window has ResizeObservers too, which
- * `reportPage` runs, as for the sizes of its root and body; Chromium runs the
- * frame's window's first.
+ * them out higher. The page's root is as high as both. The page's own window
+ * has ResizeObservers too, which `reportPage` runs, as for the sizes of its
+ * root and body; Chromium runs the frame's window's first.
  *
  * `scroll` scrolls the page and reports it, as Chromium does in its next
  * frame, and `jump` scrolls it without a report; `scrolledTo` collects
@@ -931,7 +931,7 @@ describe("a page's place when Obsidian hides its tab and shows it again (#178)",
 
   // As where the reader scrolls a moved split view's source before the frame
   // shows its next document (#157, #189).
-  it("keeps a scroll that it reports while held after the reader's input in it, which ends the hold", () => {
+  it("keeps a scroll that it reports while held in the frame of the reader's input in it, which ends the hold", () => {
     const page = framedPage();
     const place = keepPageScrolling(page.frame, page.doc, page.signal())!;
     page.scroll(900);

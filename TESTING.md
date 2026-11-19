@@ -1675,28 +1675,43 @@ starts left neither test a step after it, and the screenshot was taken.
     versions, the main window's observer still reported the moved source's sizes. There, the source
     also goes back to its line at each size change of its lines within 2 seconds, as Obsidian 1.5.3
     lays a new window out before its styles arrive (#165), or to the line where the reader scrolled
-    it since; later changes of its layout leave it where it is. `move.e2e.ts` holds the new window's app.css
-    back until the view has put the source at its line without it, as for the split view.
+    it since; later changes of its layout leave it where it is. The in-depth review of #202
+    measured that limit: with the new window's app.css held back 2.6 s past that, the source showed
+    line 39 in place of line 37 on 1.5.3 once the styles came, and on 1.15.1 nothing moved.
+    `move.e2e.ts` holds the new window's app.css back until the view has put the source at its line
+    without it, as for the split view. It also hides the tab two frames after a scroll of the
+    source, within the 100 ms in which a page's scrolling settles.
+  - **Unreleased (#189):** A resize of the pane while the **Source** view shows is left to
+    Chromium's scroll anchoring, which keeps the source near its line but not at it. The in-depth
+    review of #202 narrowed it from 1196 to 454 px wide while it showed: the source went to 75 px
+    above line 37, with the last rows of line 36 at its top. The view adds nothing to that.
   - **Unreleased (#189):** After a move, Obsidian puts a source back as far down as it was, which
     Chromium reports as a scroll to where the source was last reported, or to its end where its
     lines now take less room: 1.15.1 in every move measured, and 1.5.3 in some, as in a move after
-    the tab had been hidden once. The view takes such a scroll for a lost place, and shows the source's line there; the
-    reader's scrolling never reports where its last report left it. Obsidian 1.5.3 shows a source
-    moved without that from its start, and the view puts it back at its line at the layout change.
-    `move.e2e.ts` moves the **Source** view into a narrower and a wider tab group, made beside the
-    first with a `max-width` on one of them, and to a new window, with and without hiding it first;
-    a drag of a tab header is not tested.
+    the tab had been hidden once. The view takes such a scroll of an element of the view for a lost
+    place, and shows the source's line there; the reader's scrolling never reports where its last
+    report left it. A frame's page, which Obsidian never puts back, takes no such scroll for one.
+    Obsidian 1.5.3 shows a source moved without that from its start, and the view puts it back at
+    its line at the layout change. `move.e2e.ts` moves the **Source** view into a narrower and a
+    wider tab group, made beside the first with a `max-width` on one of them, and to a new window,
+    with and without hiding it first. No committed test drags a tab header; the in-depth review of
+    #202 dragged one onto a narrower tab group on 1.15.1, for the **Source** view and the split
+    view, and both kept their line.
   - **Unreleased (#195):** The view records which side of the split view led last when the frame
-    drops its page, and has that side lead the next document. From then until the next document
-    shows, the source's place is held, apart from a scroll that it reports after the reader's
-    input in it, and the source then goes back to its line, or stays where the reader scrolled it.
-    Where the source leads, the page follows it, and the page's own scrolling leads nothing until
-    the page has loaded or the reader acts, as Chromium's scroll anchoring scrolls the page while
-    its images load; the source then leads again. Only `split.test.ts` tests the page's scrolling
-    before it loads. A page whose images never arrive follows the source until the reader acts.
-    Where the page led last, it is placed and leads, as before. `move.e2e.ts` tests the long head
-    of #195 in another tab group, a new window, and a hidden tab moved by its menu, and a head whose
-    rules wrap in a narrower tab group.
+    drops its page, and has that side lead the next document; a document that the frame drops
+    before the view has shown it hands on the side that led before it. From the frame's `pagehide`
+    until the next document shows, the source's place is held, apart from a scroll that it reports
+    in the frame of the reader's input in it. The source then goes back to its line, or, where the
+    watch of the reader says that they scrolled it, stays where they did, also where Chromium
+    reported that scroll a frame after their input, as with smooth scrolling. Where the source
+    leads, the page follows it, and the page's own scrolling leads nothing until the page has
+    loaded or the reader acts, as Chromium's scroll anchoring scrolls the page while its images
+    load; the source then leads again. A page whose images never arrive follows the source until
+    the reader acts. Where the page led last, it is placed and leads, as before. `move.e2e.ts`
+    tests the long head of #195 in another tab group, in a new window whose app.css is held back
+    until the view has put the source at its line, and after a hidden tab's move by its menu; a
+    head whose rules wrap in a narrower tab group; and a page that a script scrolls before its
+    held image arrives. Only `split.test.ts` tests a document dropped before it was shown.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`
