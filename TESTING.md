@@ -247,8 +247,10 @@ Before the later `<base>`, also in the shadow root, their URLs are made absolute
 folder, and with copying, each copies its file from its own base's folder; a `<body>` around the
 `<base>` is made absolute, and one after a `<base>` in the `<head>` is not. Each attribute is read
 only on the elements of its namespace: neither made absolute nor copied are a `background` on a
-`<div>`, a `<span>`, or an SVG element, an `href` on an HTML `<script>` or `<use>`, or a `src` on an
-SVG `<script>` or `<video>`. Copied, their files pass the same checks: a note, a web address, a
+`<div>`, a `<span>`, or an SVG element, also an SVG `<td>`, `<tr>`, or `<col>`, which the parser
+keeps in SVG, an `href` on an HTML `<script>` or `<use>`, or a `src` on an SVG `<script>` or
+`<video>`. A page with a `<constructor>` element, in HTML, in SVG, in a shadow root, and in a
+template, is prepared, also with copying, as its names are looked up in maps. Copied, their files pass the same checks: a note, a web address, a
 path outside the vault, and an empty value stay as written, so does an `<feImage>`'s fragment, and
 a file over the per-file limit is left out and counted. One that does not resolve as a path is
 found by name. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest a page whose `<base>`
@@ -1252,6 +1254,13 @@ checks named in `document.test.ts`:
   of copying and the test of the checks.
 - Copying an SVG `<use>`'s file: the #187 test of copying and the test of namespaces.
 - Reading an attribute on the elements of every namespace: the test of namespaces.
+
+The review of #203 found two changes that passed every test; each now fails the check named:
+
+- Looking an element's attribute names up in an object, which gave a `<constructor>` element the
+  prototype's function and made every page with one fail to prepare: the test of `<constructor>`.
+- Reading `background` attributes in SVG too: the test of namespaces, with its SVG `<td>`, `<tr>`,
+  and `<col>`.
 
 **Unreleased (#199):** On 2026-11-19, `main` at `eb926d3` failed the new test of `links.e2e.ts` in
 Obsidian 1.5.3 and 1.15.1: the tooltip of the link with U+00A0 named the decoy without it, where

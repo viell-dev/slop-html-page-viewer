@@ -764,19 +764,26 @@ interface UrlAttributes {
  * an SVG one with `href`. The elements are found by walking the tree, which
  * in jsdom took a fifth of the time of a selector of their names on a page
  * of 100,000 table cells and 50,000 images, and matches an SVG name such as
- * `feImage` in its case.
+ * `feImage` in its case. A page names its elements, so they are looked up in
+ * maps: an object would give a `<constructor>` its prototype's function.
  */
 function urlAttributes(
   byNamespace: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>,
 ): UrlAttributes {
+  const names = new Map(
+    Object.entries(byNamespace).map(([namespace, elements]) => [
+      namespace,
+      new Map(Object.entries(elements)),
+    ]),
+  );
   return {
     *elements(root) {
       const doc = root.ownerDocument ?? (root as Document);
       const walker = doc.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
       for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
         const element = node as Element;
-        const names = byNamespace[element.namespaceURI ?? ""]?.[element.localName];
-        if (names !== undefined) yield [element, names];
+        const found = names.get(element.namespaceURI ?? "")?.get(element.localName);
+        if (found !== undefined) yield [element, found];
       }
     },
   };

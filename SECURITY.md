@@ -218,7 +218,10 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   `background` attributes of the `<body>` and of tables and their parts name, and the files of SVG
   `<feImage>` and `<script>` elements, which 0.6.0 leaves as written, so that a page with scripts
   on loads none of them. An SVG script so copied runs, as the page's other scripts do then. Before
-  a later `<base>`, these come from the page's folder too. It reads an attribute only on the
+  a later `<base>`, the viewer copies these from the page's folder too, which is its choice, as for
+  #187: Chromium takes an `<feImage>`'s and an SVG script's file from there in every page, but a
+  `background` attribute's from the `<base>`'s folder in a short page that it reads in one go. It
+  reads an attribute only on the
   elements of the namespace that Chromium loads it for: an HTML element's `background` and `src`,
   and an SVG element's `href`, so that it no longer copies the file of a `<video>`, an `<audio>`, or
   an `<input>` inside SVG, which loads nothing. The same file types, limits, and vault-only paths

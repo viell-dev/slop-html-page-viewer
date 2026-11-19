@@ -2761,6 +2761,8 @@ describe("background attributes, SVG filter images, and SVG scripts (#198)", () 
       `<div background="r/div.png"></div><span background="r/span.png"></span>`,
       `<script href="r/html.js"></script><use href="r/html-use.svg#s"></use>`,
       `<svg><script src="r/svg.js"></script><video src="r/svg.webm"/><rect background="r/rect.png"/>`,
+      // The HTML parser keeps these names in SVG, unlike <table> and <body>.
+      `<td background="r/svg-td.png"/><tr background="r/svg-tr.png"/><col background="r/svg-col.png"/>`,
       `<use href="r/svg-use.svg#s"/></svg><base href="sub/">`,
     ].join("");
     const copies: string[] = [];
@@ -2786,10 +2788,46 @@ describe("background attributes, SVG filter images, and SVG scripts (#198)", () 
         "script src r/svg.js",
         "video src r/svg.webm",
         "rect background r/rect.png",
+        "td background r/svg-td.png",
+        "tr background r/svg-tr.png",
+        "col background r/svg-col.png",
         `use href ${page}r/svg-use.svg#s`,
       ],
     );
+    assert.deepEqual(
+      [...copy.querySelectorAll("svg td, svg tr, svg col")].map(({ namespaceURI }) => namespaceURI),
+      Array(3).fill("http://www.w3.org/2000/svg"),
+    );
     assert.deepEqual(copies, [], "nothing of these is copied");
+  });
+
+  it("prepares a page with a <constructor> element, in HTML, SVG, and shadow DOM, also copying files", async () => {
+    // A page names its elements, so a lookup of attribute names in an object
+    // would give a <constructor> the prototype's function as its names.
+    const html = [
+      `<constructor></constructor><img src="r/a.png">`,
+      `<svg><constructor/><image href="r/b.png"/></svg>`,
+      `<div><template shadowrootmode="open"><constructor></constructor><img src="r/c.png">`,
+      `</template></div><template><constructor></constructor></template><base href="sub/">`,
+    ].join("");
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      readBinary: async () => new Uint8Array([1]).buffer,
+    };
+    for (const options of [{}, { copyFiles }]) {
+      const copy = parse(await prepare(html, context({}), options));
+      const shadow = copy.querySelector("template")!.content;
+      assert.deepEqual(
+        [
+          copy.querySelector("img")?.getAttribute("src"),
+          copy.querySelector("image")?.getAttribute("href"),
+          shadow.querySelector("img")?.getAttribute("src"),
+        ],
+        "copyFiles" in options
+          ? Array(3).fill("data:image/png;base64,AQ==")
+          : [`${page}r/a.png`, `${page}r/b.png`, `${page}r/c.png`],
+      );
+    }
   });
 
   it("copies their files as data: URLs of their types, by the same checks and limits", async () => {
