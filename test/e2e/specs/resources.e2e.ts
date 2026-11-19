@@ -469,7 +469,16 @@ describe("A page's local files in Obsidian", function () {
       style("A", "msa"),
       style("B", "msb"),
     ];
-    const linkIds = ["b1", "c1", "a1", "alt1", "alt2", "p1", "sp", "hb", "halt", "ma", "mb"];
+    // A first titled link whose href is no URL names no set, as Chromium has it.
+    const badHref = [
+      `<link id="bad-link" rel="stylesheet" title="A" href="http://[bad">`,
+      link("B", "bb"),
+      link("A", "ba"),
+    ];
+    const linkIds = [
+      ...["b1", "c1", "a1", "alt1", "alt2", "p1", "sp", "hb", "halt", "ma", "mb"],
+      ...["bb", "ba"],
+    ];
     const styleIds = ["sa", "sb", "sl", "svga", "svgb", "hs", "msa", "msb"];
     const paragraphs = (ids: string[]) =>
       ids
@@ -510,9 +519,14 @@ describe("A page's local files in Obsidian", function () {
         defaults.join(""),
         `</head><body>${paragraphs(["ma", "mb", "msa", "msb"])}</body></html>`,
       ].join(""),
+      "Bad href.html": [
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Bad href</title>`,
+        badHref.join(""),
+        `</head><body>${paragraphs(["bb", "ba"])}</body></html>`,
+      ].join(""),
     };
     const FRAME = `${ACTIVE} iframe.html-page-viewer__frame`;
-    const PAGES = ["Style sets.html", "Default style.html"];
+    const PAGES = ["Style sets.html", "Default style.html", "Bad href.html"];
 
     // What Chromium applies in each page, as headless Chrome 158 applied it.
     const APPLIED: Record<string, { page: string[]; shadow: string[] }> = {
@@ -521,11 +535,13 @@ describe("A page's local files in Obsidian", function () {
         shadow: ["hb", "hs", "hs-imported"],
       },
       "Default style.html": { page: ["mb", "msb", "msb-imported"], shadow: [] },
+      "Bad href.html": { page: ["bb"], shadow: [] },
     };
     /** The vault stylesheets of the elements that apply, which the copy reads. */
     const READS: Record<string, string[]> = {
       "Style sets.html": ["a1", "alt1", "c1", "hb", "hs", "sa", "svga"],
       "Default style.html": ["mb", "msb"],
+      "Bad href.html": ["bb"],
     };
 
     /** What Chromium applies to each page outside Obsidian, on this host. */
@@ -619,6 +635,7 @@ describe("A page's local files in Obsidian", function () {
         shadow: ["halt-link"],
       },
       "Default style.html": { page: ["ma-link", "msa-style"], shadow: [] },
+      "Bad href.html": { page: ["ba-link", "bad-link"], shadow: [] },
     };
 
     it("is measured against what Chromium applies to the same pages outside Obsidian", async function () {

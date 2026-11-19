@@ -1428,15 +1428,16 @@ function stripSpaces(value: string): string {
  * finds it while it parses the page: the first, in tree order, of the
  * content of a `<meta http-equiv="Default-Style">` that is not empty, and the
  * title of a `<style>` (`isStylesheetStyle`) or of a stylesheet link that is
- * not an alternate one (`isStylesheetLink`), whose `href` is not blank, and
- * which has a title. Such a link names the set before it loads, so also when
- * its stylesheet is missing, or when the copy leaves it a link that Obsidian's
- * policy refuses. A later one, also a `<meta>`, changes nothing, and none in a
- * shadow root or a template names one. Null when nothing names a set: then
- * only untitled stylesheets apply. Titles compare exactly, their case and
- * spaces included.
+ * not an alternate one (`isStylesheetLink`), whose `href` is not blank and
+ * resolves to a URL against the link's base (`sheetBase`), as `http://[x`
+ * does not, and which has a title. Such a link names the set before it
+ * loads, so also when its stylesheet is missing, or when the copy leaves it a
+ * link that Obsidian's policy refuses. A later one, also a `<meta>`, changes
+ * nothing, and none in a shadow root or a template names one. Null when
+ * nothing names a set: then only untitled stylesheets apply. Titles compare
+ * exactly, their case and spaces included.
  */
-function preferredSet(doc: Document): string | null {
+function preferredSet(doc: Document, sheetBase: (element: Element) => string): string | null {
   for (const element of doc.querySelectorAll("meta, style, link")) {
     let name = "";
     if (element.localName === "meta") {
@@ -1448,12 +1449,11 @@ function preferredSet(doc: Document): string | null {
         name = element.getAttribute("content") ?? "";
     } else if (element.localName === "style") {
       if (isStylesheetStyle(element)) name = element.getAttribute("title") ?? "";
-    } else if (
-      isStylesheetLink(element) &&
-      !linkTypes(element).includes("alternate") &&
-      stripSpaces(element.getAttribute("href") ?? "") !== ""
-    )
-      name = element.getAttribute("title") ?? "";
+    } else if (isStylesheetLink(element) && !linkTypes(element).includes("alternate")) {
+      const href = stripSpaces(element.getAttribute("href") ?? "");
+      if (href !== "" && resolve(href, sheetBase(element)) !== null)
+        name = element.getAttribute("title") ?? "";
+    }
     if (name !== "") return name;
   }
   return null;
@@ -2140,10 +2140,6 @@ export async function preparePage(
   options: PageOptions = {},
 ): Promise<PreparedPage> {
   const doc = new DOMParser().parseFromString(html, "text/html");
-  // Which of the document's titled stylesheets apply, as preparing leaves its
-  // titles and the elements that name its set where they are.
-  const preferred = preferredSet(doc);
-  const ownStyles = hasOwnStyles(doc, preferred);
 
   // The page's base URL, which the copy's <base> gives every reference that
   // resolves once the page is parsed. The page's own <base>, if any, is
@@ -2161,6 +2157,11 @@ export async function preparePage(
   // The stylesheets that Chromium parses before a <base> resolve against the
   // page's address instead.
   const sheetBase = stylesheetBases(doc, found, base.element, context.pageUrl, baseUrl);
+  // Which of the document's titled stylesheets apply, as preparing leaves its
+  // titles and the elements that name its set where they are. Nothing above
+  // changes the document.
+  const preferred = preferredSet(doc, sheetBase);
+  const ownStyles = hasOwnStyles(doc, preferred);
   const roots: PageRoot[] = [{ node: doc, sheetBase, preferred }];
   for (const { content } of found)
     if (content.firstElementChild !== null) roots.push({ node: content, sheetBase });

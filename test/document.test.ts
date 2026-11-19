@@ -2428,6 +2428,11 @@ describe("stylesheet sets (#169)", () => {
         ["b1", "svgb"],
       ],
       [
+        "a first link whose href is no URL, which names no set",
+        [`<link rel="stylesheet" title="A" href="http://[bad">`, link("B", "b1"), link("A", "a2")],
+        ["b1"],
+      ],
+      [
         "titles that differ in case or spaces",
         [link("a", "lower"), link("A", "upper"), link(" a ", "spaced"), meta("A")],
         ["lower"],
