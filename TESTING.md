@@ -988,7 +988,9 @@ starts left neither test a step after it, and the screenshot was taken.
   do before it paints; no test checks the frame that Chromium paints first. A tab hidden and shown
   again within one of Chromium's frames, with a layout in between, as only a script can do, can
   leave the page at its top. The page goes back as far down as it was scrolled, not to the element
-  at its top as after a move (#126), and the split view's sides are put in step from there.
+  at its top as after a move (#126), and the split view's sides are put in step from there: where
+  its pane changed width meanwhile, it shows another part
+  ([#182](https://github.com/viell-dev/slop-html-page-viewer/issues/182)).
   `move.e2e.ts` hides the tab by opening a new tab in its tab group through Obsidian's API, and
   shows it again by clicking its tab header, or, for a quick switch, through the API four frames
   later. That a page with scripts on starts from its top, and that Chromium keeps the places of the

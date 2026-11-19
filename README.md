@@ -153,9 +153,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   **Unreleased (#178):** a page that scrolls as a whole also keeps its place when its tab shows
   again after another tab of its tab group, instead of showing from its top, and the split view's
   two sides stay in step there. The page goes back as far down as it was scrolled, so where its
-  pane changed width meanwhile and the page wraps differently, it can show another part. The
-  **Source** view, and the parts of a page that scroll by themselves, keep their place there, as
-  they did before.
+  pane changed width meanwhile and the page wraps differently, it can show another part
+  ([#182](https://github.com/viell-dev/slop-html-page-viewer/issues/182)). The **Source** view, and
+  the parts of a page that scroll by themselves, keep their place there, as they did before.
 
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
