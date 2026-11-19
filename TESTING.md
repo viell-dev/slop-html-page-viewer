@@ -144,51 +144,57 @@ generated content beside an applied local stylesheet in real Obsidian, in the do
 shadow root. `scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300
 KB and 4 MB stylesheets, as observations rather than a check.
 
-**Unreleased (#179):** `css.test.ts` checks which tokens name resources: URL tokens, and the
-closed strings directly between the parentheses of `image-set()` and `-webkit-image-set()`, whose
-names it compares as CSS does, in any case and with escapes, also in a fallback of `var()`. It finds
-no bare string, none in `type()`, `format()`, `local()`, `image()`, `src()`, or `cross-fade()`, none
-after the function or in a block inside it, none after a name with a space before its `(`, and none
-left open at the end of the text, and it follows mismatched closers as CSS nests them.
-`document.test.ts` checks that a linked stylesheet in another folder than the page, in the
-document and in a shadow root, linked, imported in a `<style>`, or imported in a linked
-stylesheet, gets such strings absolute and kept as strings, and with copying, their files, the
-`2x` image too. The page's own `<style>` and `style` attributes keep such strings as written,
-apart from those found by name, and copy their files. Other strings stay as written, and nothing
-is read or copied for them. Within #177's text limit, they count as made absolute, to the
-character. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest, in the document and in a
-shadow root, that the squares that such strings name in a stylesheet in another folder, in the
-page's `<style>`, and in a `style` attribute show the image beside the stylesheet, not the one of
-the same name beside the page, with scripts off and with them on and files copied. It checks that
-Chromium resolves the same page, served outside Obsidian, alike, that the host supports strings in
-both functions and not `image()` or `src()`, and that it drops a bare string as a font's source.
+**Unreleased (#179):** `css.test.ts` checks which tokens name resources: URL tokens, and the closed
+strings directly between the parentheses of `image-set()` and `-webkit-image-set()`, whose names it
+compares as CSS does, in any case and with escapes, also in a fallback of `var()`. It finds no bare
+string, none in `type()`, `format()`, `local()`, `image()`, `src()`, or `cross-fade()`, none after
+the function or in a block inside it, none after a name with a space before its `(` or before a `{`
+or `[`, as in the selectors of a custom element, and none left open at the end of the text, and it
+follows mismatched closers as CSS nests them. `document.test.ts` checks that a linked stylesheet in
+another folder than the page, in the document and in a shadow root, linked, imported in a `<style>`,
+or imported in a linked stylesheet, gets such strings absolute and kept as strings, and with
+copying, their files, the `2x` image too. The page's own `<style>` and `style` attributes keep such
+strings as written, apart from those found by name, and copy their files. Other strings stay as
+written, and nothing is read or copied for them. Within #177's text limit, they count as made
+absolute, to the character. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest, in the
+document and in a shadow root, that the squares that such strings name in a stylesheet in another
+folder, in the page's `<style>`, and in a `style` attribute show the image beside the stylesheet,
+not the one of the same name beside the page, with scripts off and with them on and files copied. It
+checks that Chromium resolves the same page, served outside Obsidian, alike, that the host supports
+strings in both functions and not `image()` or `src()`, and that it drops a bare string as a font's
+source.
 
 **Unreleased (#185):** `document.test.ts` checks a page whose `<base>` comes after a `<style>`, a
 `<style>` that imports a file, a stylesheet link, an SVG `<style>`, and a `style` attribute, each of
-which also comes after the `<base>`, in the document, in a declarative shadow root and one nested in
-it before the `<base>`, in one after it, and in a template's content. Those before it, the
-`<body>`'s `style` attribute among them, get their URLs, `image-set()` strings, and imports absolute
-against the page's folder, and the link and the import read the files there; the others keep their
-text, and the link and the import read the files in the `<base>`'s folder, which the copy's `<base>`
-names. With copying, each copies its files from its own folder. The `<html>` element's `style`
-attribute, around a `<base>` in the `<head>`, resolves against the page, and a reference before the
-`<base>` that does not resolve as a path there is found by name. The copy's `<base>` is that of the
-first HTML `<base>` with an `href`, also an empty one, and none for one inside SVG, of a `data:` or
-`javascript:` URL in any case, or in a template; a `<base>` at the top of the `<head>` leaves the
-stylesheets after it as written. Within #177's text limit, what making the URLs of a `<style>` and
-of a `style` attribute before the `<base>` absolute adds counts to the character, the second of two
-attributes that each take three fifths of it stays as written, and with copying, those kept as
-written still copy from the page's folder. `document.stress.ts` prepares 2,500 `style` attributes of
-100 URLs each before a `<base>`, which would add 19.5 million characters made absolute: those that
-fit in the limit are, and the rest stay as written. `resources.e2e.ts` checks in Obsidian 1.5.3 and
-the latest a page whose `<base>` comes after most of its squares, which name an image that is green
-in the page's folder and blue in the `<base>`'s: a `<style>`, an import, a link, an SVG `<style>`,
-and a `style` attribute before it, also in a shadow root, show green, and a `<style>` and a `style`
-attribute after it blue. With scripts off, it reads where each square's image comes from; with
-scripts on and files copied, it counts the squares of each color, with the blue one of a template's
-content that the page's script adds. Two more pages, whose `<base>` is inside SVG, with a red image
-of that name in its folder, or has a `data:` URL, show their square from their own folder. Chromium
-shows the same pages, served outside Obsidian, alike.
+which also comes after the `<base>`, with attributes of its own in each place (#191), in the
+document, in a declarative shadow root and one nested in it before the `<base>`, in one after it,
+and in a template's content. Those before it, the `<body>`'s `style` attribute among them, get their
+URLs, `image-set()` strings, and imports absolute against the page's folder, and the link and the
+import read the files there; the others keep their text, and the link and the import read the files
+in the `<base>`'s folder, which the copy's `<base>` names. With copying, each copies its files from
+its own folder. The `<html>` element's `style` attribute, around a `<base>` in the `<head>`,
+resolves against the page, and a reference before the `<base>` that does not resolve as a path there
+is found by name. The copy's `<base>` is that of the first HTML `<base>` with an `href`, also an
+empty one, and none for one inside SVG, of a `data:` or `javascript:` URL in any case, or in a
+template, and an ignored first one lets no later one apply; a `<base>` at the top of the `<head>`
+leaves the stylesheets after it as written. An element after the `<base>` that repeats one before it
+resolves against the `<base>`, as the copy's own rule (#191). Within #177's text limit, what making
+the URLs of a `<style>` and of a `style` attribute before the `<base>` absolute adds counts to the
+character, the second of two attributes that each take three fifths of it stays as written, a
+rewrite that shortens an attribute gives no room back, rewriting stops once an attribute passes the
+room, as the lookups of its references show, past the limit a reference is found by name against its
+own base, not the copy's `<base>`, and with copying, those kept as written still copy from the
+page's folder. `document.stress.ts` prepares 2,500 `style` attributes of 100 URLs each before a
+`<base>`, which would add 19.5 million characters made absolute: those that fit in the limit are,
+and the rest stay as written. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest a page
+whose `<base>` comes after most of its squares, which name an image that is green in the page's
+folder and blue in the `<base>`'s: a `<style>`, an import, a link, an SVG `<style>`, and a `style`
+attribute before it, also in a shadow root, show green, and a `<style>` and a `style` attribute
+after it blue. With scripts off, it reads where each square's image comes from; with scripts on and
+files copied, it counts the squares of each color, with the blue one of a template's content that
+the page's script adds. Two more pages, whose `<base>` is inside SVG, with a red image of that name
+in its folder, or has a `data:` URL, show their square from their own folder. Chromium shows the
+same pages, served outside Obsidian, alike.
 
 **Unreleased (#154):** beside the eight-file depth limit, `document.test.ts` checks the page's
 stylesheet limits: at most 1,000 links and imports followed, and 16 million characters of the
@@ -405,21 +411,22 @@ links, the first title's set, a repeat of it, untitled links, and an `alternate 
 that title, and no other titled link, no other alternate one, no untitled alternate one, and none
 titled with a space. A titled `<style>` names the set as a link does, also an SVG one, and a link
 names it before it loads, also when its file is missing; a disabled link, a link of another type or
-with an `href` that is empty or blank, an alternate link, and a `<style>` of another type name none.
-A `<meta http-equiv="Default-Style">` names the set before any title, but not after one; an empty
-one names none, and the first one counts. Titles match only in the same case and with the same
-spaces. In a shadow root and a template, every stylesheet but an alternate link is prepared, and
-their titles and `<meta>` name no set. With copying, a `<style>` of another set keeps its text, and
-its files are not copied, and links of other sets stay as written; a page whose only stylesheets are
-outside the set gets the reading style. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest,
-against what Chromium applies to the same pages served outside Obsidian, a page whose first title is
-that of a link to a missing file, with links of both sets, untitled, alternate, and titled with a
-space, `<style>` elements and SVG `<style>` elements of both sets and of a title in other case, a
-`<meta>` at the end, and a shadow root with a link and a `<style>` of the other set and an alternate
-link, and a page whose `<meta>` names the second set. In the viewer, with scripts off, the page
-shows what Chromium applied, the viewer reads only the stylesheets that apply, and the copy keeps
-the others as written; with scripts on and files copied, it copies only the figure of each `<style>`
-that applies.
+with an `href` that is empty, blank, or no URL, an alternate link, and a `<style>` of another type
+name none. A `<meta http-equiv="Default-Style">`, in any case and also in the `<body>`, names the
+set before any title, but not after one; an empty one names none, and the first one counts. Titles
+match only in the same case and with the same spaces. In a shadow root and a template, every
+stylesheet but an alternate link is prepared, and their titles and `<meta>` name no set. With
+copying, a `<style>` of another set keeps its text, and its files are not copied, and links of other
+sets stay as written; a page whose only stylesheets are outside the set gets the reading style.
+`resources.e2e.ts` checks in Obsidian 1.5.3 and the latest, against what Chromium applies to the
+same pages served outside Obsidian, a page whose first title is that of a link to a missing file,
+with links of both sets, untitled, alternate, and titled with a space, `<style>` elements and SVG
+`<style>` elements of both sets and of a title in other case, a `<meta>` at the end, and a shadow
+root with a link and a `<style>` of the other set and an alternate link; a page whose `<meta>` names
+the second set; and a page whose first titled link's `href` is no URL, which names no set there. In
+the viewer, with scripts off, the page shows what Chromium applied, the viewer reads only the
+stylesheets that apply, and the copy keeps the others as written; with scripts on and files copied,
+it copies only the figure of each `<style>` that applies.
 
 ## Shown to fail
 
@@ -911,6 +918,8 @@ the tests expect. Each of these breakages failed the check named:
 - Finding only URL tokens by name: the test of the page's own `<style>` and `style` attributes.
 - Taking a string anywhere inside `image-set()`, as in its `type()`, or a string in any function:
   `css.test.ts`, the test of other strings, and those of strings made absolute and of every place.
+- Taking the strings of any block after the name `image-set`, as in `image-set{content:"a.png"}`,
+  which passed every test until the review of #188 found it: `css.test.ts`.
 
 **Unreleased (#185):** On 2026-11-19, the preparation of `main` at `bcaaec5` failed all six new
 tests of a `<base>` after the page's stylesheets in `document.test.ts`: every stylesheet resolved
@@ -936,6 +945,14 @@ failed the check named:
   with two attributes, and `document.stress.ts`, where the copy added 19.5 million characters.
 - Keeping the URLs of a `<style>` without imports as written: four of the tests.
 
+The review of #188 found five more changes that passed every test; each now fails the check named:
+
+- Letting a later `<base>` apply after an ignored `data:` one: the test of the base that applies.
+- Finding the references of a `style` attribute, or of a `<style>`, that does not fit by name
+  against the copy's `<base>`: the test of finding by name past the limit.
+- Giving room back for a rewrite that shortens a `style` attribute, or rewriting the whole of one
+  before comparing it with the room: the test of shortening and of the room, by its lookups.
+
 **Unreleased (#169):** On 2026-11-19, the preparation of `main` at `bcaaec5` failed all four new
 tests of stylesheet sets in `document.test.ts`, and both viewer tests of sets in
 `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where both served pages showed what the tests
@@ -954,6 +971,9 @@ breakages failed the check named in `document.test.ts`:
 - Copying the files of every `<style>`, whatever its set: the test of what the copy keeps.
 - A page's own styles counted whatever their set: the test of the reading style.
 - Titles compared in any case: the test of sets.
+- An `http-equiv` compared in its exact case, a `<meta>` counted only in the `<head>`, which the
+  review of #188 found to pass every test, and a link whose `href` is no URL naming the set: the
+  test of sets.
 
 **Unreleased (#147):** On 2026-11-18, the preparation of `<style>` and `<link>` elements as `main`
 had it at `eb92df5` failed both viewer tests of types in `resources.e2e.ts` in Obsidian 1.5.3 and
@@ -1032,24 +1052,57 @@ starts left neither test a step after it, and the screenshot was taken.
   as the coverage of #169 describes.
 - **Unreleased (#169):** which titled stylesheets apply is decided from the page as it is parsed. A
   script that switches to another set, as by enabling a stylesheet, gets no linked stylesheet of it,
-  as Obsidian's policy refuses a link, and its `<style>` elements without their imports, whose
-  URLs resolve as written. A titled stylesheet in a template's content is prepared, though a script
-  that puts it in the page itself would have its title decide whether it applies, and a `<meta>`
-  or a title that a script adds names no set here.
+  as Obsidian's policy refuses a link, and its `<style>` elements without their imports, whose URLs
+  resolve as written. A titled stylesheet in a template's content is prepared, though a script that
+  puts it in the page itself would have its title decide whether it applies, and a `<meta>` or a
+  title that a script adds names no set here. A titled stylesheet inside `<noscript>`, which
+  preparing parses as elements, names the set there and in a frame with scripts off, but a frame
+  with scripts on reads `<noscript>` as text: there, the next title names the set, and with
+  `<noscript><link title="A"></noscript><link title="B">`, B's link stays a link that Obsidian's
+  policy refuses, where Chromium applies it. The review of #188 saw that on both hosts; it is #148's
+  first case ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
 - **Unreleased (#185):** which base a stylesheet resolves against follows where it stands in the
-  prepared tree, which is the order in which the HTML parser made its elements. Content that a
-  script adds, as from a template, resolves against the page's `<base>`, as when the script runs
-  once the page is parsed; a script before the `<base>` that adds it at once would resolve it
-  against the page. Images, media, frames, scripts, and the page's other references before a
-  `<base>` still resolve against it, where headless Chrome 158 resolves most against the page
-  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)). A `<style>` or a
-  `style` attribute before the `<base>` whose URLs would not fit in the text limit made absolute
-  keeps them as written, so in the frame they resolve against the `<base>`: no markup gives one
-  element a base of its own. With copying, their files still come from the page's folder.
+  prepared tree, which is taken for the order in which the HTML parser made its elements. It is not
+  always that order: the parser puts a `<base>` inside a `<table>` before the table, which it made
+  first, so Chromium resolves the table's `style` attribute against the page and the viewer against
+  the `<base>`; and it gives the first `<body>` the attributes of a second `<body>` tag after the
+  `<base>`, which Chromium resolves against the `<base>` and the viewer against the page. The review
+  of #188 measured both in Chrome 158 and on both hosts. Content that a script adds, as from a
+  template, resolves against the page's `<base>`, as when the script runs once the page is parsed; a
+  script before the `<base>` that adds it at once would resolve it against the page. Images, media,
+  frames, scripts, and the page's other references before a `<base>` still resolve against it, where
+  headless Chrome 158 resolves most against the page
+  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)). A `<style>` or a `style`
+  attribute before the `<base>` whose URLs would not fit in the text limit made absolute keeps them
+  as written, so in the frame they resolve against the `<base>`: no markup gives one element a base
+  of its own. With copying, their files still come from the page's folder.
+- **Unreleased (#185):** an element after the `<base>` that repeats one before it resolves against
+  the `<base>` in the copy, where Chromium can resolve it against the page: it reuses the attributes
+  that it parsed, with their parsed `style`, for an element with the same tag and the same
+  attributes in the same order. The review of #188 measured which folder the repeat's image came
+  from, in served pages and in the viewer on both hosts:
+
+  | After the `<base>`, compared with one before it | Chrome 158 | 1.15.1 (150) | 1.5.3 (114) | Viewer |
+  | ----------------------------------------------- | ---------- | ------------ | ----------- | ------ |
+  | Same tag, same attributes                       | page       | page         | page        | base   |
+  | The same, in a declarative shadow root          | page       | page         | page        | base   |
+  | Another tag, same attributes                    | base       | base         | page        | base   |
+  | Another attribute order, id, or spacing         | base       | base         | base        | base   |
+  | A `<style>` with the same text, no import       | base       | base         | page        | base   |
+  | A `<style>` with the same text and an import    | base       | base         | base        | base   |
+
+  A repeated stylesheet link loads from its own folder. The copy does not imitate this caching,
+  which is no rule that a page states and which Chromium 114 and 150 do differently;
+  `document.test.ts` tests the copy's own rule for a repeat, and its other tests of a late
+  `<base>` give each element attributes of its own
+  ([#191](https://github.com/viell-dev/slop-html-page-viewer/issues/191)).
+
 - **Unreleased (#179):** a string that reaches `image-set()` only through `var()`, as in
-  `--icon: "icon.png"` and `image-set(var(--icon) 1x)`, is not between that function's
-  parentheses in the stylesheet's text, so the copy keeps it as written, and copies nothing for
-  it; no test measures how Chromium resolves it. Whether Obsidian's Chromium supports `image()` and
+  `--icon: "icon.png"` and `image-set(var(--icon) 1x)`, is not between that function's parentheses
+  in the stylesheet's text, so the copy keeps it as written, and copies nothing for it. Chromium
+  resolves it against the stylesheet that declares the property: the review of #188 measured, in
+  Chrome 158 and on both hosts, that such a string in `css/set.css` loads `css/n8.png`, while the
+  viewer shows `n8.png` beside the page. Whether Obsidian's Chromium supports `image()` and
   `src()`, whose strings are URLs too, is checked only in the two tested versions, which support
   neither.
 - **Unreleased (#155):** closing a page's own stylesheet at its end can change what Chromium

@@ -926,8 +926,11 @@ function stylesheetBases(
   baseUrl: string,
 ): (element: Element) => string {
   if (base === null || baseUrl === pageUrl) return () => baseUrl;
-  // Tree order is the order in which the parser makes the elements, so what
-  // it made before the <base> is all that comes before it in that order.
+  // What comes before the <base> in tree order is taken for what the parser
+  // made before it. That holds apart from what the parser moves or completes
+  // later: the foster parenting of a table puts a <base> inside one before
+  // the table, which it made first, and a second <body> tag's attributes go
+  // on the first <body>, after the <base> before them (TESTING.md's limits).
   const before = new Set<Node>();
   const walker = doc.createTreeWalker(doc, NodeFilter.SHOW_ELEMENT);
   for (let node = walker.nextNode(); node !== null && node !== base; node = walker.nextNode())
@@ -999,8 +1002,7 @@ function prepareStyleAttributes(
     let replaced: string | null = null;
     if (base !== baseUrl) {
       const absolute = absoluteDeclarations(style, base, context, budget.room);
-      if (absolute === null) budget.refuse();
-      else if (budget.add(absolute.added)) replaced = absolute.text;
+      if (absolute !== null && budget.add(absolute.added)) replaced = absolute.text;
     }
     if (replaced === null && context.exists && context.locate)
       replaced = locateCssUrls(style, base, context);
@@ -1384,12 +1386,25 @@ function isStylesheetStyle(style: Element): boolean {
 }
 
 /**
+ * The titled stylesheets that apply in a template's content, whose titles do
+ * not decide (`inStylesheetSet`).
+ */
+const EVERY_SET = Symbol("every stylesheet set");
+
+/**
+ * Which titled stylesheets of a part of the page apply (`inStylesheetSet`):
+ * in the document, those of its preferred set, by the set's name
+ * (`preferredSet`), or none, null, when nothing names one; in a template's
+ * content, every one, `EVERY_SET`.
+ */
+type StylesheetSet = string | null | typeof EVERY_SET;
+
+/**
  * The `<style>` elements whose text is a stylesheet that Chromium applies
  * (`isStylesheetStyle`), in a document only those of the stylesheet set that
- * applies (`inStylesheetSet`, with `preferred` as there). The others stay as
- * the page has them.
+ * applies (`inStylesheetSet`). The others stay as the page has them.
  */
-function styleElements(root: ParentNode, preferred?: string | null): Element[] {
+function styleElements(root: ParentNode, preferred: StylesheetSet): Element[] {
   return [...root.querySelectorAll("style")].filter(
     (style) => isStylesheetStyle(style) && inStylesheetSet(style, preferred),
   );
@@ -1407,14 +1422,14 @@ function linkTypes(link: Element): string[] {
  * untitled stylesheet applies, and a titled one only with that name, also an
  * `alternate stylesheet` link, but an untitled alternate one never does. In a
  * shadow root, Chromium applies every stylesheet, whatever its title, but an
- * alternate link; so does the content of a template, which `preferred`
- * undefined stands for, as the content of most templates goes in shadow
- * roots. Headless Chrome 158 and Obsidian 1.5.3 and 1.15.1 apply them so.
+ * alternate link; so does the content of a template, for which `preferred` is
+ * `EVERY_SET`, as the content of most templates goes in shadow roots.
+ * Headless Chrome 158 and Obsidian 1.5.3 and 1.15.1 apply them so.
  */
-function inStylesheetSet(element: Element, preferred?: string | null): boolean {
+function inStylesheetSet(element: Element, preferred: StylesheetSet): boolean {
   const alternate = element.localName === "link" && linkTypes(element).includes("alternate");
   const title = element.getAttribute("title") ?? "";
-  if (preferred === undefined || title === "") return !alternate;
+  if (preferred === EVERY_SET || title === "") return !alternate;
   return title === preferred;
 }
 
@@ -1557,12 +1572,12 @@ function isStylesheetLink(element: Element): element is HTMLLinkElement {
 
 /**
  * The stylesheet links that Chromium applies (`isStylesheetLink`), in a
- * document only those of the stylesheet set that applies (`inStylesheetSet`,
- * with `preferred` as there). The others stay as the page has them, and are
- * not read: a script that switches to their set with scripts on gets no
- * stylesheet, as Obsidian's policy refuses a link.
+ * document only those of the stylesheet set that applies (`inStylesheetSet`).
+ * The others stay as the page has them, and are not read: a script that
+ * switches to their set with scripts on gets no stylesheet, as Obsidian's
+ * policy refuses a link.
  */
-function stylesheetLinks(root: ParentNode, preferred?: string | null): HTMLLinkElement[] {
+function stylesheetLinks(root: ParentNode, preferred: StylesheetSet): HTMLLinkElement[] {
   return [...root.querySelectorAll("link")].filter(
     (link) => isStylesheetLink(link) && inStylesheetSet(link, preferred),
   );
@@ -2126,11 +2141,11 @@ interface PageRoot {
   /** The base URL that each of its stylesheets resolves against (`stylesheetBases`). */
   readonly sheetBase: (element: Element) => string;
   /**
-   * The document's preferred stylesheet set (`preferredSet`), or undefined
+   * The document's preferred stylesheet set (`preferredSet`), or `EVERY_SET`
    * for a template's content, where titles do not decide which stylesheets
    * apply (`inStylesheetSet`).
    */
-  readonly preferred?: string | null;
+  readonly preferred: StylesheetSet;
 }
 
 /** Prepares the copy of a page that the rendered view shows. */
@@ -2164,7 +2179,8 @@ export async function preparePage(
   const ownStyles = hasOwnStyles(doc, preferred);
   const roots: PageRoot[] = [{ node: doc, sheetBase, preferred }];
   for (const { content } of found)
-    if (content.firstElementChild !== null) roots.push({ node: content, sheetBase });
+    if (content.firstElementChild !== null)
+      roots.push({ node: content, sheetBase, preferred: EVERY_SET });
   // The roots share the page's stylesheet limits, in their order, as they
   // share its copy limits.
   const budget = new StylesheetBudget(context);

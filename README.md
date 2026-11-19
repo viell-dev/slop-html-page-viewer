@@ -306,6 +306,15 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   and can be as long as that stylesheet
   ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
 
+- **Unreleased (#185):** an element after a page's late `<base>` that repeats one before it can
+  show its `style` attribute's images from the `<base>`'s folder, where Chromium shows them from
+  the page's. Chromium reuses what it parsed for an element with the same tag and the same
+  attributes in the same order, and so resolves the repeat against the page, also in shadow DOM.
+  Chromium 114, in Obsidian 1.5.3, also does this for another tag with the same attributes, and
+  for a `<style>` with the same text and no imports. The viewer resolves every element after the
+  `<base>` against it, and does not imitate this caching, which Chromium versions do differently
+  ([#191](https://github.com/viell-dev/slop-html-page-viewer/issues/191)).
+
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets
   still apply, and the **Local files with scripts on** setting copies the page's images, media, text

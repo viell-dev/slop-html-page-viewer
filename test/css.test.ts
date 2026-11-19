@@ -422,8 +422,10 @@ describe("the tokens that name resources (#179)", () => {
       'a { b: image("a.png"); c: src("b.png"); d: cross-fade("c.png", "d.png"); e: image-set ("e.png") }',
       // After the function's ")", and in a block inside it.
       'a { b: image-set(url(a.png) 1x) "b.png"; c: image-set(("c.png") [ "d.png" ] {"e.png"}) }',
-      // An at-keyword or a hash of that name is no function.
+      // An at-keyword or a hash of that name is no function, nor is a name
+      // before a block other than "(", as in the selectors of a custom element.
       '@image-set("a.png"); #image-set("b.png") {}',
+      'image-set{content:"a.png"} image-set[title="b.png"] {}',
       // A string that the end of the text left open, as a quoted url( there.
       'a { b: image-set("a.png',
     ])
