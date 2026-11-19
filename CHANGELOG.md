@@ -93,6 +93,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - On Obsidian 1.5.3, the split view's two sides stay in step after its tab moves to a new window,
   instead of ending a line or two apart once Obsidian's styles have arrived in the window. A source
   that the reader has scrolled by then stays at their line, and the page follows it (#165).
+- A page whose `<base>` comes after its images, video, audio, text tracks, frames, scripts, or SVG
+  `<use>` and `<image>` shows them from its own folder, as browsers do, instead of from the
+  `<base>`'s folder. With **Local files with scripts on**, their files are copied from there (#187).
 - A `<link>` whose `rel` joins `stylesheet` to another word with a no-break space or another space
   that HTML does not split on, which browsers do not load, no longer has its stylesheet read and
   applied. With **Local files with scripts on**, a file whose URL starts or ends with such a space,

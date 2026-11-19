@@ -186,6 +186,13 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   a URL attribute names with such a space at its start or end, or a `srcset` inside a URL, where
   0.6.0 copies the file of the name without it, or none. Each read and copy passes the same checks
   ([#192](https://github.com/viell-dev/slop-html-page-viewer/issues/192)).
+
+  **Unreleased (#187):** with **Local files with scripts on**, it copies the files that the page's
+  images, media, text tracks, and scripts before its `<base>` name from the page's folder, where
+  Chromium resolves them, instead of from the `<base>`'s, as it copies the files of stylesheets
+  there since #185. The same file types, limits, and vault-only paths apply
+  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with
 scripts off.

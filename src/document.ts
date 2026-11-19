@@ -769,12 +769,43 @@ const RESOURCE_ATTRIBUTES: Record<string, readonly string[]> = {
  */
 const SRCSET_URL = /(^|,)([\t\n\f\r ]*)([^\t\n\f\r ,][^\t\n\f\r ]*?)(?=,?(?:[\t\n\f\r ]|$))/g;
 
-/** Applies `locatedUrl` to each URL of a `srcset`, keeping its descriptors. */
-function locateSrcset(srcset: string, baseUrl: string, context: PageContext): string {
+/**
+ * A resource attribute's reference as the copy has it, or `written`, its
+ * text, which the copy's `<base>` then resolves. A reference that does not
+ * resolve as a path against `base`, the one that it resolves against
+ * (`parsedBases`), points at the file that Obsidian's link resolution finds
+ * for it (`locatedUrl`). Otherwise, where `base` is not the copy's `<base>`,
+ * `baseUrl`, and the two resolve it to different URLs, it is made absolute
+ * against `base`, as Chromium resolves it before a later `<base>`. An empty
+ * reference names nothing, and one of only a fragment names a part of the
+ * document itself, as an SVG `<use>`'s does: an absolute URL of the page
+ * would name another document than the copy.
+ */
+function preparedReference(
+  written: string,
+  base: string,
+  baseUrl: string,
+  context: PageContext,
+): string {
+  const reference = stripSpaces(written);
+  if (reference === "" || reference.startsWith("#")) return written;
+  const absolute = resolve(reference, base);
+  if (absolute === null) return written;
+  const located = locatedUrl(reference, absolute, context);
+  if (located !== null) return located;
+  return base !== baseUrl && absolute !== resolve(reference, baseUrl) ? absolute : written;
+}
+
+/** Applies `preparedReference` to each URL of a `srcset`, keeping its descriptors. */
+function preparedSrcset(
+  srcset: string,
+  base: string,
+  baseUrl: string,
+  context: PageContext,
+): string {
   return srcset.replace(SRCSET_URL, (whole, comma: string, space: string, url: string) => {
-    const absolute = resolve(url, baseUrl);
-    const located = absolute === null ? null : locatedUrl(url, absolute, context);
-    return located === null ? whole : `${comma}${space}${located}`;
+    const prepared = preparedReference(url, base, baseUrl, context);
+    return prepared === url ? whole : `${comma}${space}${prepared}`;
   });
 }
 
@@ -865,26 +896,40 @@ function addTooltips(root: ParentNode, baseUrl: string, context: PageContext): v
 }
 
 /**
- * Points the page's resource attributes that do not resolve as paths at the
- * files Obsidian's link resolution finds for them, as the previous fork did. A
- * reference that resolves, or that nothing matches, stays as written. The
- * `style` attributes are prepared with the stylesheets (`prepareStyleAttributes`).
+ * Prepares the resource attributes of a document or a template's content
+ * (`preparedReference`): those that do not resolve as paths point at the
+ * files that Obsidian's link resolution finds for them, as the previous fork
+ * did, and those before a later `<base>` are made absolute against the
+ * page's address (`parsedBases`), as Chromium resolves them (#187).
+ *
+ * In Obsidian 1.5.3 and 1.15.1, Chromium resolves an image's, a picture
+ * source's, an image input's, and a poster's URL, a frame's, a script's, and
+ * an SVG `<use>`'s, as it parses their element, so always before a later
+ * `<base>`. It resolves those of media and their sources, text tracks, SVG
+ * `<image>`, `<embed>`, and `<object>` when it starts to load them, soon
+ * after: against the page's address when it parses the `<base>` later, as it
+ * did in most measured pages, but against the `<base>` when it parses that
+ * first, as it did for some just before it (TESTING.md's limits). The copy
+ * takes the page's address for both. Its policy refuses `<embed>` and
+ * `<object>` anyway (`pagePolicy`). The `style` attributes are prepared with
+ * the stylesheets (`prepareStyleAttributes`).
  */
-function locateReferences(root: ParentNode, baseUrl: string, context: PageContext): void {
-  if (!context.exists || !context.locate) return;
+function prepareReferences(
+  root: ParentNode,
+  parsedBase: (element: Element) => string,
+  baseUrl: string,
+  context: PageContext,
+): void {
   for (const element of root.querySelectorAll(Object.keys(RESOURCE_ATTRIBUTES).join(", "))) {
+    const base = parsedBase(element);
     for (const name of RESOURCE_ATTRIBUTES[element.localName] ?? []) {
       const value = element.getAttribute(name);
       if (value === null) continue;
-      const reference = stripSpaces(value);
-      if (reference === "") continue;
-      if (name === "srcset") {
-        element.setAttribute(name, locateSrcset(value, baseUrl, context));
-        continue;
-      }
-      const absolute = resolve(reference, baseUrl);
-      const located = absolute === null ? null : locatedUrl(reference, absolute, context);
-      if (located !== null) element.setAttribute(name, located);
+      const prepared =
+        name === "srcset"
+          ? preparedSrcset(value, base, baseUrl, context)
+          : preparedReference(value, base, baseUrl, context);
+      if (prepared !== value) element.setAttribute(name, prepared);
     }
   }
 }
@@ -909,20 +954,22 @@ function documentBase(doc: Document, pageUrl: string): { url: string; element: E
 }
 
 /**
- * Which base URL each of the page's stylesheets resolves against (#185): a
- * `<style>`'s text and imports, a stylesheet link's `href`, and a `style`
- * attribute. Chromium resolves them as it parses each element, against the
- * base URL that applies then, and keeps what it resolved when a `<base>`
- * comes later. So those that it parses before the page's `<base>` resolve
- * against the page's own address: the elements before it in the document's
- * tree order, its ancestors among them, and those in the declarative shadow
- * roots of templates before it, also nested ones. The others, and the content
- * of any other template, which only a script can put in the page, resolve
- * against the document's base URL, as a script that runs once the page is
- * parsed puts them there. Links, which resolve when they are followed, and
- * the page's other references resolve against the document's base URL too.
+ * Which base URL each element of the page resolves what it names against,
+ * as Chromium parses it: its stylesheets (#185), a `<style>`'s text and
+ * imports, a stylesheet link's `href`, and a `style` attribute, and its
+ * resource attributes (#187, `prepareReferences`). Chromium resolves them as
+ * it parses each element, or soon after, against the base URL that applies
+ * then, and keeps what it resolved when a `<base>` comes later. So those that
+ * it parses before the page's `<base>` resolve against the page's own
+ * address: the elements before it in the document's tree order, its
+ * ancestors among them, and those in the declarative shadow roots of
+ * templates before it, also nested ones. The others, and the content of any
+ * other template, which only a script can put in the page, resolve against
+ * the document's base URL, as a script that runs once the page is parsed puts
+ * them there. Links, which resolve when they are followed, resolve against
+ * the document's base URL too.
  */
-function stylesheetBases(
+function parsedBases(
   doc: Document,
   found: readonly HTMLTemplateElement[],
   base: Element | null,
@@ -986,7 +1033,7 @@ function absoluteDeclarations(
 
 /**
  * Prepares the `style` attributes of a document or a template's content. One
- * that resolves against the copy's `<base>` (`stylesheetBases`) keeps its
+ * that resolves against the copy's `<base>` (`parsedBases`) keeps its
  * references as written, apart from those found by name. Any other gets them
  * absolute against its own base, and what that adds counts toward the text
  * limit, as for a `<style>`; when it would not fit, it keeps its references as
@@ -995,14 +1042,14 @@ function absoluteDeclarations(
  */
 function prepareStyleAttributes(
   root: ParentNode,
-  sheetBase: (element: Element) => string,
+  parsedBase: (element: Element) => string,
   baseUrl: string,
   context: PageContext,
   budget: StylesheetBudget,
 ): void {
   for (const element of root.querySelectorAll("[style]")) {
     const style = element.getAttribute("style") ?? "";
-    const base = sheetBase(element);
+    const base = parsedBase(element);
     let replaced: string | null = null;
     if (base !== baseUrl) {
       const absolute = absoluteDeclarations(style, base, context, budget.room);
@@ -1461,7 +1508,7 @@ function stripSpaces(value: string): string {
  * content of a `<meta http-equiv="Default-Style">` that is not empty, and the
  * title of a `<style>` (`isStylesheetStyle`) or of a stylesheet link that is
  * not an alternate one (`isStylesheetLink`), whose `href` is not blank and
- * resolves to a URL against the link's base (`sheetBase`), as `http://[x`
+ * resolves to a URL against the link's base (`parsedBase`), as `http://[x`
  * does not, and which has a title. Such a link names the set before it
  * loads, so also when its stylesheet is missing, or when the copy leaves it a
  * link that Obsidian's policy refuses. A later one, also a `<meta>`, changes
@@ -1469,7 +1516,7 @@ function stripSpaces(value: string): string {
  * nothing names a set: then only untitled stylesheets apply. Titles compare
  * exactly, their case and spaces included.
  */
-function preferredSet(doc: Document, sheetBase: (element: Element) => string): string | null {
+function preferredSet(doc: Document, parsedBase: (element: Element) => string): string | null {
   for (const element of doc.querySelectorAll("meta, style, link")) {
     let name = "";
     if (element.localName === "meta") {
@@ -1483,7 +1530,7 @@ function preferredSet(doc: Document, sheetBase: (element: Element) => string): s
       if (isStylesheetStyle(element)) name = element.getAttribute("title") ?? "";
     } else if (isStylesheetLink(element) && !linkTypes(element).includes("alternate")) {
       const href = stripSpaces(element.getAttribute("href") ?? "");
-      if (href !== "" && resolve(href, sheetBase(element)) !== null)
+      if (href !== "" && resolve(href, parsedBase(element)) !== null)
         name = element.getAttribute("title") ?? "";
     }
     if (name !== "") return name;
@@ -1608,11 +1655,11 @@ function stylesheetLinks(root: ParentNode, preferred: StylesheetSet): HTMLLinkEl
  * (`styleElements`, `stylesheetLinks`), each closed at its end as CSS closes
  * it. Links and imports past the page's limits stay as they are. Then come
  * its `style` attributes (`prepareStyleAttributes`). Each element's
- * stylesheet resolves against its own base (`PageRoot.sheetBase`), and
+ * stylesheet resolves against its own base (`PageRoot.parsedBase`), and
  * `baseUrl` is the copy's `<base>`.
  */
 async function inlineStylesheets(
-  { node: root, sheetBase, preferred }: PageRoot,
+  { node: root, parsedBase, preferred }: PageRoot,
   baseUrl: string,
   context: PageContext,
   budget: StylesheetBudget,
@@ -1623,7 +1670,7 @@ async function inlineStylesheets(
   const originalStyles = styleElements(root, preferred);
   for (const link of stylesheetLinks(root, preferred)) {
     const href = link.getAttribute("href") ?? "";
-    const resolved = resolve(href, sheetBase(link));
+    const resolved = resolve(href, parsedBase(link));
     const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
     const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
     if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
@@ -1652,7 +1699,7 @@ async function inlineStylesheets(
     // page's <base> comes after it (#185), its URLs are made absolute against
     // its own base, and what that adds counts too, as for a stylesheet file.
     // When that would not fit, its imports and URLs all stay as written.
-    const base = sheetBase(style);
+    const base = parsedBase(style);
     const absolute = base !== baseUrl;
     const inlined =
       absolute || cssImports(css, tokens).length > 0
@@ -1676,7 +1723,7 @@ async function inlineStylesheets(
     // Escaped before comparing, so that a style whose text needs only the escape is written too.
     if (text !== own) setStyleText(style, text);
   }
-  prepareStyleAttributes(root, sheetBase, baseUrl, context, budget);
+  prepareStyleAttributes(root, parsedBase, baseUrl, context, budget);
 }
 
 /**
@@ -1954,11 +2001,13 @@ async function visitSrcset(srcset: string, baseUrl: string, visit: Visit): Promi
  * Visits the references to files that a page's images, media, fonts, and
  * scripts load, in document order: their attributes, then `<style>` elements
  * and `style` attributes, which resolve against their own base
- * (`PageRoot.sheetBase`), of the `<style>` elements that apply only. A
- * reference that `visit` gives a URL for gets it.
+ * (`PageRoot.parsedBase`), of the `<style>` elements that apply only. The
+ * attributes resolve against the copy's `<base>`: preparing made absolute
+ * those that resolve otherwise before a later `<base>` (`prepareReferences`).
+ * A reference that `visit` gives a URL for gets it.
  */
 async function visitFileReferences(
-  { node: root, sheetBase, preferred }: PageRoot,
+  { node: root, parsedBase, preferred }: PageRoot,
   baseUrl: string,
   visit: Visit,
   scans: Map<string, readonly CssToken[]>,
@@ -1991,12 +2040,12 @@ async function visitFileReferences(
   }
   for (const style of styleElements(root, preferred)) {
     const css = styleText(style);
-    const replaced = await visitCssUrls(css, sheetBase(style), visit, urls(css));
+    const replaced = await visitCssUrls(css, parsedBase(style), visit, urls(css));
     if (replaced !== css) setStyleText(style, replaced);
   }
   for (const element of root.querySelectorAll("[style]")) {
     const css = element.getAttribute("style") ?? "";
-    const replaced = await visitCssUrls(css, sheetBase(element), visit, urls(css));
+    const replaced = await visitCssUrls(css, parsedBase(element), visit, urls(css));
     if (replaced !== css) element.setAttribute("style", replaced);
   }
 }
@@ -2157,8 +2206,11 @@ function hasOwnStyles(doc: Document, preferred: string | null): boolean {
  */
 interface PageRoot {
   readonly node: ParentNode;
-  /** The base URL that each of its stylesheets resolves against (`stylesheetBases`). */
-  readonly sheetBase: (element: Element) => string;
+  /**
+   * The base URL that each of its elements resolves what it names against as
+   * it is parsed (`parsedBases`).
+   */
+  readonly parsedBase: (element: Element) => string;
   /**
    * The document's preferred stylesheet set (`preferredSet`), or `EVERY_SET`
    * for a template's content, where titles do not decide which stylesheets
@@ -2188,23 +2240,23 @@ export async function preparePage(
   // document's base, as the frame resolves them. Content without elements has
   // nothing to prepare.
   const found = templates(doc);
-  // The stylesheets that Chromium parses before a <base> resolve against the
-  // page's address instead.
-  const sheetBase = stylesheetBases(doc, found, base.element, context.pageUrl, baseUrl);
+  // The stylesheets and resource attributes that Chromium parses before a
+  // <base> resolve against the page's address instead.
+  const parsedBase = parsedBases(doc, found, base.element, context.pageUrl, baseUrl);
   // Which of the document's titled stylesheets apply, as preparing leaves its
   // titles and the elements that name its set where they are. Nothing above
   // changes the document.
-  const preferred = preferredSet(doc, sheetBase);
+  const preferred = preferredSet(doc, parsedBase);
   const ownStyles = hasOwnStyles(doc, preferred);
-  const roots: PageRoot[] = [{ node: doc, sheetBase, preferred }];
+  const roots: PageRoot[] = [{ node: doc, parsedBase, preferred }];
   for (const { content } of found)
     if (content.firstElementChild !== null)
-      roots.push({ node: content, sheetBase, preferred: EVERY_SET });
+      roots.push({ node: content, parsedBase, preferred: EVERY_SET });
   // The roots share the page's stylesheet limits, in their order, as they
   // share its copy limits.
   const budget = new StylesheetBudget(context);
   for (const root of roots) {
-    locateReferences(root.node, baseUrl, context);
+    prepareReferences(root.node, root.parsedBase, baseUrl, context);
     addTooltips(root.node, baseUrl, context);
     await inlineStylesheets(root, baseUrl, context, budget);
   }

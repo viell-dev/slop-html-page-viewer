@@ -1576,6 +1576,262 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with a <base> after the page's images, media, frames, and scripts (#187)", function () {
+    // Each element names a file of its own in "Late res/": green, or the
+    // word "page", beside the page, and blue, or "base", in the folder of the
+    // page's <base>, which comes after them, also after a declarative shadow
+    // root. After it come a repeat of the first image, which Chromium
+    // resolves anew against the <base>, an SVG <image>, and a template's
+    // image, which the page's script adds. Chromium resolves media, their
+    // sources, text tracks, and SVG <image> when it starts to load them, soon
+    // after it parses them: the served page's script, just before the <base>,
+    // arrives late, so that Chromium has resolved them before it parses the
+    // <base>, as in most measured pages (TESTING.md's limits).
+    const res = "Late res";
+    const image = (name: string) => `<img src="${res}/${name}.png" width="64" height="64">`;
+    const svgImages = (first: string, second: string) =>
+      `<svg width="128" height="64"><image href="${res}/${first}.png" width="64" height="64"/>` +
+      `<image xlink:href="${res}/${second}.png" x="64" width="64" height="64"/></svg>`;
+    const elements = [
+      `<style>body { margin: 0 } img, input, video { vertical-align: top; margin: 0; border: 0 }</style>`,
+      image("repeat"),
+      // Unescaped, a srcset's space would end its URL.
+      `<img srcset="Late%20res/srcset.png 1x" width="64" height="64">`,
+      `<picture><source srcset="Late%20res/source.png"><img width="64" height="64"></picture>`,
+      `<input type="image" src="${res}/input.png" width="64" height="64">`,
+      `<video id="poster" poster="${res}/poster.png" width="64" height="64"></video>`,
+      `<video id="video" src="${res}/video.webm" width="1" height="1"></video>`,
+      `<video id="vsource" width="1" height="1"><source src="${res}/vsource.webm">`,
+      `<track id="track" default kind="subtitles" src="${res}/track.vtt"></video>`,
+      `<audio id="audio" src="${res}/audio.wav"></audio>`,
+      `<iframe id="frame" src="${res}/frame.html" width="1" height="1"></iframe>`,
+      `<svg width="0" height="0" style="position: absolute"><use id="use" href="${res}/use.svg#s"/>`,
+      `<use id="xuse" xlink:href="${res}/xuse.svg#s"/></svg>`,
+      svgImages("image", "ximage"),
+      `<div id="host"><template shadowrootmode="open">${image("shadow")}`,
+      `<video src="${res}/shadow.webm" width="1" height="1"></video></template></div>`,
+      `<template id="later">${image("later")}</template>`,
+      `<script src="${res}/script.js"></script>`,
+      `<base href="Late attributes/">`,
+      image("repeat"),
+      svgImages("afterimage", "afterximage"),
+      `<script>document.body.append(document.getElementById("later").content.cloneNode(true));</script>`,
+    ];
+    /** The files that the elements before the <base> name, which Chromium resolves against the page. */
+    const BEFORE = [
+      ...["srcset.png", "source.png", "input.png", "poster.png", "video.webm", "vsource.webm"],
+      ...["track.vtt", "audio.wav", "frame.html", "use.svg", "xuse.svg", "image.png"],
+      ...["ximage.png", "shadow.png", "shadow.webm", "script.js"],
+    ];
+    const files: Record<string, string | Buffer> = {
+      "Saved/Late attributes.html": elements.join("\n"),
+    };
+    for (const [folder, color, word] of [
+      [`Saved/${res}`, GREEN, "page"],
+      [`Saved/Late attributes/${res}`, BLUE, "base"],
+    ] as const) {
+      const hex = `#${color.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+      for (const name of [
+        ...["repeat", "srcset", "source", "input", "poster", "shadow", "later"],
+        ...["image", "ximage", "afterimage", "afterximage"],
+      ])
+        files[`${folder}/${name}.png`] = solidPng(64, color);
+      for (const name of ["use", "xuse"])
+        files[`${folder}/${name}.svg`] =
+          `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="s"><rect width="8" height="8" fill="${hex}"/></symbol></svg>`;
+      for (const name of ["video.webm", "vsource.webm", "shadow.webm", "audio.wav"])
+        files[`${folder}/${name}`] = word;
+      files[`${folder}/track.vtt`] = `WEBVTT\n\n00:00.000 --> 01:00.000\n${word}\n`;
+      files[`${folder}/frame.html`] = `<p>${word}</p>`;
+      files[`${folder}/script.js`] = `window.lateScript = "${word}";`;
+    }
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths([
+        "Saved/Late attributes.html",
+        `Saved/${res}`,
+        "Saved/Late attributes",
+      ]);
+    });
+
+    /** "page" or "base" for a URL of a file in either folder, or the URL. */
+    function folderOf(url: string): string {
+      const path = decodeURIComponent(url);
+      return path.includes("/Late attributes/Late res/")
+        ? "base"
+        : path.includes("/Late res/")
+          ? "page"
+          : url;
+    }
+
+    /** Waits in the current frame until its text track has loaded, or failed to. */
+    async function trackLoaded(): Promise<void> {
+      await browser.waitUntil(
+        () =>
+          browser.execute(
+            () => (document.getElementById("track") as HTMLTrackElement).readyState >= 2,
+          ),
+        { timeout: 10_000, timeoutMsg: "the text track did not load" },
+      );
+    }
+
+    it("is measured against what Chromium resolves in the same page outside Obsidian", async function () {
+      const requests: string[] = [];
+      const shown = await inServedPage(
+        files,
+        "Saved/Late attributes.html",
+        async () => {
+          await trackLoaded();
+          return browser.execute(() => {
+            const repeats = document.querySelectorAll<HTMLImageElement>('img[src$="repeat.png"]');
+            const track = document.getElementById("track") as HTMLTrackElement;
+            const frame = document.getElementById("frame") as HTMLIFrameElement;
+            return {
+              repeat: [...repeats].map((repeat) => repeat.currentSrc),
+              track: (track.track.cues?.[0] as VTTCue | undefined)?.text ?? null,
+              frame: frame.contentDocument?.body.textContent ?? null,
+              script: (window as { lateScript?: string }).lateScript ?? null,
+            };
+          });
+        },
+        { requests, delayed: [`Saved/${res}/script.js`] },
+      );
+      // The folders that the requests for each file name.
+      const requested: Record<string, string[]> = {};
+      for (const request of requests) {
+        if (!request.includes(`/${res}/`)) continue;
+        const name = request.split("/").at(-1)!;
+        requested[name] = [...new Set([...(requested[name] ?? []), folderOf(request)])].sort();
+      }
+      expect({
+        before: Object.fromEntries(BEFORE.map((name) => [name, requested[name]])),
+        after: ["later.png", "afterimage.png", "afterximage.png"].map((name) => requested[name]),
+        repeat: shown.repeat.map(folderOf),
+        track: shown.track,
+        frame: shown.frame,
+        script: shown.script,
+      }).toEqual({
+        before: Object.fromEntries(BEFORE.map((name) => [name, ["page"]])),
+        after: [["base"], ["base"], ["base"]],
+        repeat: ["page", "base"],
+        track: "page",
+        frame: "page",
+        script: "page",
+      });
+    });
+
+    /**
+     * Where each element's URL leads in the viewer's copy, whose own <base>
+     * comes first. Run inside the frame.
+     */
+    function resolved() {
+      const at = (selector: string) =>
+        document.querySelector(selector) as HTMLElement & Record<string, string>;
+      const url = (value: string | null) => new URL(value ?? "", document.baseURI).href;
+      const xlink = "http://www.w3.org/1999/xlink";
+      const shadow = document.getElementById("host")!.shadowRoot!;
+      const repeats = document.querySelectorAll<HTMLImageElement>('img[src$="repeat.png"]');
+      return {
+        repeat: [...repeats].map((repeat) => repeat.currentSrc),
+        srcset: at("img[srcset]").currentSrc,
+        source: at("picture img").currentSrc,
+        input: at("input").src,
+        poster: at("#poster").poster,
+        video: at("#video").currentSrc,
+        vsource: at("#vsource").currentSrc,
+        track: at("#track").src,
+        audio: at("#audio").currentSrc,
+        frame: at("#frame").src,
+        script: at("script[src]").src,
+        use: url(at("#use").getAttribute("href")),
+        xuse: url(at("#xuse").getAttributeNS(xlink, "href")),
+        images: [...document.querySelectorAll("svg image")].map((image) =>
+          url(image.getAttribute("href") ?? image.getAttributeNS(xlink, "href")),
+        ),
+        shadow: (shadow.querySelector("img") as HTMLImageElement).currentSrc,
+        shadowvideo: (shadow.querySelector("video") as HTMLVideoElement).currentSrc,
+      };
+    }
+
+    it("resolves the ones before it against the page, and the others against it", async function () {
+      await openInActiveTab("Saved/Late attributes.html");
+      await waitForPage();
+      await saveScreenshot("late-attributes");
+      const shown = await inViewerFrame(() => browser.execute(resolved));
+      const folders = Object.fromEntries(
+        Object.entries(shown).map(([name, value]) => [
+          name,
+          Array.isArray(value) ? value.map(folderOf) : folderOf(value),
+        ]),
+      );
+      expect(folders).toEqual({
+        repeat: ["page", "base"],
+        ...Object.fromEntries(
+          [
+            ...["srcset", "source", "input", "poster", "video", "vsource", "track", "audio"],
+            ...["frame", "script", "use", "xuse", "shadow", "shadowvideo"],
+          ].map((name) => [name, "page"]),
+        ),
+        images: ["page", "page", "base", "base"],
+      });
+      // The images that load with scripts off: the first, the srcset's, the
+      // picture's, the input's, the SVG ones, and the shadow root's from
+      // beside the page; the repeat and the SVG ones after the <base> from
+      // its folder.
+      expect({
+        green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
+        blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+      }).toEqual({ green: 7, blue: 3 });
+    });
+
+    it("copies the files that each resolves to into a page with scripts on, also in a template's content", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Late attributes.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("late-attributes-scripts-on");
+        const copied = await inViewerFrame(async () => {
+          await trackLoaded();
+          return browser.execute(() => {
+            const word = (url: string) => (url.startsWith("data:") ? atob(url.split(",")[1]) : url);
+            const shadow = document.getElementById("host")!.shadowRoot!;
+            const media = [
+              ...document.querySelectorAll("video[src], video source, audio"),
+              ...shadow.querySelectorAll("video"),
+            ].map((element) => word((element as HTMLMediaElement | HTMLSourceElement).src));
+            const track = document.getElementById("track") as HTMLTrackElement;
+            return {
+              media,
+              track: (track.track.cues?.[0] as VTTCue | undefined)?.text ?? null,
+              script: (window as { lateScript?: string }).lateScript ?? null,
+            };
+          });
+        });
+        expect({
+          ...copied,
+          // The repeat, the SVG images after the <base>, and the template's
+          // image, which the script adds, come from the <base>'s folder.
+          green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
+          blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+        }).toEqual({
+          media: ["page", "page", "page", "page"],
+          track: "page",
+          script: "page",
+          green: 8,
+          blue: 4,
+        });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   describe("with links and URL attributes that hold other spaces than HTML's (#192)", function () {
     // HTML splits a link's rel and a srcset, and strips a URL attribute, on
     // ASCII whitespace only. Each square has a stylesheet of its own, linked
@@ -2025,12 +2281,16 @@ const SERVED_TYPES: Readonly<Record<string, string>> = {
  * Chromium then shows the page as a browser does, with neither the plugin nor
  * the policy of Obsidian's that a `srcdoc` frame inherits between them, which
  * allows only inline styles. A vault page cannot show this: Obsidian serves
- * vault files only to its own origin (#147).
+ * vault files only to its own origin (#147). `requests` gets the vault path
+ * that each request names, in order. The files that `delayed` names are
+ * served 0.3 s late, as over a slow network: the parser waits for a script
+ * among them.
  */
 async function inServedPage<T>(
   files: Record<string, string | Buffer>,
   page: string,
   read: () => Promise<T>,
+  { requests = [], delayed = [] }: { requests?: string[]; delayed?: readonly string[] } = {},
 ): Promise<T> {
   const server = http.createServer((request, response) => {
     let name = "";
@@ -2039,12 +2299,17 @@ async function inServedPage<T>(
     } catch {
       // A malformed request names no file.
     }
+    requests.push(name);
     const body = Object.hasOwn(files, name) ? files[name] : undefined;
-    response.writeHead(body === undefined ? 404 : 200, {
-      "Content-Type": SERVED_TYPES[path.extname(name).slice(1)] ?? "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-    });
-    response.end(body ?? "");
+    const send = () => {
+      response.writeHead(body === undefined ? 404 : 200, {
+        "Content-Type": SERVED_TYPES[path.extname(name).slice(1)] ?? "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      response.end(body ?? "");
+    };
+    if (delayed.includes(name)) setTimeout(send, 300);
+    else send();
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {

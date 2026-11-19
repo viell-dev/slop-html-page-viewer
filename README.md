@@ -137,8 +137,19 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   past them, such a stylesheet keeps its URLs as written, which then resolve against the `<base>`,
   though with **Local files with scripts on** their files are still copied from the page's folder. A
   `<base>` that Chromium ignores, one inside SVG and one with a `data:` or `javascript:` URL, no
-  longer moves the page's files. Images, media, and the page's other references before a `<base>`
-  still resolve against it ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+  longer moves the page's files
+  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
+
+  **Unreleased (#187):** so do the page's other references before its `<base>`: images, also those
+  of a `srcset` and a `<picture>`, image inputs, video posters, video and audio and their sources,
+  text tracks, frames, scripts, and SVG `<use>` and `<image>`, also in shadow DOM. The viewer makes
+  their URLs absolute against the page's own address, and with **Local files with scripts on**
+  copies their files from the page's folder. Chromium resolves media, their sources, text tracks,
+  and SVG `<image>` a moment after it reads them, so in a browser those just before a `<base>` can
+  come from its folder instead; see [Limits](#limits). What making these URLs absolute adds to the
+  copy does not count toward the page's limits on stylesheets: each grows by about the length of
+  the page folder's address, so the copy grows with the page's own markup, as with references
+  found by name ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
@@ -338,6 +349,12 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   `<base>` against it, and does not imitate this caching, which Chromium versions do differently
   ([#191](https://github.com/viell-dev/slop-html-page-viewer/issues/191)).
 
+- **Unreleased (#187):** media, their sources, text tracks, and SVG `<image>` before a page's late
+  `<base>` come from the page's folder in the viewer. Chromium resolves their URLs when it starts
+  to load them, a moment after it reads them: against the page's address when it reads the `<base>`
+  later, but against the `<base>` when it reads that first, as it can when the `<base>` follows
+  them closely. The viewer cannot tell which a browser would do
+  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets
   still apply, and the **Local files with scripts on** setting copies the page's images, media, text

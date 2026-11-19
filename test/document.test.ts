@@ -2523,6 +2523,176 @@ describe("a <base> after the page's stylesheets (#185)", () => {
   });
 });
 
+describe("a <base> after the page's resource attributes (#187)", () => {
+  // As Obsidian 1.5.3 and 1.15.1 resolve them, and resources.e2e.ts checks:
+  // Chromium resolves resource attributes as it parses their element, or
+  // soon after, so that those before a later <base> resolve against the
+  // page's address, also in a declarative shadow root (TESTING.md's limits
+  // say when the ones that it resolves later do not).
+  const page = `${VAULT}Saved/`;
+  /** An element of each kind that names a resource, with files of its own. */
+  const tree = (id: string) =>
+    [
+      `<img src="r/${id}-img.png" srcset="r/${id}-a.png 1x, r/${id}-b.png 2x">`,
+      `<picture><source srcset="r/${id}-source.png"><img></picture>`,
+      `<video src="r/${id}-video.webm" poster="r/${id}-poster.png">`,
+      `<source src="r/${id}-vsource.webm"><track src="r/${id}-track.vtt"></video>`,
+      `<audio src="r/${id}-audio.wav"></audio><input type="image" src="r/${id}-input.png">`,
+      `<iframe src="r/${id}-frame.html"></iframe><script src="r/${id}-script.js"></script>`,
+      `<svg><use href="r/${id}-use.svg#s"/><use xlink:href="r/${id}-xuse.svg#s"/>`,
+      `<image href="r/${id}-image.png"/><image xlink:href="r/${id}-ximage.png"/></svg>`,
+      `<embed src="r/${id}-embed.svg"><object data="r/${id}-object.svg"></object>`,
+    ].join("");
+  const html = [
+    tree("doc"),
+    `<div><template shadowrootmode="open">${tree("shadow")}</template></div>`,
+    `<template id="later">${tree("later")}</template>`,
+    `<base href="sub/">`,
+    tree("after"),
+    `<div><template shadowrootmode="open">${tree("shadowafter")}</template></div>`,
+  ].join("");
+
+  /** The attributes of a root that name a `tree`'s files, by element and attribute. */
+  function references(root: ParentNode, id: string): Record<string, string> {
+    const found: Record<string, string> = {};
+    for (const element of root.querySelectorAll("*"))
+      for (const { name, value } of element.attributes)
+        if (value.includes(`r/${id}-`)) found[`${element.localName} ${name}`] = value;
+    return found;
+  }
+
+  /** What the copy makes of a `tree`'s attributes: made absolute against the page, or as written. */
+  function expected(id: string, absolute: boolean): Record<string, string> {
+    const url = (name: string) => `${absolute ? page : ""}r/${id}-${name}`;
+    return {
+      "img src": url("img.png"),
+      "img srcset": `${url("a.png")} 1x, ${url("b.png")} 2x`,
+      "source srcset": url("source.png"),
+      "video src": url("video.webm"),
+      "video poster": url("poster.png"),
+      "source src": url("vsource.webm"),
+      "track src": url("track.vtt"),
+      "audio src": url("audio.wav"),
+      "input src": url("input.png"),
+      "iframe src": url("frame.html"),
+      "script src": url("script.js"),
+      "use href": url("use.svg#s"),
+      "use xlink:href": url("xuse.svg#s"),
+      "image href": url("image.png"),
+      "image xlink:href": url("ximage.png"),
+      "embed src": url("embed.svg"),
+      "object data": url("object.svg"),
+    };
+  }
+
+  it("makes absolute against the page those that Chromium resolves before it", async () => {
+    const copy = parse(await prepare(html, context({})));
+    const [shadow, later, shadowAfter] = [...copy.querySelectorAll("template")].map(
+      (template) => template.content,
+    );
+    assert.deepEqual(
+      {
+        doc: references(copy, "doc"),
+        shadow: references(shadow, "shadow"),
+        later: references(later, "later"),
+        after: references(copy, "after"),
+        shadowafter: references(shadowAfter, "shadowafter"),
+      },
+      {
+        doc: expected("doc", true),
+        shadow: expected("shadow", true),
+        later: expected("later", false),
+        after: expected("after", false),
+        shadowafter: expected("shadowafter", false),
+      },
+    );
+  });
+
+  it("copies the files that each resolves to into a page with scripts on", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    await prepare(html, context({}), { copyFiles });
+    const names = [
+      ...["img.png", "a.png", "b.png", "source.png", "video.webm", "poster.png"],
+      ...["vsource.webm", "track.vtt", "audio.wav", "input.png", "script.js"],
+      ...["image.png", "ximage.png"],
+    ];
+    const files = (id: string, folder: string) =>
+      names.map((name) => `Saved/${folder}r/${id}-${name}`);
+    assert.deepEqual(
+      [...new Set(copies)].sort(),
+      [
+        ...["doc", "shadow"].flatMap((id) => files(id, "")),
+        ...["later", "after", "shadowafter"].flatMap((id) => files(id, "sub/")),
+      ].sort(),
+    );
+  });
+
+  it("finds by name a reference before it that does not resolve as a path against the page", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: (path) => path === "Saved/r/here.png" || path === "Saved/sub/r/there.png",
+      locate: (linktext) => (linktext.endsWith(".png") ? `Found/${linktext}` : null),
+    };
+    const copy = parse(
+      await prepare(
+        `<img src="r/here.png"><img srcset="r/there.png 2x"><base href="sub/"><img src="r/there.png">`,
+        ctx,
+      ),
+    );
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src") ?? image.getAttribute("srcset")),
+      [`${page}r/here.png`, `${VAULT}Found/r/there.png 2x`, "r/there.png"],
+    );
+  });
+
+  it("keeps as written a reference that the page and the <base> resolve alike, or names no file", async () => {
+    const kept = [
+      "/root.png",
+      "https://example.com/web.png",
+      "data:image/png;base64,AQ==",
+      "#fragment",
+      "",
+      "  ",
+    ];
+    const images = kept.map((src) => `<img src="${src}">`).join("");
+    const copy = parse(
+      await prepare(
+        `${images}<svg><use href="#s"/></svg><img src="?query"><base href="sub/">`,
+        context({}),
+      ),
+    );
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src")),
+      [...kept, `${page}Example%20article.html?query`],
+    );
+    assert.equal(copy.querySelector("use")!.getAttribute("href"), "#s");
+    // A <base> of another origin resolves a path from its root elsewhere.
+    const other = parse(
+      await prepare(`<img src="/root.png"><base href="https://example.com/">`, context({})),
+    );
+    assert.equal(other.images[0].getAttribute("src"), "app://vault-id/root.png");
+  });
+
+  it("resolves an element after it against it, also one that repeats an element before it", async () => {
+    // Chromium resolves a resource attribute anew for each element, unlike
+    // the style attribute that it can reuse (#191).
+    const copy = parse(
+      await prepare(`<img src="r/1.png"><base href="sub/"><img src="r/1.png">`, context({})),
+    );
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src")),
+      [`${page}r/1.png`, "r/1.png"],
+    );
+  });
+});
+
 describe("stylesheet sets (#169)", () => {
   // As headless Chrome 158 and Obsidian 1.5.3 and 1.15.1 apply them, and
   // resources.e2e.ts checks: in a document, untitled stylesheets and those of

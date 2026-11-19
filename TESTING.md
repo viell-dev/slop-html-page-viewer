@@ -198,6 +198,33 @@ the page's script adds. Two more pages, whose `<base>` is inside SVG, with a red
 in its folder, or has a `data:` URL, show their square from their own folder. Chromium shows the
 same pages, served outside Obsidian, alike.
 
+**Unreleased (#187):** `document.test.ts` checks a page with an element of each kind that names a
+resource, an image with `src` and `srcset`, a `<picture>` source, a video with `src`, `poster`, a
+source, and a track, audio, an image input, a frame, a script, SVG `<use>` and `<image>` by `href`
+and `xlink:href`, `<embed>`, and `<object>`, before a later `<base>`, in a declarative shadow root
+before it, in a template's content, after it, and in a shadow root after it. Those before it, in the
+document and the shadow root, get their URLs absolute against the page's folder, each URL of a
+`srcset` too; the others keep their text, for the copy's `<base>`. With copying, each copies its
+files from its own base's folder. A reference before it that does not resolve as a path against the
+page is found by name, and one after it that resolves there stays as written. A path from the root,
+a URL of the web or of `data:`, a fragment, also an SVG `<use>`'s, and an empty or blank value stay
+as written, as the page and the `<base>` resolve them alike or they name no file, but a query alone
+is made absolute, and a path from the root is too before a `<base>` of another origin. An image
+after the `<base>` that repeats one before it resolves against the `<base>`. `resources.e2e.ts`
+checks in Obsidian 1.5.3 and the latest a page whose `<base>` comes after an element of each of
+those kinds but `<embed>` and `<object>`, a shadow root, and a script that the served page delays,
+followed by a repeat of the first image, two SVG images, and a template's image that the page's
+script adds. Each names a file of its own, green beside the page and blue in the `<base>`'s folder.
+The served page requests each file of the elements before the `<base>` from the page's folder and
+the others from the `<base>`'s, and loads the track's, the frame's, and the script's from the
+page's. With scripts off, the viewer's copy resolves the URLs of those before it to the page's
+folder and of the others to the `<base>`'s, and shows seven green images and three blue ones; with
+scripts on and files copied, the copied media, the track's cue, and the script are the page
+folder's, with eight green images and four blue ones. `document.stress.ts` makes the 100,000 URLs of
+50,000 images and their `srcset` absolute before a `<base>`, in a folder of 1,000 characters, which
+makes the copy about 60 times as long as the page: in jsdom on Windows 11, that took 4.3 to 4.9 s,
+where `main` at `c853231` prepared the same page in 3.7 s.
+
 **Unreleased (#154):** beside the eight-file depth limit, `document.test.ts` checks the page's
 stylesheet limits: at most 1,000 links and imports followed, and 16 million characters of the
 stylesheets' text, shared by the page's links and imports in the document and in shadow roots.
@@ -1027,6 +1054,23 @@ The review of #188 found five more changes that passed every test; each now fail
 - Giving room back for a rewrite that shortens a `style` attribute, or rewriting the whole of one
   before comparing it with the room: the test of shortening and of the room, by its lookups.
 
+**Unreleased (#187):** On 2026-11-19, the preparation of `main` at `c853231` failed all five new
+tests of resource attributes before a later `<base>` in `document.test.ts`. It also failed both
+viewer tests of such attributes in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where the
+served page showed what the tests expect: the copy resolved every element before the `<base>` to
+the `<base>`'s folder, and with scripts on and files copied it showed twelve blue images and no
+green one, with the media, the track's cue, and the script from that folder. Each of these
+breakages failed the check named in `document.test.ts`:
+
+- Resolving every resource attribute against the copy's `<base>`: all five tests.
+- Taking no shadow root's elements for ones before the `<base>`: the tests of every kind and of
+  copying.
+- Leaving a `srcset`'s URLs as written: the tests of every kind, of copying, and of finding by name.
+- Making a fragment absolute, or a reference that the page and the `<base>` resolve alike: the test
+  of what stays as written.
+- Leaving `<embed>`, `<object>`, and SVG `<image>` to the copy's `<base>`, as Chrome 158's table in
+  the issue suggested: the tests of every kind and of copying.
+
 **Unreleased (#169):** On 2026-11-19, the preparation of `main` at `bcaaec5` failed all four new
 tests of stylesheet sets in `document.test.ts`, and both viewer tests of sets in
 `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where both served pages showed what the tests
@@ -1162,13 +1206,11 @@ starts left neither test a step after it, and the screenshot was taken.
   `<base>`, which Chromium resolves against the `<base>` and the viewer against the page. The review
   of #188 measured both in Chrome 158 and on both hosts. Content that a script adds, as from a
   template, resolves against the page's `<base>`, as when the script runs once the page is parsed; a
-  script before the `<base>` that adds it at once would resolve it against the page. Images, media,
-  frames, scripts, and the page's other references before a `<base>` still resolve against it, where
-  headless Chrome 158 resolves most against the page
-  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)). A `<style>` or a `style`
-  attribute before the `<base>` whose URLs would not fit in the text limit made absolute keeps them
-  as written, so in the frame they resolve against the `<base>`: no markup gives one element a base
-  of its own. With copying, their files still come from the page's folder.
+  script before the `<base>` that adds it at once would resolve it against the page.
+  **Unreleased (#187):** the same holds for the page's resource attributes. A `<style>` or a
+  `style` attribute before the `<base>` whose URLs would not fit in the text limit made absolute
+  keeps them as written, so in the frame they resolve against the `<base>`: no markup gives one
+  element a base of its own. With copying, their files still come from the page's folder.
 - **Unreleased (#185):** an element after the `<base>` that repeats one before it resolves against
   the `<base>` in the copy, where Chromium can resolve it against the page: it reuses the attributes
   that it parsed, with their parsed `style`, for an element with the same tag and the same
@@ -1189,6 +1231,28 @@ starts left neither test a step after it, and the screenshot was taken.
   `document.test.ts` tests the copy's own rule for a repeat, and its other tests of a late
   `<base>` give each element attributes of its own
   ([#191](https://github.com/viell-dev/slop-html-page-viewer/issues/191)).
+
+- **Unreleased (#187):** Chromium resolves the URL of an image, a picture's source, an image input,
+  a poster, a frame, a script, and an SVG `<use>` as it parses the element, so always before a
+  later `<base>`. It resolves those of video, audio, and their sources, text tracks, SVG `<image>`,
+  `<embed>`, and `<object>` when it starts to load them, soon after: against the page if it parses
+  the `<base>` later, against the `<base>` if it has parsed that first. In served pages measured on
+  2026-11-19 in Obsidian 1.5.3 and 1.15.1, two runs each, media and their tracks in the document
+  before the `<base>` resolved against the page in every run, also with no script that the parser
+  waited for. The media of a declarative shadow root just before the `<base>`, which Chromium
+  attaches where the shadow root ends, resolved against the `<base>` in some runs. SVG `<image>`,
+  `<embed>`, and `<object>` resolved against the `<base>` where the parser read the rest of the
+  page at once after a script had loaded, and against the page otherwise. The viewer resolves all
+  of them against the page. `resources.e2e.ts` delays the served page's script before the `<base>`,
+  so that Chromium has resolved them by then; it does not test the other order.
+- **Unreleased (#187):** the URLs that the copy makes absolute before a later `<base>` do not count
+  toward the text limit: each grows by about the length of the page folder's address, and more
+  where a URL escapes its characters, so the copy grows with the page's own markup, as with the
+  references found by name (#184).
+- With scripts off, a video's poster, a text track, and an SVG `<use>` of another file from the
+  vault do not show in the viewer, also without a `<base>`, while the same page served outside
+  Obsidian shows them. `resources.e2e.ts` reads their URLs from the copy, not what they show
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
 
 - **Unreleased (#179):** a string that reaches `image-set()` only through `var()`, as in
   `--icon: "icon.png"` and `image-set(var(--icon) 1x)`, is not between that function's parentheses
