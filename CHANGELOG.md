@@ -107,6 +107,15 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   `style='background-image: url("icon.png'`, which browsers close and load, shows its image from the
   page's folder before a later `<base>`, finds it by name, and with **Local files with scripts on**
   copies its file (#194).
+- With scripts off, a video's text tracks from the vault, such as its captions, now load: the
+  viewer copies the `.vtt` files that the page's tracks name into it, since browsers load a track
+  only from the page's own origin, which no vault file shares in the viewer's frame. The README's
+  limits now say that, with scripts off, a video's poster shows under the media controls that
+  browsers show where scripts cannot run, and that an SVG `<use>` of a symbol in another file shows
+  nothing (#196).
+- With **Local files with scripts on**, a page that names a vault file whose extension is
+  `constructor` or `__proto__` shows, instead of the message that the viewer is unable to prepare
+  it (#200).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

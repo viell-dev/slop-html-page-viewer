@@ -225,6 +225,21 @@ folder's, with eight green images and four blue ones. `document.stress.ts` makes
 makes the copy about 60 times as long as the page: in jsdom on Windows 11, that took 4.3 to 4.9 s,
 where `main` at `c853231` prepared the same page in 3.7 s.
 
+**Unreleased (#196):** `document.test.ts` checks that a page with scripts off gets its text tracks
+as `data:` URLs of `text/vtt`: only a `<track>`'s file, not a `.vtt` file that an image, a
+`<style>`, or a `style` attribute names, and only a `.vtt` file inside the vault, so that a track of
+a note, an image, a web address, or a path outside the vault stays as written, and the view is asked
+about no other file. Those of a shadow root and a template's content are copied too, and one before
+a later `<base>` from the page's folder; a track over the per-file limit is left out and counted;
+with **Local files with scripts on** too, every file of the copied types is. `rendered.test.ts`
+checks that the view has the tracks copied only with scripts off. `resources.e2e.ts` checks in
+Obsidian 1.5.3 and the latest a page with a video's poster, a text track, and an SVG `<use>` of
+another file. The served page, whose scripts run, loads the track and shows the poster and the
+symbol whole, and its poster only in part under Chromium's controls when the video has the
+`controls` attribute. In the viewer with scripts off, the track loads, the poster shows as much as
+under the served page's controls, within 5 %, and the symbol not at all; with scripts on and files
+copied, the track loads, the poster shows whole, and the `<use>` keeps its URL and shows nothing.
+
 **Unreleased (#154):** beside the eight-file depth limit, `document.test.ts` checks the page's
 stylesheet limits: at most 1,000 links and imports followed, and 16 million characters of the
 stylesheets' text, shared by the page's links and imports in the document and in shadow roots.
@@ -1176,6 +1191,20 @@ files copied no square showed one. Each of these breakages failed the check name
   `document.test.ts`.
 - Closing an attribute as a stylesheet, with a rule's `{}`: the test of closers in `css.test.ts`.
 
+**Unreleased (#196):** On 2026-11-19, the view and preparation of `main` at `eb926d3` failed the
+viewer test of a page with scripts off in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where
+the served pages showed what the tests expect: the text track did not load. Each of these
+breakages failed the check named:
+
+- Leaving the tracks uncopied in `preparePage`: three of the four new tests of `document.test.ts`,
+  whose fourth checks that copying every file prevails, and `rendered.test.ts`.
+- The view not asking for the tracks to be copied: `rendered.test.ts`.
+- Copying a track's file of any copied type, or the `.vtt` file that an image, a `<style>`, or a
+  `style` attribute names: the test of what is copied.
+- Looking up a copied type among an object's inherited properties: the test of extensions such as
+  `constructor`, for which preparing the page threw
+  ([#200](https://github.com/viell-dev/slop-html-page-viewer/issues/200)).
+
 Since #155, a link and an import of the same URL share one kept text, so the #154 entry above for
 one kept text describes a breakage of that time, not of the current checkout.
 
@@ -1301,9 +1330,21 @@ starts left neither test a step after it, and the screenshot was taken.
   `a 1x,`, half a million characters, made it 208 times as long, 104 million characters, in 2.1 s,
   as the review of #197 measured. What the frame does with a copy of that length is not measured
   (#158).
-- With scripts off, a video's poster, a text track, and an SVG `<use>` of another file from the
-  vault do not show in the viewer, also without a `<base>`, while the same page served outside
-  Obsidian shows them. `resources.e2e.ts` reads their URLs from the copy, not what they show
+- With scripts off, Chromium shows its media controls on every video and audio element, as HTML has
+  browsers do wherever scripts cannot run. In Obsidian 1.5.3 and 1.15.1, frames whose sandbox lacks
+  `allow-scripts` showed no poster whole, also one given as a `data:` URL, as a served frame shows
+  one for a video with the `controls` attribute. The controls cover the lower part of a poster, and
+  all of a 64-pixel video's, which #196 took for a poster that did not load. Hiding them would leave
+  the reader no way to play the media, so the copy keeps them
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+- An SVG `<use>` of another file shows nothing, with scripts on or off. With scripts off, Obsidian
+  1.5.3 and 1.15.1 refuse a vault file there as an "unsafe attempt to load URL" of another origin
+  than the frame's; with scripts on, the frame's origin is opaque. A copy as a `data:` URL showed
+  on 1.5.3 and was refused on 1.15.1, so copying the file would only lengthen the copy on the
+  current host. A `blob:` URL from Obsidian's window showed with scripts off, but would have to
+  live as long as the page, which the view does not manage. Putting the symbol into the copy would
+  style it otherwise: in served pages, the page's rules applied to an external symbol on neither
+  host, and the file's own `<style>` and gradient did on 1.15.1 and not on 1.5.3
   ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
 - The `background` attributes of `<body>`, tables, and their cells, and SVG `<feImage>`, are not
   among the resource attributes that the viewer prepares: they are not found by name, nor copied

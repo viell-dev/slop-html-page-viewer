@@ -879,9 +879,10 @@ class HtmlPageViewerView extends TextFileView {
     const vaultUrl = new URL("../".repeat(depth) || "./", pageUrl).href;
     const readingStyle = this.themeEnabled ? this.readingStyle() : undefined;
     // Only a page with scripts on needs its files copied: with scripts off, it
-    // loads them itself.
+    // loads them itself, apart from its text tracks (#196).
     const copyFiles =
       this.scriptsEnabled && this.plugin.settings.copyLocalFiles ? this.localFiles() : undefined;
+    const copyTracks = this.scriptsEnabled ? undefined : this.localFiles();
     this.copyingFiles = copyFiles !== undefined;
     let page: string;
     let ownStyles = false;
@@ -905,6 +906,7 @@ class HtmlPageViewerView extends TextFileView {
         {
           readingStyle,
           copyFiles,
+          copyTracks,
           openShadowRoots: !this.scriptsEnabled,
           inertUntilWatched: !this.scriptsEnabled,
         },

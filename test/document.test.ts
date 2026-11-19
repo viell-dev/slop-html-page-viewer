@@ -4131,6 +4131,18 @@ describe("copying local files (#11)", () => {
     assert.deepEqual(elsewhere.asked, [], "nothing outside the vault is asked about");
   });
 
+  it("copies no file whose extension names a property of every object", async () => {
+    const files = { "Saved/x.constructor": "C", "Saved/x.__proto__": "P", "Saved/x.png": "A" };
+    const html = `<img src="x.constructor"><img src="x.__proto__"><img src="x.png">`;
+    const { page, copy, prepared } = await copied(html, files);
+    assert.deepEqual(
+      [...page.images].map((image) => image.getAttribute("src")),
+      ["x.constructor", "x.__proto__", data("image/png", "A")],
+    );
+    assert.deepEqual(copy.reads, ["Saved/x.png"]);
+    assert.deepEqual(prepared.copiedFiles, { copied: 1, leftOut: 0 });
+  });
+
   it("copies the files that shadow roots and templates name, within the page's limits (#124)", async () => {
     const files = {
       "Saved/a.png": "A",
@@ -4174,5 +4186,117 @@ describe("copying local files (#11)", () => {
     const prepared = await preparePage(`<img src="a.png">`, context({}));
     assert.equal(prepared.copiedFiles, undefined);
     assert.equal(parse(prepared.html).querySelector("img")?.getAttribute("src"), "a.png");
+  });
+
+  describe("text tracks in a page with scripts off (#196)", () => {
+    // Obsidian 1.5.3 and 1.15.1 load a text track into a frame with scripts
+    // off only from the frame's own origin, which no vault file has, or as a
+    // data: URL, as resources.e2e.ts checks.
+    const FILES = {
+      "Saved/subs.vtt": "WEBVTT\n\n00:00.000 --> 00:01.000\nHello",
+      "Saved/a.png": "A",
+      "Saved/clip.mp4": "M",
+      "Saved/poster.jpg": "P",
+      "Saved/app.js": "J",
+      "Saved/x.woff2": "F",
+      "Saved/notes.md": "Private text",
+      "Saved/icons.svg": "<svg/>",
+    };
+
+    async function tracksCopied(html: string, files: Record<string, string> = FILES) {
+      const copy = localFiles(files);
+      const prepared = await preparePage(html, context({}), { copyTracks: copy });
+      return { page: parse(prepared.html), copy, prepared };
+    }
+
+    it("copies the page's text tracks as data: URLs, and nothing else", async () => {
+      const html = [
+        `<img src="a.png"><video src="clip.mp4" poster="poster.jpg">`,
+        `<track src="subs.vtt"><track src="notes.md"><track src="a.png"><track src="missing.vtt">`,
+        `<track src="https://example.com/subs.vtt"><track src="../../../../outside.vtt"></video>`,
+        `<script src="app.js"></script><svg><use href="icons.svg#home"/><image href="icons.svg"/></svg>`,
+        `<style>@font-face { src: url(x.woff2) } body { background: url(a.png) }</style>`,
+        `<p style="background: url(a.png)">x</p>`,
+        // Only a track's file is copied, also of a track's type.
+        `<img src="subs.vtt"><p style="background: url(subs.vtt)">x</p>`,
+        `<style>p { background: url(subs.vtt) }</style>`,
+      ].join("");
+      const { page, copy, prepared } = await tracksCopied(html);
+      assert.deepEqual(
+        [...page.querySelectorAll("track")].map((track) => track.getAttribute("src")),
+        [
+          data("text/vtt", FILES["Saved/subs.vtt"]),
+          "notes.md",
+          "a.png",
+          "missing.vtt",
+          "https://example.com/subs.vtt",
+          "../../../../outside.vtt",
+        ],
+      );
+      assert.equal(prepared.html.split(";base64,").length - 1, 1, "only the track is copied");
+      assert.deepEqual(copy.reads, ["Saved/subs.vtt"]);
+      for (const path of copy.asked)
+        assert.match(path, /^Saved\/[^/]+\.vtt$/, `asked about ${path}`);
+      assert.deepEqual(prepared.copiedFiles, { copied: 1, leftOut: 0 });
+    });
+
+    it("copies those of shadow roots and templates, and those before a later <base> from the page's folder", async () => {
+      const files = { "Saved/subs.vtt": "page", "Saved/sub/subs.vtt": "base" };
+      const track = `<video><track src="subs.vtt"></video>`;
+      const html = [
+        track,
+        `<div><template shadowrootmode="open">${track}</template></div>`,
+        `<base href="sub/">${track}<template>${track}</template>`,
+      ].join("");
+      const { page, prepared } = await tracksCopied(html, files);
+      const [shadow, later] = [...page.querySelectorAll("template")].map(({ content }) => content);
+      assert.deepEqual(
+        [page, shadow, later].flatMap((root) =>
+          [...root.querySelectorAll("track")].map((element) => element.getAttribute("src")),
+        ),
+        [
+          data("text/vtt", "page"),
+          data("text/vtt", "base"),
+          data("text/vtt", "page"),
+          data("text/vtt", "base"),
+        ],
+      );
+      assert.deepEqual(prepared.copiedFiles, { copied: 2, leftOut: 0 });
+    });
+
+    it("leaves out a track over the limits, and says how many", async () => {
+      const copy = localFiles(
+        { "Saved/huge.vtt": "H", "Saved/subs.vtt": "S" },
+        { "Saved/huge.vtt": COPY_FILE_LIMIT + 1 },
+      );
+      const html = `<video><track src="huge.vtt"><track src="subs.vtt"></video>`;
+      const prepared = await preparePage(html, context({}), { copyTracks: copy });
+      assert.deepEqual(
+        [...parse(prepared.html).querySelectorAll("track")].map((track) =>
+          track.getAttribute("src"),
+        ),
+        ["huge.vtt", data("text/vtt", "S")],
+      );
+      assert.deepEqual(prepared.copiedFiles, { copied: 1, leftOut: 1 });
+      assert.deepEqual(copy.reads, ["Saved/subs.vtt"]);
+    });
+
+    it("copies every file of the copied types instead when copyFiles is given too", async () => {
+      const tracks = localFiles(FILES);
+      const every = localFiles(FILES);
+      const html = `<img src="a.png"><video><track src="subs.vtt"></video>`;
+      const prepared = await preparePage(html, context({}), {
+        copyFiles: every,
+        copyTracks: tracks,
+      });
+      const page = parse(prepared.html);
+      assert.equal(page.querySelector("img")?.getAttribute("src"), data("image/png", "A"));
+      assert.equal(
+        page.querySelector("track")?.getAttribute("src"),
+        data("text/vtt", FILES["Saved/subs.vtt"]),
+      );
+      assert.deepEqual(tracks.asked, []);
+      assert.deepEqual(every.reads.sort(), ["Saved/a.png", "Saved/subs.vtt"]);
+    });
   });
 });

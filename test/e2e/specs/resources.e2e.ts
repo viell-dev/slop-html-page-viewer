@@ -1737,6 +1737,9 @@ describe("A page's local files in Obsidian", function () {
       const xlink = "http://www.w3.org/1999/xlink";
       const shadow = document.getElementById("host")!.shadowRoot!;
       const repeats = document.querySelectorAll<HTMLImageElement>('img[src$="repeat.png"]');
+      // With scripts off, the copy has the track as a data: URL (#196), whose
+      // last line is the word of its folder.
+      const track = at("#track").src;
       return {
         repeat: [...repeats].map((repeat) => repeat.currentSrc),
         srcset: at("img[srcset]").currentSrc,
@@ -1745,7 +1748,9 @@ describe("A page's local files in Obsidian", function () {
         poster: at("#poster").poster,
         video: at("#video").currentSrc,
         vsource: at("#vsource").currentSrc,
-        track: at("#track").src,
+        track: track.startsWith("data:")
+          ? atob(track.split(",")[1]).trim().split("\n").at(-1)!
+          : track,
         audio: at("#audio").currentSrc,
         frame: at("#frame").src,
         script: at("script[src]").src,
@@ -2048,6 +2053,130 @@ describe("A page's local files in Obsidian", function () {
           green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
           blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
         }).toEqual({ green: Object.keys(OPEN).length, blue: 1 });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
+  describe("with a video's poster, a text track, and an SVG <use> of another file (#196)", function () {
+    // With scripts off, the viewer's frame has Obsidian's origin, which no
+    // vault file has. Chromium loads a text track, without a crossorigin
+    // attribute, and the document of an SVG <use> only from the frame's own
+    // origin, so the copy has the track as a data: URL, and the <use> shows
+    // nothing. A poster loads, but where scripts cannot run, Chromium shows its
+    // media controls on every video, as HTML says, which cover the bottom of a
+    // poster: the served page, whose scripts run, shows them only with the
+    // controls attribute.
+    const res = "Media parts";
+    const elements = (controls: boolean) =>
+      [
+        `<style>body { margin: 0 } video, svg { vertical-align: top }</style>`,
+        `<video id="poster" poster="${res}/poster.png" width="320" height="180"${controls ? " controls" : ""}></video>`,
+        `<video width="64" height="64"><track id="track" default kind="subtitles" src="${res}/track.vtt"></video>`,
+        `<svg width="64" height="64"><use id="use" href="${res}/use.svg#s"/></svg>`,
+      ].join("\n");
+    const files: Record<string, string | Buffer> = {
+      "Saved/Media parts.html": elements(false),
+      // Shown whole, as the video's 180 pixels high allow.
+      [`Saved/${res}/poster.png`]: solidPng(180, GREEN),
+      [`Saved/${res}/track.vtt`]: `WEBVTT\n\n00:00.000 --> 01:00.000\npage\n`,
+      [`Saved/${res}/use.svg`]: `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="s"><rect width="64" height="64" fill="#1565c0"/></symbol></svg>`,
+    };
+    const POSTER_PIXELS = 180 * 180;
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths(["Saved/Media parts.html", `Saved/${res}`]);
+    });
+
+    /** The text track's cue, once it has loaded, or null when it failed to. Run in the frame. */
+    async function trackCue(): Promise<string | null> {
+      await browser.waitUntil(
+        () =>
+          browser.execute(
+            () => (document.getElementById("track") as HTMLTrackElement).readyState >= 2,
+          ),
+        { timeout: 10_000, timeoutMsg: "the text track neither loaded nor failed" },
+      );
+      return browser.execute(() => {
+        const track = document.getElementById("track") as HTMLTrackElement;
+        return (track.track.cues?.[0] as VTTCue | undefined)?.text ?? null;
+      });
+    }
+
+    /**
+     * What the served page shows: the track's cue, and the poster's and the
+     * symbol's pixels. The frame's load does not wait for a <use>'s document,
+     * so the symbol gets a few seconds more.
+     */
+    async function served(controls: boolean) {
+      return inServedPage(
+        { ...files, "Saved/Media parts.html": elements(controls) },
+        "Saved/Media parts.html",
+        async () => {
+          const track = await trackCue();
+          let pixels = await servedPixels({ poster: GREEN, symbol: BLUE });
+          for (let wait = 0; wait < 20 && pixels.symbol < IMAGE_PIXELS * 0.95; wait++) {
+            await browser.pause(250);
+            pixels = await servedPixels({ poster: GREEN, symbol: BLUE });
+          }
+          return { track, ...pixels };
+        },
+      );
+    }
+
+    it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
+      const shown = await served(false);
+      expect({
+        track: shown.track,
+        poster: shown.poster >= POSTER_PIXELS * 0.95,
+        symbol: shown.symbol >= IMAGE_PIXELS * 0.95,
+      }).toEqual({ track: "page", poster: true, symbol: true });
+      // The controls cover the poster's bottom third or so.
+      const controlled = await served(true);
+      expect(controlled.poster).toBeGreaterThan(POSTER_PIXELS * 0.3);
+      expect(controlled.poster).toBeLessThan(POSTER_PIXELS * 0.7);
+    });
+
+    it("loads the track, shows the poster under Chromium's controls, and shows no symbol of another file, with scripts off", async function () {
+      const controlled = await served(true);
+      await openInActiveTab("Saved/Media parts.html");
+      await waitForPage();
+      const track = await inViewerFrame(trackCue);
+      // As long as the served page's symbol can take to show.
+      await browser.pause(1000);
+      await saveScreenshot("media-parts");
+      const poster = await framePixels(GREEN);
+      expect({
+        track,
+        // As the served page with the controls attribute shows it.
+        poster: Math.abs(poster - controlled.poster) <= controlled.poster * 0.05,
+        symbol: await framePixels(BLUE),
+      }).toEqual({ track: "page", poster: true, symbol: 0 });
+    });
+
+    it("copies the poster and the track, but not the <use>'s file, into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Media parts.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        const shown = await inViewerFrame(async () => ({
+          track: await trackCue(),
+          use: await browser.execute(() => document.getElementById("use")!.getAttribute("href")),
+        }));
+        await browser.pause(1000);
+        await saveScreenshot("media-parts-scripts-on");
+        expect({
+          ...shown,
+          poster: (await framePixels(GREEN)) >= POSTER_PIXELS * 0.95,
+          symbol: await framePixels(BLUE),
+        }).toEqual({ track: "page", use: `${res}/use.svg#s`, poster: true, symbol: 0 });
       } finally {
         await clickToolbarButton("Scripts ON");
         await copyLocalFiles(false);
@@ -2411,7 +2540,10 @@ async function inServedPage<T>(
     await browser.execute((src) => {
       const frame = document.createElement("iframe");
       frame.id = "e2e-served";
-      frame.style.cssText = "position: fixed; left: 0; top: 0; width: 400px; height: 300px;";
+      // Above Obsidian's own elements, such as its ribbon, so that a
+      // screenshot of the frame shows the whole page.
+      frame.style.cssText =
+        "position: fixed; left: 0; top: 0; z-index: 2147483647; width: 400px; height: 300px;";
       // The frame's load waits for the page's stylesheets and their imports.
       frame.addEventListener("load", () => (frame.dataset.loaded = "true"), { once: true });
       frame.src = src;
@@ -2431,6 +2563,27 @@ async function inServedPage<T>(
     await browser.execute(() => document.getElementById("e2e-served")?.remove());
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+/**
+ * How many pixels of {@link inServedPage}'s frame show each of `colors`. Run
+ * in its `read`, inside the frame, which it returns to.
+ */
+async function servedPixels<K extends string>(
+  colors: Record<K, Color>,
+): Promise<Record<K, number>> {
+  await browser.switchFrame(null);
+  try {
+    const frame = await browser.$("#e2e-served");
+    const shot = decodePng(
+      Buffer.from(await browser.takeElementScreenshot(await frame.elementId), "base64"),
+    );
+    const counts = {} as Record<K, number>;
+    for (const key of Object.keys(colors) as K[]) counts[key] = shot.count(colors[key]);
+    return counts;
+  } finally {
+    await browser.switchFrame(browser.$("#e2e-served"));
   }
 }
 

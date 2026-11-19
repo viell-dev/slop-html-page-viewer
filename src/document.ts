@@ -1874,6 +1874,32 @@ const COPIED_ATTRIBUTES: Record<string, readonly string[]> = {
   script: ["src"],
 };
 
+/**
+ * Which of a page's references to vault files a copy turns into `data:` URLs:
+ * those of `attributes`, by element, to files of `types`, by extension, and,
+ * when `stylesheets` is set, those of its `<style>` elements and `style`
+ * attributes.
+ */
+interface CopyScope {
+  readonly attributes: Readonly<Record<string, readonly string[]>>;
+  readonly types: Readonly<Record<string, string>>;
+  readonly stylesheets: boolean;
+}
+
+/** What a page with scripts on gets copied (`PageOptions.copyFiles`): every file of the copied types. */
+const EVERY_FILE: CopyScope = {
+  attributes: COPIED_ATTRIBUTES,
+  types: COPIED_TYPES,
+  stylesheets: true,
+};
+
+/** What a page with scripts off gets copied (`PageOptions.copyTracks`): its text tracks. */
+const TEXT_TRACKS: CopyScope = {
+  attributes: { track: ["src"] },
+  types: { vtt: COPIED_TYPES.vtt },
+  stylesheets: false,
+};
+
 /** What copying a page's local files did. */
 export interface CopiedFiles {
   /** How many vault files were copied into the page. */
@@ -1926,14 +1952,16 @@ class FileCopier {
   constructor(
     private readonly files: LocalFiles,
     private readonly vaultUrl: string,
+    private readonly types: Readonly<Record<string, string>>,
   ) {}
 
-  /** The vault path and type of a URL's file, if it is one that is copied. */
+  /** The vault path and type of a URL's file, if it is one of the types that are copied. */
   private target(url: string): { path: string; type: string } | null {
     const path = vaultPath(url, this.vaultUrl);
     if (path === null) return null;
     const dot = path.lastIndexOf(".");
-    const type = dot === -1 ? undefined : COPIED_TYPES[path.slice(dot + 1).toLowerCase()];
+    const extension = dot === -1 ? "" : path.slice(dot + 1).toLowerCase();
+    const type = Object.hasOwn(this.types, extension) ? this.types[extension] : undefined;
     return type === undefined ? null : { path, type };
   }
 
@@ -2050,18 +2078,20 @@ interface ReferenceScans {
 
 /**
  * Visits the references to files that a page's images, media, fonts, and
- * scripts load, in document order: their attributes, then `<style>` elements
- * and `style` attributes, which resolve against their own base
- * (`PageRoot.parsedBase`), of the `<style>` elements that apply only. The
- * attributes resolve against the copy's `<base>`: preparing made absolute
- * those that resolve otherwise before a later `<base>` (`prepareReferences`).
- * A reference that `visit` gives a URL for gets it.
+ * scripts load, in document order, as far as `scope` reaches: their
+ * attributes, then `<style>` elements and `style` attributes, which resolve
+ * against their own base (`PageRoot.parsedBase`), of the `<style>` elements
+ * that apply only. The attributes resolve against the copy's `<base>`:
+ * preparing made absolute those that resolve otherwise before a later
+ * `<base>` (`prepareReferences`). A reference that `visit` gives a URL for
+ * gets it.
  */
 async function visitFileReferences(
   { node: root, parsedBase, preferred }: PageRoot,
   baseUrl: string,
   visit: Visit,
   scans: ReferenceScans,
+  scope: CopyScope,
 ): Promise<void> {
   // Both passes visit the same references, and only those are kept between
   // them: a whole scan holds an object for every few bytes of CSS.
@@ -2074,8 +2104,8 @@ async function visitFileReferences(
     }
     return found;
   };
-  for (const element of root.querySelectorAll(Object.keys(COPIED_ATTRIBUTES).join(", "))) {
-    for (const name of COPIED_ATTRIBUTES[element.localName] ?? []) {
+  for (const element of root.querySelectorAll(Object.keys(scope.attributes).join(", "))) {
+    for (const name of scope.attributes[element.localName] ?? []) {
       const value = element.getAttribute(name);
       if (value === null) continue;
       const reference = stripSpaces(value);
@@ -2090,6 +2120,7 @@ async function visitFileReferences(
       if (replaced !== null) element.setAttribute(name, replaced);
     }
   }
+  if (!scope.stylesheets) return;
   for (const style of styleElements(root, preferred)) {
     const css = styleText(style);
     const replaced = await visitCssUrls(css, parsedBase(style), visit, urls(css, false));
@@ -2104,22 +2135,23 @@ async function visitFileReferences(
 
 /**
  * Copies the vault files that a page's images, media, fonts, and scripts
- * refer to into the page as `data:` URLs, for a page with scripts on, which
- * cannot load them otherwise. Other references stay as they are. The roots
- * share the page's limits, in their order: the document, then the content of
- * each template.
+ * refer to, as far as `scope` reaches, into the page as `data:` URLs, for a
+ * frame that cannot load them otherwise. Other references stay as they are.
+ * The roots share the page's limits, in their order: the document, then the
+ * content of each template.
  */
 async function copyReferencedFiles(
   roots: readonly PageRoot[],
   baseUrl: string,
   files: LocalFiles,
   vaultUrl: string,
+  scope: CopyScope,
 ): Promise<CopiedFiles> {
-  const copier = new FileCopier(files, vaultUrl);
+  const copier = new FileCopier(files, vaultUrl, scope.types);
   const scans: ReferenceScans = { sheets: new Map(), declarations: new Map() };
-  for (const root of roots) await visitFileReferences(root, baseUrl, copier.note, scans);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.note, scans, scope);
   copier.plan();
-  for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy, scans);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy, scans, scope);
   return copier.result;
 }
 
@@ -2131,6 +2163,16 @@ export interface PageOptions {
    * page with scripts on (#11).
    */
   readonly copyFiles?: LocalFiles;
+  /**
+   * Copies the page's local text tracks into it, for a page with scripts off
+   * (#196), unless `copyFiles` copies them with the rest. Its frame has
+   * Obsidian's origin, and Chromium loads a text track whose media element
+   * has no `crossorigin` attribute only from the frame's own origin, which the
+   * vault's files never have: Obsidian 1.5.3 and 1.15.1 refuse such a track
+   * as an "unsafe attempt to load URL", and load its copy. Nothing in such a
+   * page can read the copy.
+   */
+  readonly copyTracks?: LocalFiles;
   /**
    * Declares the page's shadow roots open, so that the view's link listeners
    * see the links inside them, and marks where each is declared, so that the
@@ -2314,8 +2356,11 @@ export async function preparePage(
   }
 
   // After locating and copying, so that the references are final.
-  const copiedFiles = options.copyFiles
-    ? await copyReferencedFiles(roots, baseUrl, options.copyFiles, context.vaultUrl)
+  const copy = options.copyFiles
+    ? { files: options.copyFiles, scope: EVERY_FILE }
+    : options.copyTracks && { files: options.copyTracks, scope: TEXT_TRACKS };
+  const copiedFiles = copy
+    ? await copyReferencedFiles(roots, baseUrl, copy.files, context.vaultUrl, copy.scope)
     : undefined;
 
   // A refresh would navigate the frame away from the copy, past the policy

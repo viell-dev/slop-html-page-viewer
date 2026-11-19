@@ -188,6 +188,15 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 - Renders the page in a sandboxed frame, with scripts off by default. A toolbar button turns them on
   for the open page, and a setting can copy the page's local images, media, text tracks, fonts, and
   scripts into it, so that they load with scripts on too.
+
+  **Unreleased (#196):** with scripts off, a video's text tracks from the vault, such as its
+  captions, show too. Unless its video has a `crossorigin` attribute, browsers load a text track
+  only from the page's own origin, which in the viewer's frame no vault file shares, so the viewer
+  copies the `.vtt` files that the page's tracks name into it, within the limits of **Local files
+  with scripts on**. With scripts off, version 0.6.0 shows only the tracks of a video with a
+  `crossorigin` attribute
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+
 - Shows the source with HTML syntax highlighting and line numbers, wrapping long lines.
 - Shows the source and the page side by side in its **Split** view, one above the other in a narrow
   pane. With scripts off, the two sides scroll in step, for a page that scrolls as a whole, also
@@ -376,6 +385,16 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   one, a relative address in it resolves against Obsidian's own address instead of the page's
   ([#193](https://github.com/viell-dev/slop-html-page-viewer/issues/193)).
 
+- **With scripts off, video and audio show Chromium's own controls**, which cover the lower part of
+  a video's poster, and all of a small video's: HTML has browsers show them wherever a page's
+  scripts cannot run, so that its media can still be played. The poster itself loads as in a
+  browser ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+- **An SVG `<use>` of a symbol in another file shows nothing**, as in
+  `<use href="icons.svg#home"/>`, with scripts on or off; a symbol in the page itself shows.
+  Browsers load the other file only from the page's own origin, which in the viewer's frame no
+  vault file shares, and Obsidian 1.15.1 refuses a copy of it as a `data:` URL, so the viewer does
+  not copy such files
+  ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets
   still apply, and the **Local files with scripts on** setting copies the page's images, media, text
@@ -481,6 +500,10 @@ the `.css` files it links as stylesheets, and the files it copies into a page wi
 one file it writes is its own settings. A rendered page can still load the images, fonts, or
 scripts on the web that it refers to, as any browser would. [SECURITY.md](SECURITY.md) has the
 details and how to report a vulnerability.
+
+**Unreleased (#196):** it also reads the `.vtt` files that a page's text tracks name, and copies
+them into the page with scripts off, where nothing can read them
+([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
 
 ## Status
 
