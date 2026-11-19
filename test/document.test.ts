@@ -530,16 +530,23 @@ describe("attributes that HTML splits or strips on ASCII whitespace (#192)", () 
         );
       }
     }
-    // A tab or a form feed splits it as in Chromium 150; Chromium 114 takes
-    // them for part of a type (TESTING.md's limits). The parser reads a
-    // carriage return as a line feed.
-    for (const rel of ["stylesheet x", "x\tstylesheet", "x\nstylesheet", "x\fstylesheet"]) {
+    // A tab, a form feed, or a carriage return, which the parser keeps only
+    // from a character reference, splits it as in Chromium 150; Chromium 114
+    // takes them for part of a type (TESTING.md's limits).
+    for (const rel of [
+      "stylesheet x",
+      "x\tstylesheet",
+      "x\nstylesheet",
+      "x\fstylesheet",
+      "x&#13;stylesheet",
+    ]) {
       assert.deepEqual(
         await linkPage(`<link rel="${rel}" href="real.css">`),
         { reads: ["Saved/real.css"], links: 0 },
         JSON.stringify(rel),
       );
     }
+    // The parser reads a literal carriage return as a line feed.
     for (const rel of ["STYLESHEET", " StyleSheet\r"]) {
       assert.deepEqual(
         await linkPage(`<link rel="${rel}" href="real.css">`),
@@ -564,7 +571,7 @@ describe("attributes that HTML splits or strips on ASCII whitespace (#192)", () 
     assert.deepEqual(ctx.reads, ["Saved/b.css"]);
   });
 
-  it("copies the file of a URL attribute or a srcset candidate that holds such a space", async () => {
+  it("copies the file of a URL attribute or a srcset candidate that holds such a space, and splits a srcset on ASCII whitespace", async () => {
     const copies: string[] = [];
     const copyFiles: LocalFiles = {
       size: () => 1,
@@ -575,19 +582,29 @@ describe("attributes that HTML splits or strips on ASCII whitespace (#192)", () 
     };
     const copy = parse(
       await prepare(
-        `<img src=" ${nbsp}nb.png "><img srcset="a${nbsp}b.png 2x, c.png 1x"><script src="${emSpace}s.js"></script>`,
+        [
+          `<img src=" ${nbsp}nb.png "><img srcset="a${nbsp}b.png 2x, c.png 1x">`,
+          `<img srcset="ff.png\f1x, tab.png\t2x"><script src="${emSpace}s.js"></script>`,
+        ].join(""),
         context({}),
         { copyFiles },
       ),
     );
     assert.deepEqual(
       copies.sort(),
-      [`Saved/${nbsp}nb.png`, `Saved/a${nbsp}b.png`, "Saved/c.png", `Saved/${emSpace}s.js`].sort(),
+      [
+        ...[`Saved/${nbsp}nb.png`, `Saved/a${nbsp}b.png`, "Saved/c.png"],
+        ...["Saved/ff.png", "Saved/tab.png", `Saved/${emSpace}s.js`],
+      ].sort(),
     );
     const data = (type: string) => `data:${type};base64,AQ==`;
     assert.deepEqual(
       [...copy.images].map((image) => image.getAttribute("src") ?? image.getAttribute("srcset")),
-      [data("image/png"), `${data("image/png")} 2x, ${data("image/png")} 1x`],
+      [
+        data("image/png"),
+        `${data("image/png")} 2x, ${data("image/png")} 1x`,
+        `${data("image/png")}\f1x, ${data("image/png")}\t2x`,
+      ],
     );
   });
 

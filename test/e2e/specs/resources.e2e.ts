@@ -1838,15 +1838,22 @@ describe("A page's local files in Obsidian", function () {
     // HTML splits a link's rel and a srcset, and strips a URL attribute, on
     // ASCII whitespace only. Each square has a stylesheet of its own, linked
     // with `stylesheet`, a space, and `x`: each of the other spaces that
-    // JavaScript's \s matches, and four of ASCII's. An image names a file
-    // with U+00A0 before its name, which is blue, as is one with U+00A0 in a
-    // srcset's URL; the file of the name without it is green.
+    // JavaScript's \s matches, and five of ASCII's, among them a carriage
+    // return as a character reference, which the parser keeps. An image
+    // names a file with U+00A0 before its name, which is blue, as is one with
+    // U+00A0 in a srcset's URL; the file of the name without it is green.
     const UNICODE_SPACES = [
       ...[0x0b, 0xa0, 0x1680],
       ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
       ...[0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff],
     ];
-    const ASCII_SPACES: Record<string, string> = { space: " ", lf: "\n", tab: "\t", ff: "\f" };
+    const ASCII_SPACES: Record<string, string> = {
+      space: " ",
+      lf: "\n",
+      tab: "\t",
+      ff: "\f",
+      cr: "&#13;",
+    };
     const spaces: Record<string, string> = {
       ...Object.fromEntries(
         UNICODE_SPACES.map((code) => [`u${code.toString(16)}`, String.fromCodePoint(code)]),
@@ -1915,7 +1922,8 @@ describe("A page's local files in Obsidian", function () {
     /** The squares that ASCII whitespace splits from `stylesheet`, on Chromium of this major version. */
     function applied(chromium: number) {
       // Chromium 114, in Obsidian 1.5.3, splits rel only on spaces and line
-      // feeds; 1.15.1 on ASCII whitespace, as the viewer does.
+      // feeds, not on tabs, form feeds, or carriage returns; 1.15.1 on ASCII
+      // whitespace, as the viewer does.
       const split = chromium === 114 ? ["space", "lf"] : Object.keys(ASCII_SPACES);
       return Object.fromEntries(Object.keys(spaces).map((id) => [id, split.includes(id)]));
     }

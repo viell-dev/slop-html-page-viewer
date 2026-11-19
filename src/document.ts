@@ -1490,8 +1490,9 @@ function styleElements(root: ParentNode, preferred: StylesheetSet): Element[] {
  * U+00A0 and other spaces, which HTML takes for part of a type: `stylesheet`,
  * U+00A0, and `x` make one type, and no stylesheet link, which headless
  * Chrome 158 and Obsidian 1.5.3 and 1.15.1 load nothing for. Chromium 114, in
- * Obsidian 1.5.3, also takes a tab or a form feed for part of a type, where
- * 1.15.1 splits on them (TESTING.md's limits).
+ * Obsidian 1.5.3, also takes a tab, a form feed, or a carriage return for
+ * part of a type, where 1.15.1 splits on them (TESTING.md's limits). The
+ * parser keeps a carriage return only from a character reference.
  */
 function linkTypes(link: Element): string[] {
   return asciiLowercase(link.getAttribute("rel") ?? "").split(/[\t\n\f\r ]+/);

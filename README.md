@@ -111,8 +111,8 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   nothing for it; version 0.6.0 reads and applies such a link. A URL attribute keeps such a space at
   its start or end, and a `srcset` one inside a URL, as browsers read them, so that with **Local
   files with scripts on** the file of that name is copied, not one without the space. Obsidian 1.5.3
-  splits `rel` only at spaces and line feeds, so there a link with a tab or a form feed in its `rel`
-  applies in the viewer but not in a browser
+  splits `rel` only at spaces and line feeds, so there a link with a tab, a form feed, or a carriage
+  return written as `&#13;` in its `rel` applies in the viewer but not in a browser
   ([#192](https://github.com/viell-dev/slop-html-page-viewer/issues/192)).
 
   **Unreleased (#155):** each of the page's own stylesheets ends where CSS ends it, as an imported
