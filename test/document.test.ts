@@ -2693,6 +2693,88 @@ describe("a <base> after the page's resource attributes (#187)", () => {
   });
 });
 
+describe("a string or url( left open at the end of a style attribute (#194)", () => {
+  // CSS closes what the end of a style attribute leaves open, as headless
+  // Chrome 158 and Obsidian 1.5.3 and 1.15.1 load the file of such a string
+  // or url(, and resources.e2e.ts checks.
+  const page = `${VAULT}Saved/`;
+  const open = (id: string) => [
+    `b: image-set("img/${id}a.png`,
+    `b: url("img/${id}b.png`,
+    `b: url(img/${id}c.png`,
+    `b: url('img/${id}d.png`,
+  ];
+  /** Elements whose style attributes are these, as the page writes them. */
+  const styled = (styles: string[]) =>
+    styles.map((style) => `<p style='${style.replaceAll("'", "&#39;")}'>x</p>`).join("");
+  const styles = (root: ParentNode) =>
+    [...root.querySelectorAll("p")].map((p) => p.getAttribute("style"));
+
+  it("makes such a reference absolute before a later <base>, keeping the rest as written", async () => {
+    const copy = parse(
+      await prepare(
+        `${styled([...open("x"), "color: red /* x"])}<base href="sub/">${styled(open("y"))}`,
+        context({}),
+      ),
+    );
+    assert.deepEqual(styles(copy), [
+      `b: image-set("${page}img/xa.png"`,
+      `b: url("${page}img/xb.png")`,
+      `b: url("${page}img/xc.png")`,
+      `b: url("${page}img/xd.png")`,
+      "color: red /* x",
+      ...open("y"),
+    ]);
+  });
+
+  it("copies the file of such a reference into a page with scripts on, in every place", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    const html = [
+      styled(open("doc")),
+      `<div><template shadowrootmode="open">${styled(open("shadow"))}</template></div>`,
+      `<base href="sub/">`,
+      styled(open("after")),
+    ].join("");
+    const copy = parse(await prepare(html, context({}), { copyFiles }));
+    const files = (id: string, folder: string) =>
+      ["a", "b", "c", "d"].map((name) => `Saved/${folder}img/${id}${name}.png`);
+    assert.deepEqual(
+      [...new Set(copies)].sort(),
+      [...files("doc", ""), ...files("shadow", ""), ...files("after", "sub/")].sort(),
+    );
+    const data = "data:image/png;base64,AQ==";
+    assert.deepEqual(styles(copy).slice(0, 4), [
+      `b: image-set("${data}"`,
+      `b: url("${data}")`,
+      `b: url("${data}")`,
+      `b: url("${data}")`,
+    ]);
+  });
+
+  it("finds the file of such a reference by name", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: () => false,
+      locate: (linktext) => `Found/${linktext}`,
+    };
+    const copy = parse(await prepare(styled(open("n")), ctx));
+    const found = (name: string) => `${VAULT}Found/img/n${name}.png`;
+    assert.deepEqual(styles(copy), [
+      `b: image-set("${found("a")}"`,
+      `b: url("${found("b")}")`,
+      `b: url("${found("c")}")`,
+      `b: url("${found("d")}")`,
+    ]);
+  });
+});
+
 describe("stylesheet sets (#169)", () => {
   // As headless Chrome 158 and Obsidian 1.5.3 and 1.15.1 apply them, and
   // resources.e2e.ts checks: in a document, untitled stylesheets and those of

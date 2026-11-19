@@ -100,6 +100,10 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   that HTML does not split on, which browsers do not load, no longer has its stylesheet read and
   applied. With **Local files with scripts on**, a file whose URL starts or ends with such a space,
   or holds one in a `srcset`, is copied by that name, not by the name without the space (#192).
+- A `style` attribute that ends inside a string or a `url(`, as in
+  `style='background-image: url("icon.png'`, which browsers close and load, shows its image from the
+  page's folder before a later `<base>`, finds it by name, and with **Local files with scripts on**
+  copies its file (#194).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

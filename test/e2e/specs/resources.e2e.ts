@@ -1962,6 +1962,89 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with style attributes that end inside a string or a url( (#194)", function () {
+    // Each square's style attribute ends inside the string or url( that names
+    // its image, which CSS closes there: green beside the page, and blue in
+    // the folder of the page's <base>, which comes after all but the last.
+    const square = (id: string, style: string) =>
+      `<div id="${id}" class="sq" style='${style.replaceAll("'", "&#39;")}'></div>`;
+    const OPEN = {
+      a: `background-image: image-set("Open img/a.png`,
+      b: `background-image: url("Open img/b.png`,
+      c: `background-image: url(Open%20img/c.png`,
+      d: `background-image: url('Open img/d.png`,
+    };
+    const files: Record<string, string | Buffer> = {
+      "Saved/Open styles.html": [
+        `<style>.sq { display: inline-block; width: 64px; height: 64px }</style>`,
+        ...Object.entries(OPEN).map(([id, style]) => square(id, style)),
+        `<base href="Open base/">`,
+        square("after", `background-image: url("Open img/after.png`),
+      ].join("\n"),
+    };
+    for (const name of [...Object.keys(OPEN), "after"]) {
+      files[`Saved/Open img/${name}.png`] = solidPng(64, GREEN);
+      files[`Saved/Open base/Open img/${name}.png`] = solidPng(64, BLUE);
+    }
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths(["Saved/Open styles.html", "Saved/Open img", "Saved/Open base"]);
+    });
+
+    /** Which folder each square's image comes from. Run inside the frame. */
+    function read() {
+      const squares: Record<string, string> = {};
+      for (const square of document.querySelectorAll(".sq")) {
+        const value = decodeURIComponent(getComputedStyle(square).backgroundImage);
+        squares[square.id] = value.includes("/Open base/Open img/")
+          ? "the <base>'s folder"
+          : value.includes("/Open img/")
+            ? "the page's folder"
+            : value;
+      }
+      return squares;
+    }
+
+    const EXPECTED = {
+      ...Object.fromEntries(Object.keys(OPEN).map((id) => [id, "the page's folder"])),
+      after: "the <base>'s folder",
+    };
+
+    it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
+      expect(
+        await inServedPage(files, "Saved/Open styles.html", () => browser.execute(read)),
+      ).toEqual(EXPECTED);
+    });
+
+    it("resolves such a reference before the <base> against the page", async function () {
+      await openInActiveTab("Saved/Open styles.html");
+      await waitForPage();
+      await saveScreenshot("open-styles");
+      expect(await inViewerFrame(() => browser.execute(read))).toEqual(EXPECTED);
+    });
+
+    it("copies the file of such a reference into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Open styles.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("open-styles-scripts-on");
+        expect({
+          green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
+          blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+        }).toEqual({ green: Object.keys(OPEN).length, blue: 1 });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   it("shows nothing from outside the vault", async function () {
     await openInActiveTab("Saved/Outside reference.html");
     await waitForPage();

@@ -398,6 +398,20 @@ HTTP to a frame of Obsidian's window without a sandbox, where neither the plugin
 policy stands between Chromium and the page, and checks that Chromium shows each case as the
 viewer does.
 
+**Unreleased (#194):** a `style` attribute is closed as a list of declarations, without a rule to
+end. `css.test.ts` checks the text that closes a string, also after a `\`, a quoted or unquoted
+`url(`, an escape, a comment, and the blocks and functions left open, innermost first, and that a
+closer which matches no open block closes nothing. Closed, a string left open in `image-set()`, a
+quoted `url(`, and an unquoted one name their files, and one in a comment does not.
+`document.test.ts` checks that such references in `style` attributes before a later `<base>` are
+made absolute against the page, those after it kept as written, and an attribute's other text kept
+as the page has it, closers and all; that with copying, their files are copied from the folder of
+each one's base, in the document and in a shadow root; and that they are found by name.
+`resources.e2e.ts` checks in Obsidian 1.5.3 and the latest four squares whose `style` attributes
+end inside `image-set("`, `url("`, `url(`, and `url('` before a late `<base>`, and one after it:
+the served page and the viewer show the four from the page's folder and the last from the
+`<base>`'s, and with scripts on and files copied, the viewer shows the same images.
+
 `<style>` and `<link>` coverage (#143): `document.test.ts` checks, in the document and in a shadow
 root, with and without copying files, that the plugin reads and copies only for an HTML or SVG
 `<style>`'s own text nodes, joined, and for HTML stylesheet links, also inside SVG's
@@ -1143,6 +1157,20 @@ off and on. Each of these breakages failed the check named in `document.test.ts`
 - Keeping a link and an import of the same stylesheet apart: the test that counts them once.
 - Dropping a stylesheet's own stray `}` from its prepared result: the stray `}` tests of #139,
   #154, and #155.
+
+**Unreleased (#194):** On 2026-11-19, the preparation of `main` at `c853231` failed all three new
+tests of `style` attributes left open in `document.test.ts`, and both viewer tests of
+`resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where the served page showed what the tests
+expect: the four squares before the `<base>` showed the `<base>`'s images, and with scripts on and
+files copied no square showed one. Each of these breakages failed the check named:
+
+- Reading an attribute as written to make its references absolute, to find them by name, or to
+  copy their files: the test of each in `document.test.ts`.
+- Keeping an attribute's closed text: the test of making references absolute, which keeps the
+  rest as written.
+- Closing only the token left open, without the blocks: every test of #194 in `css.test.ts` and
+  `document.test.ts`.
+- Closing an attribute as a stylesheet, with a rule's `{}`: the test of closers in `css.test.ts`.
 
 Since #155, a link and an import of the same URL share one kept text, so the #154 entry above for
 one kept text describes a breakage of that time, not of the current checkout.

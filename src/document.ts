@@ -14,6 +14,7 @@
 // media, fonts, and scripts are then copied into it as data: URLs (#11).
 
 import {
+  cssDeclarationsEnd,
   cssEnd,
   cssImports,
   cssReferences,
@@ -1007,12 +1008,31 @@ function parsedBases(
 }
 
 /**
- * A `style` attribute's declarations with their references made absolute
- * against `base`, or found by name (`absoluteUrl`), and the length that this
- * adds, or null once that passes `room`, where the work stops.
+ * A `style` attribute's tokens, as CSS reads its declarations: closed at its
+ * end, as CSS closes them (`cssDeclarationsEnd`), so that a string or a
+ * `url(` that the end leaves open names its file there, as in Chromium
+ * (#194). The closers only follow the attribute's text, so that each token
+ * keeps its place, and the last one's span can reach past the text. The copy
+ * keeps the attribute's text, in which a rewrite of that token replaces it to
+ * the end: the rewritten reference is closed, and CSS closes the rest in the
+ * frame as here. So a custom property that the end leaves open keeps its
+ * text, as it does not in a closed `<style>` (`closedSheet`).
+ */
+function declarationTokens(css: string): CssToken[] {
+  const tokens = cssTokens(css);
+  const closers = cssDeclarationsEnd(css, tokens);
+  return closers === "" ? tokens : cssTokens(css + closers);
+}
+
+/**
+ * A `style` attribute's declarations, with their tokens
+ * (`declarationTokens`), with their references made absolute against `base`,
+ * or found by name (`absoluteUrl`), and the length that this adds, or null
+ * once that passes `room`, where the work stops.
  */
 function absoluteDeclarations(
   css: string,
+  tokens: readonly CssToken[],
   base: string,
   context: PageContext,
   room: number,
@@ -1020,7 +1040,7 @@ function absoluteDeclarations(
   let text = "";
   let cursor = 0;
   let added = 0;
-  for (const token of cssReferences(cssTokens(css))) {
+  for (const token of cssReferences(tokens)) {
     const written = css.slice(token.start, token.end);
     const rewrite = absoluteUrl(written, token, base, context);
     added += Math.max(0, rewrite.length - written.length);
@@ -1050,13 +1070,14 @@ function prepareStyleAttributes(
   for (const element of root.querySelectorAll("[style]")) {
     const style = element.getAttribute("style") ?? "";
     const base = parsedBase(element);
+    const tokens = declarationTokens(style);
     let replaced: string | null = null;
     if (base !== baseUrl) {
-      const absolute = absoluteDeclarations(style, base, context, budget.room);
+      const absolute = absoluteDeclarations(style, tokens, base, context, budget.room);
       if (absolute !== null && budget.add(absolute.added)) replaced = absolute.text;
     }
     if (replaced === null && context.exists && context.locate)
-      replaced = locateCssUrls(style, base, context);
+      replaced = locateCssUrls(style, base, context, tokens);
     if (replaced !== null && replaced !== style) element.setAttribute("style", replaced);
   }
 }
@@ -1998,6 +2019,16 @@ async function visitSrcset(srcset: string, baseUrl: string, visit: Visit): Promi
 }
 
 /**
+ * The references that copying files finds (`cssReferences`) in each text of
+ * a `<style>`, which preparing has closed, and of a `style` attribute, read
+ * closed (`declarationTokens`), which the first pass keeps for the second.
+ */
+interface ReferenceScans {
+  readonly sheets: Map<string, readonly CssToken[]>;
+  readonly declarations: Map<string, readonly CssToken[]>;
+}
+
+/**
  * Visits the references to files that a page's images, media, fonts, and
  * scripts load, in document order: their attributes, then `<style>` elements
  * and `style` attributes, which resolve against their own base
@@ -2010,15 +2041,16 @@ async function visitFileReferences(
   { node: root, parsedBase, preferred }: PageRoot,
   baseUrl: string,
   visit: Visit,
-  scans: Map<string, readonly CssToken[]>,
+  scans: ReferenceScans,
 ): Promise<void> {
   // Both passes visit the same references, and only those are kept between
   // them: a whole scan holds an object for every few bytes of CSS.
-  const urls = (css: string): readonly CssToken[] => {
-    let found = scans.get(css);
+  const urls = (css: string, declarations: boolean): readonly CssToken[] => {
+    const kept = declarations ? scans.declarations : scans.sheets;
+    let found = kept.get(css);
     if (!found) {
-      found = cssReferences(cssTokens(css));
-      scans.set(css, found);
+      found = cssReferences(declarations ? declarationTokens(css) : cssTokens(css));
+      kept.set(css, found);
     }
     return found;
   };
@@ -2040,12 +2072,12 @@ async function visitFileReferences(
   }
   for (const style of styleElements(root, preferred)) {
     const css = styleText(style);
-    const replaced = await visitCssUrls(css, parsedBase(style), visit, urls(css));
+    const replaced = await visitCssUrls(css, parsedBase(style), visit, urls(css, false));
     if (replaced !== css) setStyleText(style, replaced);
   }
   for (const element of root.querySelectorAll("[style]")) {
     const css = element.getAttribute("style") ?? "";
-    const replaced = await visitCssUrls(css, parsedBase(element), visit, urls(css));
+    const replaced = await visitCssUrls(css, parsedBase(element), visit, urls(css, true));
     if (replaced !== css) element.setAttribute("style", replaced);
   }
 }
@@ -2064,7 +2096,7 @@ async function copyReferencedFiles(
   vaultUrl: string,
 ): Promise<CopiedFiles> {
   const copier = new FileCopier(files, vaultUrl);
-  const scans = new Map<string, readonly CssToken[]>();
+  const scans: ReferenceScans = { sheets: new Map(), declarations: new Map() };
   for (const root of roots) await visitFileReferences(root, baseUrl, copier.note, scans);
   copier.plan();
   for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy, scans);

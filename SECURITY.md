@@ -121,6 +121,12 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   applies, and each read and copy passes the same vault-path, `.css`, file-type, and limit checks
   ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
 
+  **Unreleased (#194):** a `style` attribute is read closed at its end, as CSS reads it, so that a
+  string or a `url(` that its end leaves open names a file, which **Local files with scripts on**
+  copies, by the same file types, limits, and vault-only paths as any `url()`'s. Version 0.6.0
+  copies nothing for such a reference, which browsers load
+  ([#194](https://github.com/viell-dev/slop-html-page-viewer/issues/194)).
+
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
   files, that only CSS strings or comments named, or that imports named which never apply: one
   after a style rule, and one into a cascade layer written with a comment or an escape before

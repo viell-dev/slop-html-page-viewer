@@ -120,6 +120,13 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   an unquoted URL at the end of a linked stylesheet is that stylesheet's, resolved from its folder
   ([#155](https://github.com/viell-dev/slop-html-page-viewer/issues/155)).
 
+  **Unreleased (#194):** so does a `style` attribute: a string or a `url(` that its end leaves open,
+  as in `style='background-image: url("icon.png'`, names its file, which browsers load. Before a
+  later `<base>`, it resolves from the page's folder, a name that does not resolve as a path is
+  found by name, and with **Local files with scripts on** its file is copied. The attribute keeps
+  its text, apart from such a reference
+  ([#194](https://github.com/viell-dev/slop-html-page-viewer/issues/194)).
+
   **Unreleased (#179):** a string in `image-set()` or `-webkit-image-set()`, as in
   `image-set("icon.png" 1x, "icon@2x.png" 2x)`, names a file as a `url()` does: in a linked or
   imported stylesheet, it resolves from that stylesheet's folder, a name that does not resolve as a

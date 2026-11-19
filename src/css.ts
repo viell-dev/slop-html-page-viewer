@@ -335,9 +335,10 @@ const URL_STRING_FUNCTIONS = ["image-set", "-webkit-image-set"];
  * string inside another function or block there, such as the MIME type of
  * `image-set("a.avif" type("image/avif"))`, is not one. A string that the
  * end of the text left open is not one either, as a quoted `url(` left open
- * there is not a URL token (`consumeUrl`); the end of a stylesheet closes
- * both (`cssEnd`). Like URL tokens, these are found whether or not the
- * declaration around them is valid: telling that would mean evaluating CSS.
+ * there is not a URL token (`consumeUrl`); the end of a stylesheet, and of a
+ * `style` attribute, closes both (`cssEnd`, `cssDeclarationsEnd`). Like URL
+ * tokens, these are found whether or not the declaration around them is
+ * valid: telling that would mean evaluating CSS.
  */
 export function cssReferences(tokens: readonly CssToken[]): CssToken[] {
   const references: CssToken[] = [];
@@ -668,10 +669,38 @@ export function importStop(tokens: readonly CssToken[], from: number, to: number
 }
 
 /**
- * What a stylesheet leaves open at its end, which CSS closes there, whether it
- * has a `}` outside any block, and its markers; see {@link CssEnd}. A `\` at the end
+ * The text that closes the token that the end of the text leaves open: a
+ * comment, a string, or an unquoted URL, or an escape. A `\` at the end
  * stands for U+FFFD, or for nothing in a string, so the closers start with
  * what keeps that meaning and keeps the `\` from escaping them.
+ */
+function tokenCloser(css: string, tokens: readonly CssToken[]): string {
+  const last = tokens.at(-1);
+  let backslashes = 0;
+  while (css[css.length - 1 - backslashes] === "\\") backslashes++;
+  const escape = backslashes % 2 === 1 && last?.kind !== "comment";
+  if (last?.open && last.kind === "comment") return "*/";
+  if (last?.open && last.kind === "string") return (escape ? "\n" : "") + css[last.start];
+  if (last?.open) return (escape ? REPLACEMENT_CHARACTER : "") + ")";
+  return escape ? REPLACEMENT_CHARACTER : "";
+}
+
+/**
+ * The text that closes what a list of declarations, such as a `style`
+ * attribute's, leaves open at its end, as CSS closes it there (#194): the
+ * token that the end leaves open (`tokenCloser`), then the blocks still open,
+ * functions among them, innermost first. Unlike a stylesheet (`cssEnd`), it
+ * has no rule to end: a declaration ends with the text.
+ */
+export function cssDeclarationsEnd(css: string, tokens: readonly CssToken[]): string {
+  const blocks: string[] = [];
+  for (const token of tokens) nest(blocks, token);
+  return tokenCloser(css, tokens) + blocks.reverse().join("");
+}
+
+/**
+ * What a stylesheet leaves open at its end, which CSS closes there, whether it
+ * has a `}` outside any block, and its markers; see {@link CssEnd}.
  */
 export function cssEnd(css: string, tokens: readonly CssToken[]): CssEnd {
   let strayCloser = false;
@@ -688,15 +717,7 @@ export function cssEnd(css: string, tokens: readonly CssToken[]): CssEnd {
     if (rule.ending === "end") pending = rule;
     i = rule.end;
   }
-  const last = tokens.at(-1);
-  let backslashes = 0;
-  while (css[css.length - 1 - backslashes] === "\\") backslashes++;
-  const escape = backslashes % 2 === 1 && last?.kind !== "comment";
-  let closers = "";
-  if (last?.open && last.kind === "comment") closers = "*/";
-  else if (last?.open && last.kind === "string") closers = (escape ? "\n" : "") + css[last.start];
-  else if (last?.open) closers = (escape ? REPLACEMENT_CHARACTER : "") + ")";
-  else if (escape) closers = REPLACEMENT_CHARACTER;
+  let closers = tokenCloser(css, tokens);
   if (pending !== null) {
     closers += [...pending.blocks].reverse().join("");
     if (!pending.block) closers += tokens[pending.start].kind === "at-keyword" ? ";" : "{}";
