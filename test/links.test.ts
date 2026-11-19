@@ -122,6 +122,18 @@ describe("watchLinks", () => {
     ]);
   });
 
+  it("opens the reference that HTML strips of its ASCII whitespace, keeping other spaces (#199)", () => {
+    const { calls, click } = setUp(
+      `<a id="ascii" href="&#10; Other%20page.html&#9;&#12;">ascii</a><a id="nbsp" href="&nbsp;Other%20page.html">nbsp</a>`,
+    );
+    click("ascii");
+    click("nbsp");
+    assert.deepEqual(calls, [
+      "vault Saved/Other page.html false Other%20page.html",
+      "vault Saved/ Other page.html false  Other%20page.html",
+    ]);
+  });
+
   it("refuses links outside the vault", () => {
     const { calls, click } = setUp();
     assert.equal(click("escape"), true);

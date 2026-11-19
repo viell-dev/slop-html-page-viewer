@@ -885,13 +885,18 @@ function preparedSrcset(
 
 /**
  * A link's reference: its `href`, which wins over the legacy `xlink:href`,
- * a reference only on SVG elements. Clicks and tooltips read links alike.
+ * a reference only on SVG elements, without the ASCII whitespace that
+ * Chromium strips from its ends (`stripSpaces`). It keeps U+00A0 and the
+ * other spaces of JavaScript's `trim`, which Chromium resolves as part of the
+ * URL (#199). Clicks and tooltips read links alike, so that a tooltip names
+ * the file that a click opens, also when Obsidian's link resolution finds it
+ * by name.
  */
 export function linkReference(link: Element): string | null {
-  return (
+  const reference =
     link.getAttribute("href") ??
-    (link.namespaceURI === SVG_NAMESPACE ? link.getAttributeNS(XLINK_NAMESPACE, "href") : null)
-  );
+    (link.namespaceURI === SVG_NAMESPACE ? link.getAttributeNS(XLINK_NAMESPACE, "href") : null);
+  return reference === null ? null : stripSpaces(reference);
 }
 
 /**
@@ -951,8 +956,8 @@ function addTooltips(root: ParentNode, baseUrl: string, context: PageContext): v
   for (const link of root.querySelectorAll("a, area")) {
     const svg = link.namespaceURI === SVG_NAMESPACE;
     if (svg ? keepsSvgLink(link) : link.hasAttribute("title")) continue;
-    const reference = linkReference(link)?.trim();
-    if (reference === undefined) continue;
+    const reference = linkReference(link);
+    if (reference === null) continue;
     const absolute = resolve(reference, baseUrl);
     const tooltip = absolute === null ? null : linkTooltip(reference, absolute, context);
     if (tooltip === null) continue;

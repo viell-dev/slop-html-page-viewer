@@ -121,6 +121,10 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   as browsers do in a longer page, instead of from the `<base>`'s folder. Their names that do not
   resolve as paths are found by name, and with **Local files with scripts on** their files are
   copied, so that such backgrounds and filter images show, and such scripts run (#198).
+- The tooltip of a link whose `href` starts or ends with a no-break space, or another space that
+  HTML keeps in a URL, names the file that a click on it opens, whose name has that space, instead
+  of a file without it. A click hands Obsidian's link resolution the reference with only the ASCII
+  whitespace at its ends removed, as the tooltip uses it (#199).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

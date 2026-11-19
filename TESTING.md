@@ -526,6 +526,16 @@ the images of the names with U+00A0. In the viewer, the copy applies and reads t
 ASCII whitespace, and with scripts on and files copied, it shows those images, not the files of the
 names without U+00A0.
 
+**Unreleased (#199):** `document.test.ts` checks that a link's tooltip names the file that its
+`href` resolves to with only ASCII whitespace stripped from its ends: with a no-break space before
+its name, the file of the name with it, also where only the name without it would be found by
+name, and with line feeds, spaces, tabs, and form feeds, the file of the name without them.
+`links.test.ts` checks that a click opens the same file and hands Obsidian's link resolution the
+same reference. `links.e2e.ts` checks in Obsidian 1.5.3 and the latest a page with such links, a
+file whose name starts with U+00A0, written into the vault by its exact name, and a decoy without
+it: each tooltip names the vault path of the URL that Chromium resolves its link to, and a click
+opens the file with U+00A0.
+
 ## Shown to fail
 
 On 2026-10-21, each of these deliberate breakages failed the check named:
@@ -1242,6 +1252,12 @@ checks named in `document.test.ts`:
   of copying and the test of the checks.
 - Copying an SVG `<use>`'s file: the #187 test of copying and the test of namespaces.
 - Reading an attribute on the elements of every namespace: the test of namespaces.
+
+**Unreleased (#199):** On 2026-11-19, `main` at `eb926d3` failed the new test of `links.e2e.ts` in
+Obsidian 1.5.3 and 1.15.1: the tooltip of the link with U+00A0 named the decoy without it, where
+Chromium resolved the link to the file with it. Restoring `main`'s reads, a click's `href` as
+written and a tooltip's trimmed with `trim`, and trimming both with `trim`, each failed both new
+tests, in `document.test.ts` and `links.test.ts`.
 
 Since #155, a link and an import of the same URL share one kept text, so the #154 entry above for
 one kept text describes a breakage of that time, not of the current checkout.

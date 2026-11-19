@@ -3921,6 +3921,22 @@ describe("tooltips", () => {
     ]);
   });
 
+  it("names the file of an href stripped of ASCII whitespace only, as a click opens it (#199)", async () => {
+    // Chromium keeps U+00A0 at an end of a link's URL, which trim would remove.
+    const html = [
+      `<a href="&nbsp;Other%20page.html">no-break space</a>`,
+      `<a href="&#10; Other%20page.html&#9;&#12;">ASCII whitespace</a>`,
+      `<a href="&nbsp;glossary.html">by name, only without the space</a>`,
+      `<a href="glossary.html&#8195;">an em space at its end</a>`,
+    ].join("");
+    assert.deepEqual(await titles(html, "a"), [
+      "Saved/ Other page.html",
+      "Saved/Other page.html",
+      "Saved/ glossary.html",
+      "Saved/glossary.html ",
+    ]);
+  });
+
   it("resolves links against the page's own base, as the frame does", async () => {
     const html = `<base href="https://example.com/docs/"><a href="guide.html">guide</a>`;
     assert.deepEqual(await titles(html, "a"), ["https://example.com/docs/guide.html"]);
