@@ -336,7 +336,8 @@ type SideName = "source" | "page";
  * makes it report a scroll of its own, which is passed over if the side is
  * still where it landed, which a page that snaps can make other than where it
  * was sent. A report that comes from somewhere else is a scroll of the
- * user's, made in the same frame, and the other side follows it.
+ * user's, made in the same frame, and the other side follows it. `follow` is
+ * called once for each lead, so a mapping may record the lead it was given.
  */
 export class ScrollFollower {
   /** The side that waits to lead, until the next call of `schedule` runs. */

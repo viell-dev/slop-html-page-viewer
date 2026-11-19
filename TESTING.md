@@ -672,7 +672,10 @@ starts left neither test a step after it, and the screenshot was taken.
   have their height without app.css, so holding it back moves nothing, and the test cannot show a
   drift there. In the test, the styles mostly arrive more than 250 ms after the view measured the
   sides, when the view measures them again by itself at the next scroll, so only `split.test.ts`
-  holds that the view measures both sides again at once. The other tests of a move allow a line
+  holds that the view measures both sides again at once, and only it holds the guards on keeping
+  the source's line and the page's following of it. A source that the reader scrolled to its start
+  or its end in the fraction of a second before the styles arrive leaves it: to its first line's
+  top, 10 pixels down, or a line or so above its end. The other tests of a move allow a line
   between the sides.
 - **Unreleased (#162):** `move.e2e.ts` checks the find bar's matches after a move by the highlights
   that the source's window holds and the boxes of their ranges, not by the pixels painted.
