@@ -762,13 +762,30 @@ const RESOURCE_ATTRIBUTES: Record<string, readonly string[]> = {
 };
 
 /**
+ * HTML's ASCII whitespace, as the inside of a character class: what HTML
+ * splits a `rel` or a `srcset` on and strips from either end of a value
+ * (#192). JavaScript's `\s` also matches U+00A0 and the other Unicode spaces,
+ * which HTML keeps in a value.
+ */
+const HTML_SPACE = String.raw`\t\n\f\r `;
+
+/** A run of HTML's whitespace (`HTML_SPACE`), on which `rel` is split. */
+const HTML_SPACE_RUN = new RegExp(`[${HTML_SPACE}]+`);
+
+/** HTML's whitespace (`HTML_SPACE`) at either end of a value. */
+const HTML_SPACE_AT_ENDS = new RegExp(`^[${HTML_SPACE}]+|[${HTML_SPACE}]+$`, "g");
+
+/**
  * A URL in a `srcset`, with the comma and the space before it. A URL itself
  * can contain commas, as a `data:` URL does; a comma that ends it is left for
- * the next URL, which starts after it. HTML splits a `srcset` on ASCII
- * whitespace only, so a URL can hold U+00A0 and the other spaces that
- * JavaScript's `\s` also matches (#192).
+ * the next URL, which starts after it. HTML splits a `srcset` on its
+ * whitespace only (`HTML_SPACE`), so a URL can hold U+00A0 and the other
+ * spaces that JavaScript's `\s` also matches (#192).
  */
-const SRCSET_URL = /(^|,)([\t\n\f\r ]*)([^\t\n\f\r ,][^\t\n\f\r ]*?)(?=,?(?:[\t\n\f\r ]|$))/g;
+const SRCSET_URL = new RegExp(
+  `(^|,)([${HTML_SPACE}]*)([^${HTML_SPACE},][^${HTML_SPACE}]*?)(?=,?(?:[${HTML_SPACE}]|$))`,
+  "g",
+);
 
 /**
  * A resource attribute's reference as the copy has it, or `written`, its
@@ -1495,7 +1512,7 @@ function styleElements(root: ParentNode, preferred: StylesheetSet): Element[] {
  * parser keeps a carriage return only from a character reference.
  */
 function linkTypes(link: Element): string[] {
-  return asciiLowercase(link.getAttribute("rel") ?? "").split(/[\t\n\f\r ]+/);
+  return asciiLowercase(link.getAttribute("rel") ?? "").split(HTML_SPACE_RUN);
 }
 
 /**
@@ -1523,7 +1540,7 @@ function inStylesheetSet(element: Element, preferred: StylesheetSet): boolean {
  * escaped (#192). Resolving the URL strips the C0 controls left around it.
  */
 function stripSpaces(value: string): string {
-  return value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, "");
+  return value.replace(HTML_SPACE_AT_ENDS, "");
 }
 
 /**
