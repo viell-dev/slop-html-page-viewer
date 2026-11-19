@@ -391,6 +391,11 @@ export class ScrollFollower {
     this.landed[side] = this.sides[side].position();
   }
 
+  /** The side that waits to lead, or else the side that led last, or null before any led. */
+  get leading(): SideName | null {
+    return this.leader ?? this.led;
+  }
+
   /**
    * Has the side that led last lead again, from where it is now, as after
    * the sides were laid out anew, so that `follow` maps them differently

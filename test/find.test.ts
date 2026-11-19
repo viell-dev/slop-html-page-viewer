@@ -376,6 +376,22 @@ describe("the find bar", () => {
     press(field, "Escape");
   });
 
+  it("stays on its match when Enter comes before the searches of several keys it waited for", async () => {
+    const { view } = await sourceView();
+    button(view, "Find in page").click();
+    const field = input(view);
+    for (const text of ["pa", "pag", "page"]) {
+      field.value = text;
+      field.dispatchEvent(new window.Event("input"));
+    }
+    press(field, "Enter");
+    press(field, "Enter");
+    assert.equal(count(view), "2 of 3");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(count(view), "2 of 3");
+    press(field, "Escape");
+  });
+
   it("keeps text typed just before the view changes, and searches the next file in the tab", async () => {
     const { harness, view } = await sourceView();
     button(view, "Find in page").click();
@@ -604,7 +620,7 @@ describe("the find bar", () => {
           await new Promise((resolve) => setTimeout(resolve, 200));
           assert.equal(count(view), "2 of 3");
         } finally {
-          view.contentEl.remove();
+          close(view);
           popout.close();
         }
       });
@@ -625,7 +641,7 @@ describe("the find bar", () => {
           await new Promise((resolve) => setTimeout(resolve, 200));
           assert.equal(count(view), "2 of 3");
         } finally {
-          view.contentEl.remove();
+          close(view);
           popout.close();
         }
       });
@@ -646,9 +662,7 @@ describe("the find bar", () => {
           await new Promise((resolve) => setTimeout(resolve, 200));
           assert.equal(count(view), "1 of 3");
         } finally {
-          press(input(view), "Escape");
-          highlights().clear();
-          view.contentEl.remove();
+          close(view);
         }
       });
     });

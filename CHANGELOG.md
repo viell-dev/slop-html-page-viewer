@@ -43,7 +43,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   first match a moment later. After the tab moves out of a window that then closes, the find bar
   searches what is typed again without waiting for Enter (#175).
 - On Obsidian 1.5.3, the split view's two sides stay in step after its tab moves to a new window,
-  instead of ending a line or two apart once Obsidian's styles have arrived in the window (#165).
+  instead of ending a line or two apart once Obsidian's styles have arrived in the window. A source
+  that the reader has scrolled by then stays at their line, and the page follows it (#165).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 

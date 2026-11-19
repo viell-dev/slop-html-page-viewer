@@ -77,8 +77,9 @@ interface FrameHistory {
 /**
  * How long after a split view shows its page in a new window the view waits
  * for the source's lines to be laid out again, when Obsidian's styles arrive
- * there (#165). On Obsidian 1.5.3, its app.css arrived 134 to 473 ms after
- * the window opened, and up to 186 ms after the view showed the page.
+ * there (#165). In moves on Obsidian 1.5.3 in Docker, which #165 and #176
+ * record, the lines changed 111 to 277 ms after the view showed the page, and
+ * up to 897 ms after it when a test held app.css back on a busy machine.
  */
 const NEW_WINDOW_SETTLING = 2000;
 
@@ -1102,6 +1103,8 @@ class HtmlPageViewerView extends TextFileView {
     );
     const scroll = (target: Element | Window, top: number): void =>
       scrollInstantly(target, root, { top });
+    /** Where the source last led from, and the line at its top there by the line tops of then (#165). */
+    let sourceLed: { readonly top: number; readonly line: number } | null = null;
     const follower = new ScrollFollower(
       {
         source: {
@@ -1116,7 +1119,11 @@ class HtmlPageViewerView extends TextFileView {
         },
       },
       {
-        source: (top) => pageTopForLine(points(), lineAtTop(lineTops(), top)),
+        source: (top) => {
+          const line = lineAtTop(lineTops(), top);
+          sourceLed = { top, line };
+          return pageTopForLine(points(), line);
+        },
         page: (top) => {
           const line = lineForPageTop(points(), top);
           return line === null ? null : topOfLine(lineTops(), line);
@@ -1140,9 +1147,23 @@ class HtmlPageViewerView extends TextFileView {
       onFirstResize(
         content,
         () => {
+          // A source that led last keeps the line that it led from, where
+          // the reader or the find bar put it, if it is still where it led
+          // from: the change moved its lines, and left it where it was in
+          // pixels. One that Chromium has scrolled meanwhile, as scroll
+          // anchoring would, leads from where it is.
+          const kept =
+            follower.leading === "source" && sourceLed?.top === source.scrollTop
+              ? sourceLed.line
+              : null;
           points.again();
           lineTops.again();
-          follower.again();
+          if (kept === null) {
+            follower.again();
+            return;
+          }
+          scroll(source, Math.round(topOfLine(lineTops(), kept)));
+          follower.placed("source");
         },
         signal,
         NEW_WINDOW_SETTLING,

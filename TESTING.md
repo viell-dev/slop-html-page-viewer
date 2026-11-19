@@ -99,7 +99,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | **Unreleased (#162):** The find bar shows its matches in the source again after its tab moves to another tab group or window, without scrolling                                    | `find.test.ts`: another tab group, a new window, not the rendered page                                                                                                    | `move.e2e.ts`: another tab group and a new window, then Enter                                                                          |
 | **Unreleased (#167):** The source stays where the find bar scrolls it, and goes back after a move that comes with a modifier key in it                                             | `source.test.ts`: the find bar's scroll before Chromium reports it; modifier keys; `move.test.ts`                                                                         | `move.e2e.ts`: the find bar's scroll to the start; a modifier key in the task of the move                                              |
 | **Unreleased (#175):** After its tab moves to another window, Enter cancels the find bar's delayed search; after a move out of a window that closes, the bar still searches        | `find.test.ts`: Enter in a new window, also after typing before the move; typing after a move out of a window that closed                                                 | `move.e2e.ts`: typing and Enter in a new window; typing after the move back                                                            |
-| **Unreleased (#165):** The split view's sides stay in step in a new window when Obsidian's styles arrive there after the view has followed the page                                | `split.test.ts`: the first resize of the source's lines soon after a move to a new window, by that window's observer; none after a move in its window                     | `move.e2e.ts`: the new window's app.css held back until the view has followed the page                                                 |
+| **Unreleased (#165):** The split view's sides stay in step in a new window when Obsidian's styles arrive there after the view has followed the page                                | `split.test.ts`: the first resize of the source's lines soon after a move to a new window; a source that led keeps its line; none in one window                           | `move.e2e.ts`: the new window's app.css held back until the view has followed the page or the reader                                   |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                        |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                              |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                          |
@@ -419,25 +419,35 @@ modifier key's test in 1.5.3. Each of these deliberate breakages failed a unit t
 - Modifier keys counting as the reader's input: in the source's guard, `source.test.ts`; in placing
   the page again when it loads and in the watch of the reader, `move.test.ts`.
 
-**Unreleased (#165, #175):** On 2026-11-19, with the view as `main` at `1d80ca5` has it, three of
+**Unreleased (#165, #175):** On 2026-11-19, with the view as `main` at `1d80ca5` has it, four of
 `move.e2e.ts`'s tests failed, and the others passed:
 
 - In Obsidian 1.5.3 and 1.15.1, both tests of the find bar's delay. In a new window, after typing
   and Enter twice, the bar said "1 of 11" in place of "2 of 11" a second later. After the move back
   from the new window, which closed, the bar had found nothing a second after the typing.
-- In 1.5.3, the test of the split view in a new window whose app.css arrives after the view has
-  followed the page, in 4 of 4 runs: the source stayed at 409 px, where line 20 was before app.css,
-  while line 20 was at 384 px. It passed in 1.15.1, where the source's line stays at its top as
-  app.css arrives. Without holding app.css back, 1.5.3 laid the source out without it when the
-  view showed the page in the first 2 of 6 moves of a session.
+- In 1.5.3, both tests of the split view in a new window whose app.css arrives after the view has
+  followed the page, in 7 of 7 runs and 3 of 3 runs. Without the reader, the source stayed at
+  409 px, where line 20 was before app.css, while line 20 was at 384 px. After the reader's scroll
+  to line 25, the source stayed at 509 px, 31 px below line 25. Both passed in 1.15.1, where
+  holding app.css back does not move the source's lines, which have their height without it.
+  Without holding app.css back, 1.5.3 laid the source out without it when the view showed the page
+  in the first 2 of 6 moves of a session.
 
-Each of these deliberate breakages failed a unit test:
+The view as this change first had it, at `9882fa6`, failed the test with the reader's scroll in
+1.5.3, in 3 of 3 runs, the same way: it had the source lead again from 509 px, and the page left
+paragraph 17. Each of these deliberate breakages failed a unit test:
 
-- Clearing the find bar's timer through the view's window, and setting it through the window that
-  the bar was made in: `find.test.ts`.
-- In the split view: not putting the sides in step again, doing so after every move, or doing so
-  without measuring the source or the page again or without a side leading again; the page leading
-  again whatever led last; and leading again while a side waits to lead. `split.test.ts`.
+- Clearing the find bar's timer through the view's window, setting it through the window that the
+  bar was made in, and not cancelling it at the next key: `find.test.ts`.
+- In the split view: not putting the sides in step again, or doing so after every move or without
+  recording the window; doing so without measuring the source or the page again, or without a side
+  leading again; not keeping the line of a source that led last, keeping it also after Chromium
+  scrolled the source or whatever led last, or not having the page follow it; a lead that waits
+  taken for none; the observer's signal that never aborts; and a time limit of 0 ms or an hour.
+  `split.test.ts`.
+- In the follower: the page leading again whatever led last; leading again while a side waits to
+  lead; and the last leader recorded only when the other side moved, or had a target.
+  `split.test.ts`.
 - Watching the first resize with an observer of the plugin's window, without a time limit, after
   the signal or the first change, from the first report whatever its size, or by the height only;
   and not measuring again when asked. `split.test.ts`.
@@ -653,16 +663,26 @@ starts left neither test a step after it, and the screenshot was taken.
   **Unreleased (#165):** In a new window, Obsidian 1.5.3 lays the split view's source out before
   Obsidian's app.css arrives there, and in some moves the view puts the sides in step for that
   layout, whose lines then move. The view puts the sides in step again at the first size change of
-  the source's lines within 2 seconds of showing the page there; styles that arrive later, and later
-  changes of the layout, leave the sides as they are until the next scroll. `move.e2e.ts` holds the
-  new window's app.css back until the view has followed the page, in every run and in both
-  versions, while 1.15.1 has it from the window's first layout. The other tests of a move allow a
-  line between the sides.
+  the source's lines within 2 seconds of showing the page there. The page leads again, or, where
+  the reader scrolled the source last, the source keeps their line and the page follows it; a
+  source that Chromium has scrolled since, as scroll anchoring would, leads from where it is.
+  Styles that arrive later, and later changes of the layout, leave the sides as they are until the
+  next scroll. `move.e2e.ts` holds the new window's app.css back until the view has followed the
+  page, and then the reader's scroll of the source, in every run. On 1.15.1 the source's lines
+  have their height without app.css, so holding it back moves nothing, and the test cannot show a
+  drift there. In the test, the styles mostly arrive more than 250 ms after the view measured the
+  sides, when the view measures them again by itself at the next scroll, so only `split.test.ts`
+  holds that the view measures both sides again at once. The other tests of a move allow a line
+  between the sides.
 - **Unreleased (#162):** `move.e2e.ts` checks the find bar's matches after a move by the highlights
   that the source's window holds and the boxes of their ranges, not by the pixels painted.
   `find.e2e.ts` checks what Chromium paints in a page. `move.e2e.ts` moves the **Source** view; the
   split view with scripts on, whose source the same code searches again, is tested only in
   `find.test.ts`.
+- **Unreleased (#175):** A key typed into the find bar in the same task as its tab's move out of a
+  window that then closes is not searched, since its delay runs in that window. Enter searches it,
+  and the next key does after its delay. `move.e2e.ts` and `find.test.ts` type into the bar after
+  such a move, or before a move to a window that stays open.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`

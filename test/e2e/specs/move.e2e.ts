@@ -628,74 +628,142 @@ interface HeldStyles {
   /** Whether it held back the new window's app.css, and let it apply again. */
   held: boolean;
   released: boolean;
-  /** Whether the source was at the line, laid out without app.css, when app.css applied again. */
+  /**
+   * Whether the view had put the source at the line, laid out without
+   * app.css, and with a reader, whether the page had followed their scroll of
+   * the source, when app.css applied again.
+   */
   followed: boolean;
+  read: boolean;
+  /** How far down the page was when app.css applied again, after the reader's scroll. */
+  pageY: number | null;
+}
+
+/** A reader's scroll of the split view's source to `line`, which paragraph `paragraph` is on. */
+interface ReaderLine {
+  readonly line: number;
+  readonly paragraph: number;
 }
 
 /**
  * Has the next window that Obsidian opens lay its elements out without
  * Obsidian's app.css until the split view's source of the tab that
  * moveActiveTab moves there shows line `number` at its top, as the view's
- * following of the page puts it; then app.css applies, in the window's next
+ * following of the page puts it. With `reader`, the reader then turns the
+ * wheel over the source and scrolls it to their line, and app.css waits
+ * until the page has followed. Then app.css applies, in the window's next
  * frame. Obsidian opens a new window with `window.open` and then adds its
  * styles; on Obsidian 1.5.3, app.css can arrive there after the view has put
- * the sides in step (#165).
+ * the sides in step (#165). restoreWindowOpen ends the wrap of `window.open`
+ * if no window opened.
  */
-async function holdNewWindowStyles(number: number): Promise<void> {
-  await browser.execute((number) => {
-    const state: HeldStyles = { held: false, released: false, followed: false };
-    (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles = state;
-    const open = window.open;
-    window.open = function (this: Window, ...args: Parameters<typeof window.open>) {
-      window.open = open;
-      const win = open.apply(this, args) as (Window & typeof globalThis) | null;
-      if (!win) return win;
-      const release = (link: Element): void => {
-        const until = performance.now() + 10_000;
-        const check = (): void => {
-          const source = win.document.querySelector<HTMLElement>(
-            ".html-page-viewer__split .html-page-viewer__source",
-          );
-          const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[
-            number - 1
-          ];
-          const doc =
-            win.document.querySelector<HTMLIFrameElement>(
-              "iframe[data-e2e-moved]",
-            )?.contentDocument;
-          state.followed =
-            source !== null &&
-            line !== undefined &&
-            doc?.URL === "about:srcdoc" &&
-            doc.documentElement.dataset.e2eBefore === undefined &&
-            source.scrollTop > 0 &&
-            Math.abs(source.scrollTop - line.offsetTop) <= 2;
-          if (!state.followed && performance.now() < until) {
-            win.requestAnimationFrame(check);
-            return;
-          }
-          link.removeAttribute("media");
-          state.released = true;
-        };
-        win.requestAnimationFrame(check);
+async function holdNewWindowStyles(number: number, reader?: ReaderLine): Promise<void> {
+  await browser.execute(
+    (number, reader) => {
+      const state: HeldStyles = {
+        held: false,
+        released: false,
+        followed: false,
+        read: false,
+        pageY: null,
       };
-      // Before the window's next layout: a mutation observer runs once the
-      // script that adds the link has.
-      new win.MutationObserver((records, observer) => {
-        for (const record of records)
-          for (const node of record.addedNodes) {
-            if (node.nodeName !== "LINK" || (node as Element).getAttribute("href") !== "app.css")
-              continue;
-            observer.disconnect();
-            (node as Element).setAttribute("media", "not all");
-            state.held = true;
-            release(node as Element);
-            return;
-          }
-      }).observe(win.document, { childList: true, subtree: true });
-      return win;
-    } as typeof window.open;
-  }, number);
+      const main = window as unknown as {
+        e2eHeldStyles: HeldStyles;
+        e2eWindowOpen?: typeof window.open;
+      };
+      main.e2eHeldStyles = state;
+      const open = window.open;
+      main.e2eWindowOpen = open;
+      window.open = function (this: Window, ...args: Parameters<typeof window.open>) {
+        window.open = open;
+        delete main.e2eWindowOpen;
+        const win = open.apply(this, args) as (Window & typeof globalThis) | null;
+        if (!win) return win;
+        const release = (link: Element): void => {
+          const until = performance.now() + 10_000;
+          let scrolled = false;
+          const check = (): void => {
+            const source = win.document.querySelector<HTMLElement>(
+              ".html-page-viewer__split .html-page-viewer__source",
+            );
+            const lines = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line");
+            const doc =
+              win.document.querySelector<HTMLIFrameElement>(
+                "iframe[data-e2e-moved]",
+              )?.contentDocument;
+            // The frame's next document has its URL before its root element.
+            const root = doc?.URL === "about:srcdoc" ? doc.documentElement : null;
+            const at = (number: number): boolean => {
+              const line = lines?.[number - 1];
+              return (
+                source !== null &&
+                line !== undefined &&
+                source.scrollTop > 0 &&
+                Math.abs(source.scrollTop - line.offsetTop) <= 2
+              );
+            };
+            if (!state.followed)
+              state.followed = root !== null && root.dataset.e2eBefore === undefined && at(number);
+            if (state.followed && reader && !state.read) {
+              if (!scrolled) {
+                scrolled = true;
+                // In a task, as the reader's wheel is, which Chromium reports
+                // before the next frame's callbacks, such as the view's
+                // following of the page that it placed at `load`.
+                win.setTimeout(() => {
+                  source!.dispatchEvent(
+                    new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 100 }),
+                  );
+                  source!.scrollTop = lines![reader.line - 1].offsetTop;
+                }, 0);
+              } else {
+                const shown = [...doc!.querySelectorAll("p")].find(
+                  (paragraph) => paragraph.getBoundingClientRect().bottom > 1,
+                );
+                const paragraph = Number(/Paragraph (\d+)/.exec(shown?.textContent ?? "")?.[1]);
+                state.read = paragraph === reader.paragraph && at(reader.line);
+                if (state.read) state.pageY = doc!.defaultView!.scrollY;
+              }
+            }
+            const done = state.followed && (!reader || state.read);
+            if (!done && performance.now() < until) {
+              win.requestAnimationFrame(check);
+              return;
+            }
+            link.removeAttribute("media");
+            state.released = true;
+          };
+          win.requestAnimationFrame(check);
+        };
+        // Before the window's next layout: a mutation observer runs once the
+        // script that adds the link has.
+        new win.MutationObserver((records, observer) => {
+          for (const record of records)
+            for (const node of record.addedNodes) {
+              if (node.nodeName !== "LINK" || (node as Element).getAttribute("href") !== "app.css")
+                continue;
+              observer.disconnect();
+              (node as Element).setAttribute("media", "not all");
+              state.held = true;
+              release(node as Element);
+              return;
+            }
+        }).observe(win.document, { childList: true, subtree: true });
+        return win;
+      } as typeof window.open;
+    },
+    number,
+    reader ?? null,
+  );
+}
+
+/** Ends holdNewWindowStyles' wrap of `window.open`, where no window has opened since. */
+async function restoreWindowOpen(): Promise<void> {
+  await browser.execute(() => {
+    const main = window as unknown as { e2eWindowOpen?: typeof window.open };
+    if (main.e2eWindowOpen) window.open = main.e2eWindowOpen;
+    delete main.e2eWindowOpen;
+  });
 }
 
 /** Waits for two animation frames of the window that the tab moveActiveTab moved is in. */
@@ -1209,50 +1277,68 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
 
   // On Obsidian 1.5.3, a new window can lay the source out before Obsidian's
   // app.css arrives there, and the view puts the sides in step for that
-  // layout; the source's lines move up when the styles arrive. The test
-  // holds app.css back in every run, on 1.15.1 too, where it is there from
-  // the window's first layout.
-  it("keeps the split view's sides in step in a new window once Obsidian's styles arrive there (#165)", async function () {
-    await openLongPageSplit();
-    await nextFrames();
-    const styled = await browser.execute((active) => {
-      const pre = document.querySelector(
-        `${active} .html-page-viewer__split .html-page-viewer__source pre`,
-      )!;
-      const style = getComputedStyle(pre);
-      return { font: style.fontFamily, lineHeight: style.lineHeight };
-    }, ACTIVE);
+  // layout; the source's lines move up when the styles arrive. The test holds
+  // app.css back in every run. On 1.15.1, the source's lines have their
+  // height without app.css, so holding it back moves nothing, and the test
+  // cannot show a drift there. Where the reader scrolled the source last, the
+  // source keeps their line, and the page stays where it followed them.
+  for (const [what, reader, line, paragraph] of [
+    ["", undefined, 20, 12],
+    [", after the reader scrolled its source there", { line: 25, paragraph: 17 }, 25, 17],
+  ] as const) {
+    it(`keeps the split view's sides in step in a new window once Obsidian's styles arrive there${what} (#165)`, async function () {
+      await openLongPageSplit();
+      await nextFrames();
+      const styled = await browser.execute((active) => {
+        const pre = document.querySelector(
+          `${active} .html-page-viewer__split .html-page-viewer__source pre`,
+        )!;
+        const style = getComputedStyle(pre);
+        return { font: style.fontFamily, lineHeight: style.lineHeight };
+      }, ACTIVE);
 
-    await holdNewWindowStyles(20);
-    await moveActiveTab("window");
-    await browser.waitUntil(
-      async () =>
-        (await browser.execute(
-          () => (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles.released,
-        )) === true,
-      { timeout: 15_000, timeoutMsg: "the new window's app.css was not held back and let go" },
-    );
-    expect(
-      await browser.execute(
-        () => (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles,
-      ),
-    ).toEqual({ held: true, released: true, followed: true });
-    await browser.waitUntil(
-      async () => {
-        const source = await movedSplitSource(20);
-        return source?.font === styled.font && source.lineHeight === styled.lineHeight;
-      },
-      { timeout: 10_000, timeoutMsg: "the new window did not get Obsidian's styles" },
-    );
-    await waitForMovedPage();
-    // The view's observer of the source's size, and the source's following,
-    // run in the window's next frames.
-    await nextMovedFrames();
-    await nextMovedFrames();
-    const source = (await movedSplitSource(20))!;
-    expect(Math.abs(source.scrollTop - source.lineTop)).toBeLessThanOrEqual(2);
-    expect(Math.abs((await pageState(true))!.top - 12)).toBeLessThanOrEqual(1);
-  });
+      await holdNewWindowStyles(20, reader);
+      let held: HeldStyles;
+      try {
+        await moveActiveTab("window");
+        await browser.waitUntil(
+          async () =>
+            (await browser.execute(
+              () => (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles.released,
+            )) === true,
+          { timeout: 15_000, timeoutMsg: "the new window's app.css was not held back and let go" },
+        );
+        held = await browser.execute(
+          () => (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles,
+        );
+      } finally {
+        await restoreWindowOpen();
+      }
+      expect(held).toMatchObject({
+        held: true,
+        released: true,
+        followed: true,
+        read: reader !== undefined,
+      });
+      await browser.waitUntil(
+        async () => {
+          const source = await movedSplitSource(line);
+          return source?.font === styled.font && source.lineHeight === styled.lineHeight;
+        },
+        { timeout: 10_000, timeoutMsg: "the new window did not get Obsidian's styles" },
+      );
+      await waitForMovedPage();
+      // The view's observer of the source's size, and the sides' following,
+      // run in the window's next frames.
+      await nextMovedFrames();
+      await nextMovedFrames();
+      const source = (await movedSplitSource(line))!;
+      expect(Math.abs(source.scrollTop - source.lineTop)).toBeLessThanOrEqual(2);
+      const page = (await pageState(true))!;
+      expect(Math.abs(page.top - paragraph)).toBeLessThanOrEqual(1);
+      if (held.pageY !== null) expect(Math.abs(page.scrollY - held.pageY)).toBeLessThanOrEqual(2);
+    });
+  }
 
   for (const trigger of ["layout-change", "resize"] as const) {
     const what = trigger === "resize" ? "a resize" : "a layout change";

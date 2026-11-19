@@ -17,7 +17,7 @@ import {
 } from "../src/split";
 import { preparePage, SHADOW_ROOT_MARK } from "../src/document";
 import { startTags } from "../src/main";
-import { button, Harness, loadFrame, moveFrame } from "./support/harness";
+import { button, Harness, loadFrame, moveFrame, settle } from "./support/harness";
 
 function anchors(html: string, tags: StartTag[]): [string, number][] {
   const doc = new DOMParser().parseFromString(html, "text/html");
@@ -612,6 +612,30 @@ describe("following a scrolled side", () => {
     assert.deepEqual(source.scrolls, [300, 400, 500]);
     assert.deepEqual(page.scrolls, [450, 600]);
   });
+
+  it("has a side lead again that led without moving the other side (#165)", () => {
+    for (const before of ["already there", "nowhere to go"] as const) {
+      const source = side(1000);
+      const page = side(2000);
+      let follow = (top: number): number | null => (before === "nowhere to go" ? null : top * 2);
+      const frames: (() => void)[] = [];
+      const following = new ScrollFollower(
+        { source, page },
+        { source: (top) => follow(top), page: (top) => top / 2 },
+        (run) => frames.push(run),
+      );
+      source.set(100);
+      page.set(200);
+      following.scrolled("source");
+      for (const run of frames.splice(0)) run();
+      assert.deepEqual(page.scrolls, [], before);
+      assert.equal(following.leading, "source", before);
+      follow = (top) => top * 3;
+      following.again();
+      for (const run of frames.splice(0)) run();
+      assert.deepEqual(page.scrolls, [300], before);
+    }
+  });
 });
 
 describe("start tags", () => {
@@ -1043,22 +1067,33 @@ describe("the split view after its tab moves to a new window (#165)", () => {
   ).join("\n")}`;
 
   /**
-   * Lays a frame's page out as jsdom does not: its paragraphs, which are on
-   * the source's lines 3 to 12, in a column, each `paragraphs.height` pixels
-   * high, in a window 200 pixels high, scrolled from its top by scrollTo,
-   * which reports no scroll. `scrolledTo` collects where scrollTo sends it.
+   * How a frame's page is laid out, as jsdom does not: its paragraphs, which
+   * are on the source's lines 3 to 12, in a column, each `height` pixels
+   * high, in a window 200 pixels high, scrolled down by `scrollY`.
+   * `scrolledTo` collects where the window's scrollTo sends it, which
+   * reports no scroll; `win` is the window of the page laid out last.
    */
-  function laidOutPage(
-    scrolledTo: number[],
-    paragraphs = { height: 100 },
-  ): (page: Document) => void {
+  interface PageLayout {
+    height: number;
+    scrollY: number;
+    readonly scrolledTo: number[];
+    win: (Window & typeof globalThis) | null;
+  }
+
+  function pageLayout(): PageLayout {
+    return { height: 100, scrollY: 0, scrolledTo: [], win: null };
+  }
+
+  /** Lays a frame's page out as `layout` says, from its top. */
+  function laidOutPage(layout: PageLayout): (page: Document) => void {
     return (page) => {
       const win = page.defaultView!;
-      let scrollY = 0;
-      Object.defineProperty(win, "scrollY", { configurable: true, get: () => scrollY });
+      layout.win = win;
+      layout.scrollY = 0;
+      Object.defineProperty(win, "scrollY", { configurable: true, get: () => layout.scrollY });
       win.scrollTo = ((options: ScrollToOptions) => {
-        scrollY = options.top ?? scrollY;
-        scrolledTo.push(scrollY);
+        layout.scrollY = options.top ?? layout.scrollY;
+        layout.scrolledTo.push(layout.scrollY);
       }) as typeof win.scrollTo;
       Object.defineProperties(page.documentElement, {
         scrollHeight: { configurable: true, value: 1000 },
@@ -1069,23 +1104,32 @@ describe("the split view after its tab moves to a new window (#165)", () => {
         value(this: Element) {
           const index =
             this.localName === "p" ? [...this.parentElement!.children].indexOf(this) : 0;
-          const { height } = paragraphs;
-          const top = index * height - scrollY;
+          const { height } = layout;
+          const top = index * height - layout.scrollY;
           return { top, bottom: top + height, height, width: 100, left: 0, right: 100 };
         },
       });
     };
   }
 
+  /** The reader scrolls the page laid out last, and Chromium reports it. */
+  function readerScrollsPage(layout: PageLayout, to: number): void {
+    layout.scrollY = to;
+    layout.win!.dispatchEvent(new layout.win!.Event("scroll"));
+  }
+
   /**
    * Lays the split view's source out as jsdom does not: its 12 lines from 10
    * pixels down, each `lines.height` pixels high, with its `<pre>` as high as
-   * they are, in a source 200 pixels high, which scrollTo scrolls without a
-   * report. The reader's scroll reports one.
+   * they are, in a source 200 pixels high. `scrolledTo` collects where its
+   * scrollTo sends it, which reports no scroll. The reader's scroll reports
+   * one; `jump` scrolls it without a report, as Chromium's scroll anchoring
+   * does when its content moves.
    */
   function laidOutSource(view: { readonly contentEl: HTMLElement }) {
     const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
     const lines = { height: 20 };
+    const scrolledTo: number[] = [];
     let top = 0;
     for (const [index, line] of source
       .querySelectorAll<HTMLElement>(".html-page-viewer__source-line")
@@ -1102,6 +1146,7 @@ describe("the split view after its tab moves to a new window (#165)", () => {
         configurable: true,
         value: (options: ScrollToOptions) => {
           top = options.top ?? top;
+          scrolledTo.push(top);
         },
       },
     });
@@ -1113,9 +1158,13 @@ describe("the split view after its tab moves to a new window (#165)", () => {
     });
     return {
       lines,
+      scrolledTo,
       readerScrolls: (to: number): void => {
         top = to;
         source.dispatchEvent(new window.Event("scroll"));
+      },
+      jump: (to: number): void => {
+        top = to;
       },
     };
   }
@@ -1125,19 +1174,45 @@ describe("the split view after its tab moves to a new window (#165)", () => {
     const view = harness.newView();
     harness.open(view, "Long.html", LONG);
     button(view, "Split").click();
-    const pageScrolls: number[] = [];
-    await loadFrame(view, laidOutPage(pageScrolls));
-    return { view, pageScrolls, source: laidOutSource(view) };
+    const page = pageLayout();
+    await loadFrame(view, laidOutPage(page));
+    return { view, page, source: laidOutSource(view) };
   }
 
-  it("measures again at the first resize of its source's lines, and the side that led last leads again", async () => {
-    const { view, pageScrolls, source } = await splitView();
+  /**
+   * The split view moved to a new window, with that window's observers and
+   * animation frames. Its timers of a second or more wait in `timers`, for
+   * the test to run, and its others run as usual.
+   */
+  async function movedToNewWindow() {
+    const { view, page, source } = await splitView();
     const { win: popout, observers, report } = observingWindow();
     const frames = animationFrames(popout);
-    const paragraphs = { height: 100 };
+    const timers: { delay: number; run: () => void }[] = [];
+    const setTimer = popout.setTimeout.bind(popout);
+    popout.setTimeout = ((run: () => void, delay = 0) => {
+      if (delay < 1000) return setTimer(run, delay);
+      timers.push({ delay, run });
+      return 0;
+    }) as typeof popout.setTimeout;
+    popout.document.createElement("div").append(view.contentEl);
+    await moveFrame(view, { prepare: laidOutPage(page) });
+    return {
+      view,
+      page,
+      source,
+      observers,
+      report,
+      frames,
+      timers,
+      close: () => (popout as unknown as { close(): void }).close(),
+    };
+  }
+
+  it("keeps the line that the source led from at the first resize of its lines, and the page follows it", async () => {
+    const moved = await movedToNewWindow();
+    const { view, page, source, observers, report, frames } = moved;
     try {
-      popout.document.createElement("div").append(view.contentEl);
-      await moveFrame(view, { prepare: laidOutPage(pageScrolls, paragraphs) });
       assert.equal(observers.length, 1, "an observer of the new window");
       assert.deepEqual(observers[0].observed, [
         view.contentEl.querySelector(".html-page-viewer__source pre"),
@@ -1147,19 +1222,128 @@ describe("the split view after its tab moves to a new window (#165)", () => {
       // Line 8, paragraph 6's, at the source's top.
       source.readerScrolls(150);
       frames.run();
-      assert.deepEqual(pageScrolls, [500]);
+      assert.deepEqual(page.scrolledTo, [500]);
 
       // As when Obsidian's styles arrive in the window, and the sides take
-      // other widths: 150 pixels are then most of the way through line 8,
-      // and the page's paragraphs are shorter.
+      // other widths: line 8 is then at 136 pixels, and the page's
+      // paragraphs are shorter.
       source.lines.height = 18;
-      paragraphs.height = 80;
+      page.height = 80;
       report();
+      assert.deepEqual(source.scrolledTo, [136], "back at line 8");
       frames.run();
-      assert.deepEqual(pageScrolls, [500, 462]);
+      assert.deepEqual(page.scrolledTo, [500, 400], "the page follows to paragraph 6");
       assert.equal(observers[0].connected, false);
     } finally {
-      (popout as unknown as { close(): void }).close();
+      moved.close();
+    }
+  });
+
+  it("has the page lead again at the first resize of the source's lines when the page led last", async () => {
+    const moved = await movedToNewWindow();
+    const { page, source, report, frames } = moved;
+    try {
+      report();
+      // Paragraph 6, on line 8, at the page's top.
+      readerScrollsPage(page, 500);
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [150]);
+      source.lines.height = 18;
+      report();
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [150, 136], "the source follows to line 8 again");
+      assert.deepEqual(page.scrolledTo, []);
+    } finally {
+      moved.close();
+    }
+  });
+
+  it("has the source lead from where it is when it moved since it led, as scroll anchoring moves it", async () => {
+    const moved = await movedToNewWindow();
+    const { page, source, report, frames } = moved;
+    try {
+      report();
+      source.readerScrolls(150);
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [500]);
+      // Chromium keeps line 8 at the source's top as the lines move.
+      source.lines.height = 18;
+      source.jump(136);
+      report();
+      frames.run();
+      assert.deepEqual(source.scrolledTo, []);
+      assert.deepEqual(page.scrolledTo, [500], "the page is at line 8's paragraph already");
+    } finally {
+      moved.close();
+    }
+  });
+
+  it("leaves the page where the reader scrolled it last, also when the source did not have to move", async () => {
+    const moved = await movedToNewWindow();
+    const { page, source, report, frames } = moved;
+    try {
+      report();
+      source.readerScrolls(150);
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [500]);
+      // Less than a pixel of the source away from where it is.
+      readerScrollsPage(page, 502);
+      frames.run();
+      assert.deepEqual(source.scrolledTo, []);
+      source.lines.height = 18;
+      report();
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [136]);
+      assert.deepEqual(page.scrolledTo, [500], "the page stays at 502");
+    } finally {
+      moved.close();
+    }
+  });
+
+  it("leaves a lead that waits to its frame, as of the reader's scroll of the page", async () => {
+    const moved = await movedToNewWindow();
+    const { page, source, report, frames } = moved;
+    try {
+      report();
+      source.readerScrolls(150);
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [500]);
+      // Paragraph 7, on line 9, before the frame in which the source follows.
+      readerScrollsPage(page, 600);
+      source.lines.height = 18;
+      report();
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [154], "line 9, by the lines' new tops");
+      assert.deepEqual(page.scrolledTo, [500]);
+    } finally {
+      moved.close();
+    }
+  });
+
+  it("stops observing two seconds after it shows the page, or when the frame drops the page", async () => {
+    let moved = await movedToNewWindow();
+    try {
+      const { observers, timers } = moved;
+      await settle();
+      assert.equal(observers[0].connected, true);
+      assert.deepEqual(
+        timers.map((timer) => timer.delay),
+        [2000],
+      );
+      timers[0].run();
+      assert.equal(observers[0].connected, false);
+    } finally {
+      moved.close();
+    }
+
+    moved = await movedToNewWindow();
+    try {
+      const { view, observers } = moved;
+      const win = view.contentEl.querySelector("iframe")!.contentDocument!.defaultView!;
+      win.dispatchEvent(new win.Event("pagehide"));
+      assert.equal(observers[0].connected, false);
+    } finally {
+      moved.close();
     }
   });
 
@@ -1167,11 +1351,11 @@ describe("the split view after its tab moves to a new window (#165)", () => {
     const { observers } = resizeObservers(window);
     const frames = animationFrames(window);
     try {
-      const { view, pageScrolls, source } = await splitView();
-      await moveFrame(view, { prepare: laidOutPage(pageScrolls) });
+      const { view, page, source } = await splitView();
+      await moveFrame(view, { prepare: laidOutPage(page) });
       source.readerScrolls(150);
       frames.run();
-      assert.deepEqual(pageScrolls, [500], "the view follows the source");
+      assert.deepEqual(page.scrolledTo, [500], "the view follows the source");
       assert.equal(observers.length, 0);
     } finally {
       delete (window as { ResizeObserver?: unknown }).ResizeObserver;
