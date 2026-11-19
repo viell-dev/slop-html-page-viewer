@@ -111,6 +111,16 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   copies none of their files
   ([#179](https://github.com/viell-dev/slop-html-page-viewer/issues/179)).
 
+  **Unreleased (#185):** each of the page's stylesheets resolves against the base that Chromium
+  applies where it stands: a `<style>` and its imports, a stylesheet link, and a `style`
+  attribute before the page's `<base>` resolve against the page's own address. So the viewer reads
+  the stylesheet of such a link or import, and with **Local files with scripts on** copies the
+  files that such stylesheets name, from the page's folder, where 0.6.0 reads and copies them from
+  the `<base>`'s. It also ignores a `<base>` inside SVG or MathML and one with a `data:` or
+  `javascript:` URL, as Chromium does. Either way, the page names these files in CSS that
+  applies, and each read and copy passes the same vault-path, `.css`, file-type, and limit checks
+  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
+
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
   files, that only CSS strings or comments named, or that imports named which never apply: one
   after a style rule, and one into a cascade layer written with a comment or an escape before

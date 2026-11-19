@@ -108,6 +108,17 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   Other strings, such as those of `type()`, `format()`, and `local()`, still name nothing
   ([#179](https://github.com/viell-dev/slop-html-page-viewer/issues/179)).
 
+  **Unreleased (#185):** the page's stylesheets resolve as Chromium resolves them while it reads the
+  page, against the base that applies where each stands. A `<style>`, with its imports, a
+  stylesheet link, and a `style` attribute before the page's `<base>`, such as one at the end of
+  its `<head>`, resolve against the page's own folder, also in shadow DOM before the `<base>`; the
+  others, and the content of templates that a script adds, resolve against the `<base>`. The viewer
+  makes the URLs of those before it absolute, and what that adds counts toward the page's limits on
+  stylesheets; past them, such a stylesheet keeps its URLs as written. A `<base>` that Chromium
+  ignores, one inside SVG and one with a `data:` or `javascript:` URL, no longer moves the page's
+  files. Images, media, and the page's other references before a `<base>` still resolve against it
+  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
   browser would instead.
@@ -264,9 +275,9 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   the copy that the view then serializes from it, which character references and escapes can make
   several times longer ([#183](https://github.com/viell-dev/slop-html-page-viewer/issues/183)). A
   page's own `<style>` keeps its URLs as written, which the copy's `<base>` resolves as the page
-  does, unless the page's `<base>` comes after it
-  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)), apart from those found
-  by name, and only what its imports that stay imports add counts.
+  does, apart from those found by name, and only what its imports that stay imports add counts; one
+  before the page's `<base>` gets its URLs made absolute instead, and what that adds counts too
+  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
   Its own text, `style` attributes, and the page's other references count nothing, and the
   references found by name there can make the copy far longer than the page
   ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)). A stylesheet whose text,

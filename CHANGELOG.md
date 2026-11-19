@@ -19,6 +19,11 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   `image-set("icon.png" 1x, "icon@2x.png" 2x)`, from its own folder, as browsers do, instead of
   from the page's folder. With **Local files with scripts on**, the files of such strings are copied
   into the page, also from the page's own `<style>` elements and `style` attributes (#179).
+- A page whose `<base>` comes after its styles, such as at the end of its `<head>`, shows the
+  images and fonts that its `<style>` elements, stylesheet links, imports, and `style` attributes
+  before the `<base>` name from its own folder, as browsers do, instead of from the `<base>`'s
+  folder. A `<base>` inside SVG, or one with a `data:` or `javascript:` URL, which browsers ignore,
+  no longer changes where the page's files come from (#185).
 - A page whose stylesheets import each other many times opens in moments instead of keeping
   Obsidian from responding for seconds to hours: for each page, the viewer follows at most 1,000
   links and imports of vault stylesheets and copies at most 16 million characters of their text,

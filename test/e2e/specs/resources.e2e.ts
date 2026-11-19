@@ -1022,7 +1022,8 @@ describe("A page's local files in Obsidian", function () {
     before(async function () {
       await browser.executeObsidian(
         async ({ app }, files, green, red) => {
-          await app.vault.createFolder("Set strings/theme");
+          for (const folder of ["Set strings", "Set strings/theme"])
+            await app.vault.createFolder(folder);
           const binary = (base64: string) =>
             Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)).buffer;
           await app.vault.createBinary("Set strings/theme/set-square.png", binary(green));
@@ -1138,6 +1139,180 @@ describe("A page's local files in Obsidian", function () {
           2 * IDS.length * IMAGE_PIXELS * 0.9,
         );
         expect(await framePixels(RED)).toBe(0);
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
+  describe("with a <base> after the page's stylesheets (#185)", function () {
+    // Each square names "Late img/sq.png": green beside the page, and blue in
+    // the folder of the page's <base>, which comes after most of them. Two
+    // pages have a <base> that Chromium ignores: one inside SVG, whose folder
+    // has a red image of that name, and one of a data: URL.
+    const url = `url("Late img/sq.png")`;
+    const square = (id: string, style = "") =>
+      `<div id="${id}" class="sq"${style === "" ? "" : ` style='${style}'`}></div>`;
+    const sheets = {
+      "Saved/Late sheet.css": `#imported { background: ${url} }`,
+      "Saved/Late link.css": `#linked { background: ${url} }`,
+      "Saved/Late base/Late sheet.css": `#imported { background: ${url} }`,
+      "Saved/Late base/Late link.css": `#linked { background: ${url} }`,
+    };
+    const page = [
+      `<style>.sq { display: inline-block; width: 64px; height: 64px } #own { background: ${url} }</style>`,
+      `<style>@import "Late sheet.css";</style>`,
+      `<link rel="stylesheet" href="Late link.css">`,
+      `<svg width="0" height="0"><style>#svg { background: ${url} }</style></svg>`,
+      ...["own", "imported", "linked", "svg"].map((id) => square(id)),
+      square("attribute", `background: ${url}`),
+      `<div><template shadowrootmode="open"><style>.sq { display: inline-block; width: 64px; height: 64px } #shadow { background: ${url} }</style>`,
+      `${square("shadow")}${square("shadowattribute", `background: ${url}`)}</template></div>`,
+      `<template id="later"><style>#later { background: ${url} }</style>${square("later")}</template>`,
+      `<base href="Late base/">`,
+      `<style>#after { background: ${url} }</style>${square("after")}`,
+      square("afterattribute", `background: ${url}`),
+      `<script>document.body.append(document.getElementById("later").content.cloneNode(true));</script>`,
+    ].join("");
+    const ignored = (base: string) =>
+      `${base}<style>.sq { display: inline-block; width: 64px; height: 64px } #ignored { background: ${url} }</style>${square("ignored")}`;
+    const files: Record<string, string> = {
+      ...sheets,
+      "Saved/Late base.html": page,
+      "Saved/SVG base.html": ignored(`<svg width="0" height="0"><base href="Elsewhere/"/></svg>`),
+      "Saved/Data base.html": ignored(`<base href="data:text/html,x">`),
+    };
+    const IGNORED = ["Saved/SVG base.html", "Saved/Data base.html"];
+    const BEFORE = ["own", "imported", "linked", "svg", "attribute", "shadow", "shadowattribute"];
+    const AFTER = ["after", "afterattribute"];
+
+    before(async function () {
+      await browser.executeObsidian(
+        async ({ app }, files, green, blue, red) => {
+          for (const folder of [
+            "Saved/Late img",
+            "Saved/Late base",
+            "Saved/Late base/Late img",
+            "Saved/Elsewhere",
+            "Saved/Elsewhere/Late img",
+          ])
+            await app.vault.createFolder(folder);
+          const binary = (base64: string) =>
+            Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)).buffer;
+          await app.vault.createBinary("Saved/Late img/sq.png", binary(green));
+          await app.vault.createBinary("Saved/Late base/Late img/sq.png", binary(blue));
+          await app.vault.createBinary("Saved/Elsewhere/Late img/sq.png", binary(red));
+          for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+        },
+        files,
+        solidPng(64, GREEN).toString("base64"),
+        solidPng(64, BLUE).toString("base64"),
+        solidPng(64, RED).toString("base64"),
+      );
+    });
+
+    after(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        for (const path of [
+          "Saved/Late base.html",
+          "Saved/SVG base.html",
+          "Saved/Data base.html",
+          "Saved/Elsewhere",
+          "Saved/Late sheet.css",
+          "Saved/Late link.css",
+          "Saved/Late img",
+          "Saved/Late base",
+        ]) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file, true);
+        }
+      });
+    });
+
+    /** Which folder each square's image comes from, in the document and its shadow roots. Run inside the frame. */
+    function read() {
+      const where = (element: Element) => {
+        const value = getComputedStyle(element).backgroundImage;
+        return value.includes("/Saved/Late%20base/Late%20img/sq.png")
+          ? "the <base>'s folder"
+          : value.includes("/Saved/Late%20img/sq.png")
+            ? "the page's folder"
+            : value;
+      };
+      const squares: Record<string, string> = {};
+      const visit = (root: Document | ShadowRoot) => {
+        for (const element of root.querySelectorAll(".sq")) squares[element.id] = where(element);
+        for (const host of root.querySelectorAll("*"))
+          if (host.shadowRoot !== null) visit(host.shadowRoot);
+      };
+      visit(document);
+      return squares;
+    }
+
+    /** Where each square's image comes from in Chromium, with or without the template's square. */
+    function expected(later: boolean) {
+      return Object.fromEntries([
+        ...BEFORE.map((id) => [id, "the page's folder"]),
+        ...[...AFTER, ...(later ? ["later"] : [])].map((id) => [id, "the <base>'s folder"]),
+      ]);
+    }
+
+    async function shown() {
+      await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+      try {
+        return await browser.execute(read);
+      } finally {
+        await browser.switchFrame(null);
+      }
+    }
+
+    it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
+      const late = await inServedPage(files, "Saved/Late base.html", () => browser.execute(read));
+      const ignored: Record<string, string>[] = [];
+      for (const page of IGNORED)
+        ignored.push(await inServedPage(files, page, () => browser.execute(read)));
+      expect({ late, ignored }).toEqual({
+        late: expected(true),
+        ignored: IGNORED.map(() => ({ ignored: "the page's folder" })),
+      });
+    });
+
+    it("resolves the stylesheets before it against the page, and the others against it", async function () {
+      await openInActiveTab("Saved/Late base.html");
+      await waitForPage();
+      await saveScreenshot("late-base");
+      expect(await shown()).toEqual(expected(false));
+      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(BEFORE.length * IMAGE_PIXELS * 0.9);
+      expect(await framePixels(BLUE)).toBeGreaterThanOrEqual(AFTER.length * IMAGE_PIXELS * 0.9);
+    });
+
+    it("ignores a <base> that Chromium ignores", async function () {
+      const shownIn: Record<string, unknown> = {};
+      for (const ignored of IGNORED) {
+        await openInActiveTab(ignored);
+        await waitForPage();
+        shownIn[ignored] = await shown();
+      }
+      expect(shownIn).toEqual(
+        Object.fromEntries(IGNORED.map((page) => [page, { ignored: "the page's folder" }])),
+      );
+    });
+
+    it("copies the files that each resolves to into a page with scripts on, also in a template's content", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Late base.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("late-base-scripts-on");
+        // The template's square, which the page's script adds, resolves against the <base>.
+        const green = await framePixels(GREEN);
+        const blue = await framePixels(BLUE);
+        expect({
+          green: Math.round(green / IMAGE_PIXELS),
+          blue: Math.round(blue / IMAGE_PIXELS),
+        }).toEqual({ green: BEFORE.length, blue: AFTER.length + 1 });
       } finally {
         await clickToolbarButton("Scripts ON");
         await copyLocalFiles(false);
