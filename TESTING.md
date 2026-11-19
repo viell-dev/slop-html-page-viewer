@@ -685,29 +685,53 @@ Each of these 26 failed a unit test, in `move.test.ts` or `split.test.ts`:
 - The find bar not telling the page's kept place.
 
 **Unreleased (#182, #186):** On 2026-11-19, with the view as `main` at `c3411ee` has it, the five
-new tests of `move.e2e.ts` failed in Obsidian 1.5.3 and 1.15.1. In a view narrowed to 500 px while
-its tab was hidden, the page came back at paragraph 14 on 1.15.1 and 15 on 1.5.3, in place of 30.
-In a split view narrowed to 900 px, the sides came back at paragraph 21 and line 28 where the page
-led, and at paragraph 20 and line 27 where the source led, in place of 30 and 37. After a hidden
-tab moved to a new window with its tab header's menu, the page showed from its top; in the split
-view, the source showed line 46 there, beside the page at its top on 1.5.3 and at paragraph 39 on
-1.15.1. Each of these deliberate breakages failed the tests named in Obsidian, in both versions:
+first new tests of `move.e2e.ts` failed in Obsidian 1.5.3 and 1.15.1. In a view narrowed to 500 px
+while its tab was hidden, the page came back at paragraph 14 on 1.15.1 and 15 on 1.5.3, in place
+of 30. In a split view narrowed to 900 px, the sides came back at paragraph 21 and line 28 where
+the page led, and at paragraph 20 and line 27 where the source led, in place of 30 and 37. After a
+hidden tab moved to a new window with its tab header's menu, the page showed from its top; in the
+split view, the source showed line 46 there, beside the page at its top on 1.5.3 and at paragraph
+39 on 1.15.1.
+
+The version that the in-depth review read, `800babe`, failed six later tests, in both versions:
+
+- The four of **Split down** in the tab in front of a hidden tab, rendered and split, with the new
+  pane left open or closed again: the page at its top, beside the source at line 37.
+- Readable line length turned off while the tab showed: the page went back to paragraph 30, at
+  2616 px, in place of paragraph 38, at 3312 px.
+- A page without scroll anchoring narrowed while it showed: paragraph 30, at 4341 px, in place of
+  paragraph 14 at 1987 px (15 at 2141 px on 1.5.3).
+
+Each of these deliberate breakages failed the tests named in Obsidian, in both versions:
 
 - Going back as far down as it was, whatever it showed: the three tests of a narrowed view.
 - The split view's source without its line: the narrowed split view where the source led, which
   came back at paragraph 20 and line 27.
-- Measuring nothing once the scrolling settles: all five.
+- Measuring nothing once the scrolling settles: the first five.
 - Giving the frame's next document the hidden page's own place: the two tests of a hidden tab's
-  move.
+  move by its menu.
+- No starting place for the next document: the four of Split down.
+- No observer of the page's root and body: the Readable line length and narrowing tests.
+- The sideways place lost: the page scrolled 300 px sideways.
+- Using a measurement after a scroll that it predates: the hide two frames after a scroll, and
+  three tests of #178, among them the find bar's scroll in the task that hid the tab.
 
-Each of these 18 failed a unit test, in `move.test.ts` or `split.test.ts`:
+Measuring after one quiet frame, in place of 100 ms, passed every test in Obsidian; only
+`move.test.ts` tests it. Each of these 32 failed a unit test, in `move.test.ts` or
+`split.test.ts`:
 
-- In the kept place: going back as far down as it was whatever it showed, or to what it showed
-  also where that is out of date; no exact return within a pixel, or no rounding; measuring while
-  not laid out, in the frame of the report, or in one window's frames whatever window the source
-  is in; and measuring nothing at a report, after `placed`, or after `release`.
+- In the kept place: going back as far down as it was whatever it showed; using a measurement
+  after a scroll that it predates, or after a change of layout; no exact return within a pixel, or
+  no rounding; the sideways place lost; measuring while not laid out; a measurement that does not
+  end its being out of date; measuring in the frame of the report, after one quiet frame, by quiet
+  counted from the report's frame, or in one window's frames whatever window the source is in; and
+  measuring nothing at a report, after `placed`, or after `release`.
+- In the page's kept place: no starting place, or one not passed by the view; a layout change
+  counted while hidden, or not measured again; no observer of the page, one of its root only, or
+  one never disconnected; and `placeNextDocument` returning no place, or a place where the page
+  follows the source.
 - In the split view's source's line: none kept; the share into the line not counted, or the line
-  before the top; and no sideways place.
+  before the top; and the top padding as a share of the first line.
 - In the view: the hidden page's own place at `pagehide`, or the kept place also for a page that
   shows; and the frame's hiding not recorded, or never ended.
 
