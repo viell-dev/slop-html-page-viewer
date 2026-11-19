@@ -487,7 +487,7 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
     next: Awaited<ReturnType<typeof nextDocument>>,
     reader: ReaderActivity | null,
     place: ScrollPlace | null = PLACE,
-  ): ScrollPlace | null | undefined =>
+  ): ScrollPlace | undefined =>
     placeNextDocument(
       next.doc,
       place,
@@ -564,11 +564,11 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
     assert.deepEqual(next.scrolls.page, [1100]);
   });
 
-  it("says which place it shows the page at: the previous one's, its top, or none where the page follows the source (#186)", async () => {
+  it("says which place it shows the page at: the previous one's, or none where there is none or the page follows the source (#186)", async () => {
     const next = await nextDocument();
     assert.equal(show(next, { acted: false, scrolled: false }), PLACE);
     assert.equal(show(next, { acted: true, scrolled: true }), undefined);
-    assert.equal(show(next, null, null), null);
+    assert.equal(show(next, null, null), undefined);
     assert.equal(
       placeNextDocument(
         next.doc,
@@ -881,7 +881,7 @@ describe("what a page shows when Obsidian shows its tab again at another width (
    * shows, as the view does, starting from `shown`, and the windows' first
    * reports of the sizes that they observe.
    */
-  function kept(page: ReturnType<typeof framedPage>, shown?: ScrollPlace | null) {
+  function kept(page: ReturnType<typeof framedPage>, shown?: ScrollPlace) {
     const place = keepPageScrolling(page.frame, page.doc, page.signal(), shown)!;
     watchHiding(page.frame, page.doc, page.signal(), {
       hid: () => place.hold(),
@@ -1029,6 +1029,51 @@ describe("what a page shows when Obsidian shows its tab again at another width (
     // the frame's window: it measures again, at its place.
     page.settle();
     assert.deepEqual(place.place(), { path: [0], into: 0.9, left: 0 });
+  });
+
+  // Showing the frame lays its page out anew, and the page's window reports
+  // that after `back`, in the same frame: nothing that the page shows
+  // changed. A tab shown for less than the settling, as one passed over
+  // with a held key, keeps what it showed.
+  it("keeps what it showed through a show shorter than its settling, also at another width", () => {
+    const page = framedPage();
+    const place = kept(page);
+    page.scroll(900);
+    page.settle();
+    page.hide();
+    page.show();
+    page.nextFrame();
+    page.nextFrame();
+    page.hide();
+    page.layout.height = 2000;
+    page.show();
+    assert.deepEqual(page.scrolledTo, [900, 1800], "paragraph One, as far into it as it was");
+
+    // Shown at that width only briefly: Chromium reports the going back,
+    // where it shows the same element.
+    page.scroll(1800);
+    page.nextFrame();
+    page.hide();
+    page.layout.height = 3000;
+    page.show();
+    assert.deepEqual(page.scrolledTo, [900, 1800, 2700]);
+    assert.deepEqual(place.place(), { path: [0], into: 0.9, left: 0 });
+  });
+
+  it("takes a change of layout in the frame after its showing for one", () => {
+    const page = framedPage();
+    kept(page);
+    page.scroll(900);
+    page.settle();
+    page.hide();
+    page.show();
+    page.nextFrame();
+    // As Readable line length turned off: the same pixels show another part.
+    page.layout.height = 500;
+    page.reportPage();
+    page.hide();
+    page.show();
+    assert.deepEqual(page.scrolledTo, [900, 900]);
   });
 
   it("shows the place that the view shows it at once its frame has a size, as where it had none at first (#186)", () => {

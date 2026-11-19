@@ -184,8 +184,10 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
 
   **Unreleased (#186):** a tab that moves while hidden no longer shows its page from its top: it
   shows it where it was, and the split view's two sides in step there. So does a hidden tab whose
-  tab group Obsidian lays out anew, as for **Split down** in the tab in front of it. A page that was
-  still scrolling when the tab hid shows where its scrolling last came to rest.
+  tab group Obsidian lays out anew, as for **Split down** in the tab in front of it. A page whose
+  scrolling had not been at rest for a tenth of a second when the tab hid shows where it rested
+  before that scroll; after **Split down**, the split view's source then shows where it was
+  scrolled, apart from the page.
 
   **Unreleased (#178):** a page that scrolls as a whole also keeps its place when Obsidian shows its
   tab again after hiding it, as after another tab of its tab group or a collapsed sidebar, instead

@@ -325,9 +325,9 @@ export function watchReader(view: HTMLElement, scrolling: HTMLElement | null): R
  *   back (#135), and it is passed over.
  * - After their input, the page is not placed again when it loads.
  *
- * Returns the place that the page is to show, null for its top, or undefined
- * where it follows the source instead: a frame that has no size yet shows it
- * only once it has one (#186).
+ * Returns the place that the page is to show, or undefined where there is
+ * none, or the page follows the source instead: a frame that has no size yet
+ * shows it only once it has one (#186).
  */
 export function placeNextDocument(
   doc: Document,
@@ -336,12 +336,12 @@ export function placeNextDocument(
   follower: Pick<ScrollFollower, "passOver" | "placed" | "scrolled"> | null,
   others: readonly EventTarget[],
   signal: AbortSignal,
-): ScrollPlace | null | undefined {
+): ScrollPlace | undefined {
   if (follower && reader?.scrolled) {
     follower.scrolled("source");
     return undefined;
   }
-  if (!place) return null;
+  if (!place) return undefined;
   const acted = reader?.acted ?? false;
   if (!acted) follower?.passOver("source");
   showPlace(doc, place, others, signal, { acted, moved: () => follower?.placed("page") });
@@ -456,7 +456,9 @@ interface KeptPlace<P> extends KeptScrolling {
  * start with, as the place that the view shows it at, and then what it
  * measures once it has reported no scroll for SETTLING milliseconds of its
  * window's animation frames, also after `placed`, `release`, and
- * `relaidOut`. Measuring a page's place reads the boxes of its elements,
+ * `relaidOut`. Where `back` shows what it showed, that is up to date where
+ * `back` put it, and the change of layout that the showing reports in that
+ * animation frame does not make it out of date. Measuring a page's place reads the boxes of its elements,
  * which on a long page takes a share of a frame that would show in every
  * frame of a scroll, or at each step of the find bar. Nothing is measured
  * while it is not laid out.
@@ -491,6 +493,8 @@ function keepPlace<P>(
   let content: { readonly place: P; readonly at: number } | null =
     placing && shown ? { place: shown.place, at: kept.top } : null;
   let outdated = false;
+  /** Whether `back` has shown it again in this animation frame. */
+  let shownAgain = false;
   const measure = (): void => {
     if (!placing || !scroller.laidOut()) return;
     content = { place: placing.measure(), at: scroller.position().top };
@@ -587,9 +591,23 @@ function keepPlace<P>(
     back: () => {
       held = false;
       if (unreported || !scroller.laidOut()) return;
+      // It is shown by its layout now, which the change of layout that showing
+      // it reports, in this animation frame, is no change of.
+      const win = scroller.window();
+      if (win?.requestAnimationFrame) {
+        shownAgain = true;
+        win.requestAnimationFrame(() => {
+          shownAgain = false;
+        });
+      }
       const to = target();
       const { top, left } = scroller.position();
-      if (top !== to.top || left !== to.left) scroller.scrollTo(to);
+      if (top === to.top && left === to.left) return;
+      scroller.scrollTo(to);
+      // Where it shows what it showed, that is up to date where it is now.
+      if (to === kept) return;
+      kept = scroller.position();
+      if (content) content = { place: content.place, at: kept.top };
     },
     release: () => {
       held = false;
@@ -599,7 +617,7 @@ function keepPlace<P>(
     },
     place: () => content?.place,
     relaidOut: () => {
-      if (!placing || !scroller.laidOut()) return;
+      if (!placing || shownAgain || !scroller.laidOut()) return;
       outdated = true;
       measureWhenSettled();
     },
@@ -673,17 +691,18 @@ export interface KeptPageScrolling extends KeptScrolling {
  * A layout change of the page while it shows, which can come with no scroll,
  * as with Obsidian's Readable line length turned off, or a page without
  * scroll anchoring narrowed, makes what it measured out of date: the page's
- * own window's ResizeObserver reports the sizes of its root and its body. That
- * window reports after the frame's window, whose observer reports the frame
- * shown again before `back`, so the change that showing the frame makes
- * comes after `back`. A window without ResizeObserver, as jsdom is, tells
- * nothing.
+ * own window's ResizeObserver reports the sizes of its root and its body.
+ * When the frame shows again, the frame's window's observer reports first,
+ * and calls `back`; the page's window reports after it, in the same frame,
+ * the change that showing the frame makes, which `back` has shown the page
+ * by already and which is passed over. A window without ResizeObserver, as
+ * jsdom is, tells nothing.
  */
 export function keepPageScrolling(
   frame: HTMLIFrameElement,
   doc: Document,
   signal: AbortSignal,
-  shown?: ScrollPlace | null,
+  shown?: ScrollPlace,
 ): KeptPageScrolling | null {
   const win = doc.defaultView;
   if (!win) return null;

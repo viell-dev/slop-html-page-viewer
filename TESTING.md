@@ -1271,8 +1271,11 @@ starts left neither test a step after it, and the screenshot was taken.
   paints first.
   - A scroll that Chromium has yet to report when the tab hides, made in the frame before, is not
     kept: the page or the source goes back to where it was before that scroll.
-  - A tab hidden and shown again within one of Chromium's frames, with a layout in between, as only
-    a script can do, can leave the page at its top.
+  - A tab shown again after the frame's window reported it hidden, but before Chromium reported the
+    hidden page's scroll to its start, as a script can do within one of Chromium's frames, leaves
+    the page at its top: Chromium reports that scroll once the frame is laid out again, and the view
+    takes it for the page's place. A hide and a show within one task, with a layout in between,
+    leave the page where it was.
   - Once the sides are back, the side that led last puts them in step once; only `split.test.ts`
     tests that the sides are measured again for that.
   - **Unreleased (#182):** The page goes back to the element that was at its top, and the split
@@ -1298,9 +1301,16 @@ starts left neither test a step after it, and the screenshot was taken.
       out of date until it is measured again, once 100 ms pass: the page's own window's
       `ResizeObserver` reports the sizes of its root and its body. Until then, the page goes back
       as far down as it was. `move.e2e.ts` turns Obsidian's Readable line length off, and narrows a
-      page with `overflow-anchor: none`, while the tab shows. A change that moves the page's text
-      but changes neither size, or a page whose root or body changes size in every frame, is not
-      tested; the second is never measured, and goes back in pixels.
+      page with `overflow-anchor: none`, while the tab shows, and turns Readable line length off
+      two frames before the tab hides, before the view has measured the page again. A change that
+      moves the page's text but changes neither size, or a page whose root or body changes size in
+      every frame, is not tested; the second is never measured, and goes back in pixels.
+    - Showing the tab again lays its page out anew, which the page's window reports right after
+      `back`, in the same animation frame: that report is passed over, and where `back` showed the
+      element, it is up to date where `back` put the page. So a tab shown for less than 100 ms, as
+      one passed over while stepping through a tab group's tabs, keeps the element for its next
+      show. `move.e2e.ts` shows the tab for two frames, and narrows its view while it is hidden
+      again; only `move.test.ts` tests a brief show at another width.
     - `move.e2e.ts` narrows the tab's view with a style while the tab is hidden, as a narrower pane
       would; a sidebar opened meanwhile is not tested. It checks the page's sideways place with a
       page wider than its view.
@@ -1330,11 +1340,14 @@ starts left neither test a step after it, and the screenshot was taken.
     - The frame of a tab hidden behind the tab in front of it drops its document when Obsidian lays
       the tab group out anew, as for **Split down** in that tab, and the next document has its text
       with the frame 0 pixels high. `move.e2e.ts` runs `workspace:split-horizontal` there, and
-      also closes the new pane again before showing the tab, which on Obsidian 1.15.1 drops the
-      document once more.
-    - Where the page was still scrolling when the tab hid, the next document gets the element
-      measured where its scrolling last settled, as only `move.test.ts` tests: the pixels it was
-      last reported at belong to the old layout.
+      also closes the new pane again before showing the tab, which drops the document once more on
+      both versions; it checks that the frame loaded a new document each time.
+    - Where the page was still scrolling when the tab hid, or stopped less than 100 ms before, the
+      next document gets the element measured where its scrolling last settled, as only
+      `move.test.ts` tests: the pixels it was last reported at belong to the old layout. After Split
+      down, the split view's source goes back to where it was scrolled, and its sides are apart
+      until the next scroll; the in-depth review of #190 measured that, with the tab hidden 22 to
+      35 ms after a scroll of the page to another paragraph, and no test covers it.
   - That a page with scripts on starts from its top was measured for #178 on both versions, not
     tested. That Chromium keeps the places of the frame's own scrolling elements, and of the
     **Source** view, `move.e2e.ts` tests.
