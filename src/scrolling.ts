@@ -375,8 +375,9 @@ export interface KeptScrolling {
  * place lost to a move that a hotkey makes in the same frame (#167). A
  * window without animation frames renders nothing, and its input does not
  * count. Where the find bar scrolls the element, `placed` tells it so. The
- * split view's follower does not: its lowest target is the first line, below
- * the source's top padding, so it never leaves the element at its start.
+ * split view's follower, and its putting the sides in step again in a new
+ * window (#165), do not: their lowest target is the first line, below the
+ * source's top padding, so they never leave the element at its start.
  */
 export function keepScrolling(element: HTMLElement): KeptScrolling {
   let top = element.scrollTop;

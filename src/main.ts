@@ -45,6 +45,7 @@ import {
   anchorElements,
   lineAtTop,
   lineForPageTop,
+  onFirstResize,
   pageTopForLine,
   remeasured,
   ScrollFollower,
@@ -64,6 +65,23 @@ interface TabChoices {
   readonly mode: ViewMode;
   readonly theme: boolean;
 }
+
+/** What the view keeps of the frame's previous document for its next one. */
+interface FrameHistory {
+  /** Where the previous document was scrolled to when the frame dropped it (#126). */
+  place: ScrollPlace | null;
+  /** The window that the view showed the previous document in, or null before the first (#165). */
+  shownIn: Window | null;
+}
+
+/**
+ * How long after a split view shows its page in a new window the view waits
+ * for the source's lines to be laid out again, when Obsidian's styles arrive
+ * there (#165). In moves on Obsidian 1.5.3 in Docker, which #165 and #176
+ * record, the lines changed 111 to 277 ms after the view showed the page, and
+ * up to 897 ms after it when a test held app.css back on a busy machine.
+ */
+const NEW_WINDOW_SETTLING = 2000;
 
 export default class HtmlPageViewerPlugin extends Plugin implements SettingsHost {
   settings: ViewerSettings = DEFAULT_SETTINGS;
@@ -201,7 +219,8 @@ class HtmlPageViewerView extends TextFileView {
   private findMore = false;
   private findHighlighter: Highlighter | null = null;
   private findBar: HTMLElement | null = null;
-  private findTimer: number | null = null;
+  /** The find bar's delay before it searches what was typed, with the window that runs it (#175). */
+  private findTimer: { readonly win: Window; readonly id: number } | null = null;
 
   /**
    * Counts the changes of what the view shows: each time a file opens in it,
@@ -586,7 +605,9 @@ class HtmlPageViewerView extends TextFileView {
 
   private cancelFindTimer(): void {
     if (this.findTimer === null) return;
-    this.contentEl.ownerDocument.defaultView?.clearTimeout(this.findTimer);
+    // Only the window that set a timer can clear it, and the view can be in
+    // another one by now, after its tab moved (#175).
+    this.findTimer.win.clearTimeout(this.findTimer.id);
     this.findTimer = null;
   }
 
@@ -617,18 +638,21 @@ class HtmlPageViewerView extends TextFileView {
     const next = createIconButton(bar, "chevron-down", "Next match");
     const close = createIconButton(bar, "x", "Close find");
 
-    const win = parent.ownerDocument.defaultView;
     input.addEventListener("input", () => {
       // Searching a long page at every key would make typing lag.
       this.cancelFindTimer();
-      this.findTimer =
-        win?.setTimeout(() => {
-          this.findTimer = null;
-          if (!this.contentEl.contains(input)) return;
-          this.find.query = input.value;
-          this.find.index = 0;
-          this.runFind();
-        }, 150) ?? null;
+      // The window that shows the bar now: after its tab moved, the window
+      // that the bar was made in can be another one, or closed (#175).
+      const win = input.ownerDocument.defaultView;
+      if (!win) return;
+      const id = win.setTimeout(() => {
+        this.findTimer = null;
+        if (!this.contentEl.contains(input)) return;
+        this.find.query = input.value;
+        this.find.index = 0;
+        this.runFind();
+      }, 150);
+      this.findTimer = { win, id };
     });
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -901,8 +925,7 @@ class HtmlPageViewerView extends TextFileView {
       poll();
     };
     const watched = new WeakSet<Document>();
-    /** Where the frame's previous document was scrolled to when the frame dropped it (#126). */
-    const frame: { place: ScrollPlace | null } = { place: null };
+    const frame: FrameHistory = { place: null, shownIn: null };
     const watch = (): boolean => {
       // Only a page with Obsidian's origin (scripts off) can be reached.
       const doc = iframe.contentDocument;
@@ -944,15 +967,11 @@ class HtmlPageViewerView extends TextFileView {
    * Shows a document of the frame as the view shows its page, once the view
    * watches it: in the reading style that the view shows, where the frame's
    * previous document was, with the find bar's matches, in step with the
-   * source in the split view, and with the find keys. `frame.place` is where
-   * the previous document was scrolled to when the frame dropped it, as when
-   * its tab moved to another tab group or window (#126).
+   * source in the split view, and with the find keys. `frame` holds what the
+   * view keeps of the frame's previous document, as when its tab moved to
+   * another tab group or window (#126).
    */
-  private showDocument(
-    iframe: HTMLIFrameElement,
-    doc: Document,
-    frame: { place: ScrollPlace | null },
-  ): void {
+  private showDocument(iframe: HTMLIFrameElement, doc: Document, frame: FrameHistory): void {
     this.restyle(doc);
     // The listeners that the view adds for this document outside it, as on
     // the split view's source, which outlive it unless removed.
@@ -980,8 +999,11 @@ class HtmlPageViewerView extends TextFileView {
       // without a watch, this is the frame's first document.
       const firstDocument = reader === null;
       this.runFind(firstDocument);
+      const shownIn = this.contentEl.ownerDocument.defaultView;
+      const newWindow = frame.shownIn !== null && frame.shownIn !== shownIn;
+      frame.shownIn = shownIn;
       const follower =
-        this.mode === "split" ? this.syncScrolling(iframe, doc, showing.signal) : null;
+        this.mode === "split" ? this.syncScrolling(iframe, doc, showing.signal, newWindow) : null;
       placeNextDocument(doc, frame.place, reader, follower, [this.contentEl], showing.signal);
       placed = true;
     };
@@ -1035,13 +1057,15 @@ class HtmlPageViewerView extends TextFileView {
   /**
    * Keeps the split view's source and page scrolling in step, while the view
    * can reach the page, from as soon as its text is there, until `signal`
-   * says that the frame no longer shows `doc`. Returns the follower, or null
-   * when the view cannot follow the page.
+   * says that the frame no longer shows `doc`, which the view shows in
+   * another window than the frame's previous document if `newWindow`.
+   * Returns the follower, or null when the view cannot follow the page.
    */
   private syncScrolling(
     iframe: HTMLIFrameElement,
     doc: Document,
     signal: AbortSignal,
+    newWindow: boolean,
   ): ScrollFollower | null {
     const win = doc.defaultView;
     const source = this.contentEl.querySelector<HTMLElement>(
@@ -1079,6 +1103,8 @@ class HtmlPageViewerView extends TextFileView {
     );
     const scroll = (target: Element | Window, top: number): void =>
       scrollInstantly(target, root, { top });
+    /** Where the source last led from, and the line at its top there by the line tops of then (#165). */
+    let sourceLed: { readonly top: number; readonly line: number } | null = null;
     const follower = new ScrollFollower(
       {
         source: {
@@ -1093,7 +1119,11 @@ class HtmlPageViewerView extends TextFileView {
         },
       },
       {
-        source: (top) => pageTopForLine(points(), lineAtTop(lineTops(), top)),
+        source: (top) => {
+          const line = lineAtTop(lineTops(), top);
+          sourceLed = { top, line };
+          return pageTopForLine(points(), line);
+        },
         page: (top) => {
           const line = lineForPageTop(points(), top);
           return line === null ? null : topOfLine(lineTops(), line);
@@ -1106,6 +1136,38 @@ class HtmlPageViewerView extends TextFileView {
     );
     source.addEventListener("scroll", () => follower.scrolled("source"), { signal });
     win.addEventListener("scroll", () => follower.scrolled("page"), { signal });
+    // Obsidian 1.5.3 lays a new window's elements out before its app.css has
+    // arrived there, so the sides can be put in step for lines that then move
+    // (#165). The first size change of the source's lines measures both sides
+    // again, and the side that led last leads again. Only once, and only
+    // soon after the move: an ordinary resize leaves the sides as they are
+    // until the next scroll.
+    const content = source.querySelector("pre");
+    if (newWindow && content)
+      onFirstResize(
+        content,
+        () => {
+          // A source that led last keeps the line that it led from, where
+          // the reader or the find bar put it, if it is still where it led
+          // from: the change moved its lines, and left it where it was in
+          // pixels. One that Chromium has scrolled meanwhile, as scroll
+          // anchoring would, leads from where it is.
+          const kept =
+            follower.leading === "source" && sourceLed?.top === source.scrollTop
+              ? sourceLed.line
+              : null;
+          points.again();
+          lineTops.again();
+          if (kept === null) {
+            follower.again();
+            return;
+          }
+          scroll(source, Math.round(topOfLine(lineTops(), kept)));
+          follower.placed("source");
+        },
+        signal,
+        NEW_WINDOW_SETTLING,
+      );
     return follower;
   }
 

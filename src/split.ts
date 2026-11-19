@@ -336,10 +336,14 @@ type SideName = "source" | "page";
  * makes it report a scroll of its own, which is passed over if the side is
  * still where it landed, which a page that snaps can make other than where it
  * was sent. A report that comes from somewhere else is a scroll of the
- * user's, made in the same frame, and the other side follows it.
+ * user's, made in the same frame, and the other side follows it. `follow` is
+ * called once for each lead, so a mapping may record the lead it was given.
  */
 export class ScrollFollower {
+  /** The side that waits to lead, until the next call of `schedule` runs. */
   private leader: SideName | null = null;
+  /** The side that led last, whether or not the other side had to move. */
+  private led: SideName | null = null;
   /**
    * Where a side was put, by moving it or as `placed` and `passOver` say,
    * until the side next reports a scroll, which is passed over if it is still
@@ -388,6 +392,20 @@ export class ScrollFollower {
     this.landed[side] = this.sides[side].position();
   }
 
+  /** The side that waits to lead, or else the side that led last, or null before any led. */
+  get leading(): SideName | null {
+    return this.leader ?? this.led;
+  }
+
+  /**
+   * Has the side that led last lead again, from where it is now, as after
+   * the sides were laid out anew, so that `follow` maps them differently
+   * (#165). Nothing happens before a side has led, nor while one waits to.
+   */
+  again(): void {
+    if (this.leader === null && this.led !== null) this.lead(this.led);
+  }
+
   private lead(side: SideName): void {
     const waiting = this.leader !== null;
     this.leader = side;
@@ -400,6 +418,7 @@ export class ScrollFollower {
   }
 
   private move(leader: SideName): void {
+    this.led = leader;
     const other: SideName = leader === "source" ? "page" : "source";
     const target = this.follow[leader](this.sides[leader].position());
     if (target === null) return;
@@ -413,6 +432,14 @@ export class ScrollFollower {
   }
 }
 
+/** A measurement from `remeasured`. */
+export interface Remeasured<T> {
+  /** The measurement, taken again first if it is due. */
+  (): T;
+  /** Takes the measurement again now, also when it is not due. */
+  again(): void;
+}
+
 /**
  * A measurement that is taken again when what it depends on changes size, at
  * most once every `wait` milliseconds, as measuring a long page is slow.
@@ -422,11 +449,16 @@ export function remeasured<T>(
   size: () => number,
   now: () => number,
   wait = 250,
-): () => T {
+): Remeasured<T> {
   let value = measure();
   let lastSize = size();
   let lastTime = now();
-  return () => {
+  const again = (): void => {
+    value = measure();
+    lastSize = size();
+    lastTime = now();
+  };
+  const current = (): T => {
     const time = now();
     if (size() !== lastSize && time - lastTime >= wait) {
       lastSize = size();
@@ -435,4 +467,40 @@ export function remeasured<T>(
     }
     return value;
   };
+  return Object.assign(current, { again });
+}
+
+/**
+ * Calls `resized` once, at the first change of `element`'s size from its size
+ * now, if it comes within `within` milliseconds and before `signal` aborts.
+ * The observer and its time limit are made in the element's own window, whose
+ * rendering reports the sizes of the element there: after the view's tab
+ * moved to a new window, that is another window than the plugin's (#165). A
+ * window without ResizeObserver, as jsdom is, calls nothing.
+ */
+export function onFirstResize(
+  element: HTMLElement,
+  resized: () => void,
+  signal: AbortSignal,
+  within: number,
+): void {
+  const win = element.ownerDocument.defaultView;
+  if (!win?.ResizeObserver || signal.aborted) return;
+  const width = element.offsetWidth;
+  const height = element.offsetHeight;
+  // The first report gives the size that the element has when it is first
+  // observed, which can already differ from its size now.
+  const observer = new win.ResizeObserver(() => {
+    if (element.offsetWidth === width && element.offsetHeight === height) return;
+    stop();
+    resized();
+  });
+  const timer = win.setTimeout(() => stop(), within);
+  const stop = (): void => {
+    observer.disconnect();
+    win.clearTimeout(timer);
+    signal.removeEventListener("abort", stop);
+  };
+  signal.addEventListener("abort", stop);
+  observer.observe(element);
 }

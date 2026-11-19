@@ -587,6 +587,275 @@ async function movedSource(): Promise<{ top: number; inWindow: boolean } | null>
   });
 }
 
+/** The split view's source of the tab that moveActiveTab moved, with line `number`. */
+interface MovedSplitSource {
+  /** How far the source is scrolled down, and how far down line `number` is in it. */
+  scrollTop: number;
+  lineTop: number;
+  /** The font and the line height that the window's styles give the source's lines. */
+  font: string;
+  lineHeight: string;
+}
+
+/** The split view's source of the tab that moveActiveTab moved, in whichever window it is. */
+async function movedSplitSource(number: number): Promise<MovedSplitSource | null> {
+  return browser.executeObsidian(({ app }, number) => {
+    const found: MovedSplitSource[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      const source = leaf.view.containerEl
+        .querySelector("iframe[data-e2e-moved]")
+        ?.closest(".html-page-viewer__split")
+        ?.querySelector<HTMLElement>(".html-page-viewer__source");
+      const line = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[
+        number - 1
+      ];
+      const pre = source?.querySelector("pre");
+      if (!source || !line || !pre) return;
+      const style = source.ownerDocument.defaultView!.getComputedStyle(pre);
+      found.push({
+        scrollTop: source.scrollTop,
+        lineTop: line.offsetTop,
+        font: style.fontFamily,
+        lineHeight: style.lineHeight,
+      });
+    });
+    return found[0] ?? null;
+  }, number);
+}
+
+/** What holdNewWindowStyles did. */
+interface HeldStyles {
+  /** Whether it held back the new window's app.css, and let it apply again. */
+  held: boolean;
+  released: boolean;
+  /**
+   * Whether the view had put the source at the line, laid out without
+   * app.css, and with a reader, whether the page had followed their scroll of
+   * the source, when app.css applied again.
+   */
+  followed: boolean;
+  read: boolean;
+  /** How far down the page was when app.css applied again, after the reader's scroll. */
+  pageY: number | null;
+}
+
+/** A reader's scroll of the split view's source to `line`, which paragraph `paragraph` is on. */
+interface ReaderLine {
+  readonly line: number;
+  readonly paragraph: number;
+}
+
+/**
+ * Has the next window that Obsidian opens lay its elements out without
+ * Obsidian's app.css until the split view's source of the tab that
+ * moveActiveTab moves there shows line `number` at its top, as the view's
+ * following of the page puts it. With `reader`, the reader then turns the
+ * wheel over the source and scrolls it to their line, and app.css waits
+ * until the page has followed. Then app.css applies, in the window's next
+ * frame. Obsidian opens a new window with `window.open` and then adds its
+ * styles; on Obsidian 1.5.3, app.css can arrive there after the view has put
+ * the sides in step (#165). restoreWindowOpen ends the wrap of `window.open`
+ * if no window opened.
+ */
+async function holdNewWindowStyles(number: number, reader?: ReaderLine): Promise<void> {
+  await browser.execute(
+    (number, reader) => {
+      const state: HeldStyles = {
+        held: false,
+        released: false,
+        followed: false,
+        read: false,
+        pageY: null,
+      };
+      const main = window as unknown as {
+        e2eHeldStyles: HeldStyles;
+        e2eWindowOpen?: typeof window.open;
+      };
+      main.e2eHeldStyles = state;
+      const open = window.open;
+      main.e2eWindowOpen = open;
+      window.open = function (this: Window, ...args: Parameters<typeof window.open>) {
+        window.open = open;
+        delete main.e2eWindowOpen;
+        const win = open.apply(this, args) as (Window & typeof globalThis) | null;
+        if (!win) return win;
+        const release = (link: Element): void => {
+          const until = performance.now() + 10_000;
+          let scrolled = false;
+          const check = (): void => {
+            const source = win.document.querySelector<HTMLElement>(
+              ".html-page-viewer__split .html-page-viewer__source",
+            );
+            const lines = source?.querySelectorAll<HTMLElement>(".html-page-viewer__source-line");
+            const doc =
+              win.document.querySelector<HTMLIFrameElement>(
+                "iframe[data-e2e-moved]",
+              )?.contentDocument;
+            // The frame's next document has its URL before its root element.
+            const root = doc?.URL === "about:srcdoc" ? doc.documentElement : null;
+            const at = (number: number): boolean => {
+              const line = lines?.[number - 1];
+              return (
+                source !== null &&
+                line !== undefined &&
+                source.scrollTop > 0 &&
+                Math.abs(source.scrollTop - line.offsetTop) <= 2
+              );
+            };
+            if (!state.followed)
+              state.followed = root !== null && root.dataset.e2eBefore === undefined && at(number);
+            if (state.followed && reader && !state.read) {
+              if (!scrolled) {
+                scrolled = true;
+                // In a task, as the reader's wheel is, which Chromium reports
+                // before the next frame's callbacks, such as the view's
+                // following of the page that it placed at `load`.
+                win.setTimeout(() => {
+                  source!.dispatchEvent(
+                    new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 100 }),
+                  );
+                  source!.scrollTop = lines![reader.line - 1].offsetTop;
+                }, 0);
+              } else {
+                const shown = [...doc!.querySelectorAll("p")].find(
+                  (paragraph) => paragraph.getBoundingClientRect().bottom > 1,
+                );
+                const paragraph = Number(/Paragraph (\d+)/.exec(shown?.textContent ?? "")?.[1]);
+                state.read = paragraph === reader.paragraph && at(reader.line);
+                if (state.read) state.pageY = doc!.defaultView!.scrollY;
+              }
+            }
+            const done = state.followed && (!reader || state.read);
+            if (!done && performance.now() < until) {
+              win.requestAnimationFrame(check);
+              return;
+            }
+            link.removeAttribute("media");
+            state.released = true;
+          };
+          win.requestAnimationFrame(check);
+        };
+        // Before the window's next layout: a mutation observer runs once the
+        // script that adds the link has.
+        new win.MutationObserver((records, observer) => {
+          for (const record of records)
+            for (const node of record.addedNodes) {
+              if (node.nodeName !== "LINK" || (node as Element).getAttribute("href") !== "app.css")
+                continue;
+              observer.disconnect();
+              (node as Element).setAttribute("media", "not all");
+              state.held = true;
+              release(node as Element);
+              return;
+            }
+        }).observe(win.document, { childList: true, subtree: true });
+        return win;
+      } as typeof window.open;
+    },
+    number,
+    reader ?? null,
+  );
+}
+
+/** Ends holdNewWindowStyles' wrap of `window.open`, where no window has opened since. */
+async function restoreWindowOpen(): Promise<void> {
+  await browser.execute(() => {
+    const main = window as unknown as { e2eWindowOpen?: typeof window.open };
+    if (main.e2eWindowOpen) window.open = main.e2eWindowOpen;
+    delete main.e2eWindowOpen;
+  });
+}
+
+/** Waits for two animation frames of the window that the tab moveActiveTab moved is in. */
+async function nextMovedFrames(): Promise<void> {
+  await browser.executeObsidian(async ({ app }) => {
+    const windows: Window[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      const win =
+        leaf.view.containerEl.querySelector("iframe[data-e2e-moved]")?.ownerDocument.defaultView;
+      if (win) windows.push(win);
+    });
+    const win = windows[0];
+    if (!win) throw new Error("No moved tab");
+    await new Promise<void>((resolve) =>
+      win.requestAnimationFrame(() => win.requestAnimationFrame(() => resolve())),
+    );
+  });
+}
+
+/**
+ * Moves the tab whose source a test marked with `data-e2e-moved` from its
+ * window into a tab group of Obsidian's main window, as dragging it there
+ * does. The window that it leaves without tabs closes.
+ */
+async function moveMarkedTabToMainWindow(): Promise<void> {
+  await browser.executeObsidian(({ app }) => {
+    // Not in Obsidian's API types; 1.5.3 and 1.15.1 have them.
+    interface Parent {
+      children: unknown[];
+      removeChild(child: unknown): void;
+      insertChild(index: number, child: unknown): void;
+      selectTabIndex(index: number): void;
+    }
+    type Leaf = Parameters<Parameters<typeof app.workspace.iterateAllLeaves>[0]>[0];
+    const marked: Leaf[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view.containerEl.querySelector(".html-page-viewer__source[data-e2e-moved]"))
+        marked.push(leaf);
+    });
+    const groups: Parent[] = [];
+    app.workspace.iterateRootLeaves((leaf) => {
+      if (leaf.view.containerEl.ownerDocument === document)
+        groups.push((leaf as unknown as { parent: Parent }).parent);
+    });
+    const leaf = marked[0];
+    const group = groups[0];
+    if (!leaf || !group) throw new Error("No marked tab, or no tab group in the main window");
+    const moved = leaf as unknown as { parent: Parent; setDimension(size: null): void };
+    moved.parent.removeChild(leaf);
+    moved.setDimension(null);
+    group.insertChild(-1, leaf);
+    group.selectTabIndex(group.children.indexOf(leaf));
+    app.workspace.setActiveLeaf(leaf, { focus: true });
+  });
+}
+
+/**
+ * Types into the find bar of the tab whose source a test marked with
+ * `data-e2e-moved`, in whichever window it is: each of `texts` in turn, 30 ms
+ * apart, as keys typed one after another, and then presses Enter `enters`
+ * times at once. All of it comes within the bar's delay before it searches
+ * what was typed.
+ */
+async function typeIntoMovedFind(texts: readonly string[], enters: number): Promise<void> {
+  await browser.executeObsidian(
+    async ({ app }, texts, enters) => {
+      const inputs: HTMLInputElement[] = [];
+      app.workspace.iterateAllLeaves((leaf) => {
+        if (!leaf.view.containerEl.querySelector(".html-page-viewer__source[data-e2e-moved]"))
+          return;
+        const input = leaf.view.containerEl.querySelector<HTMLInputElement>(
+          ".html-page-viewer__find input",
+        );
+        if (input) inputs.push(input);
+      });
+      const input = inputs[0];
+      if (!input) throw new Error("No find bar in the marked tab");
+      for (const text of texts) {
+        input.value = text;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+      for (let press = 0; press < enters; press += 1)
+        input.dispatchEvent(
+          new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }),
+        );
+    },
+    texts,
+    enters,
+  );
+}
+
 /** The find bar of the tab whose source a test marked with `data-e2e-moved`. */
 interface MovedFind {
   /** What the bar's count says. */
@@ -1006,6 +1275,71 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
     await expectMoments(reader);
   });
 
+  // On Obsidian 1.5.3, a new window can lay the source out before Obsidian's
+  // app.css arrives there, and the view puts the sides in step for that
+  // layout; the source's lines move up when the styles arrive. The test holds
+  // app.css back in every run. On 1.15.1, the source's lines have their
+  // height without app.css, so holding it back moves nothing, and the test
+  // cannot show a drift there. Where the reader scrolled the source last, the
+  // source keeps their line, and the page stays where it followed them.
+  for (const [what, reader, line, paragraph] of [
+    ["", undefined, 20, 12],
+    [", after the reader scrolled its source there", { line: 25, paragraph: 17 }, 25, 17],
+  ] as const) {
+    it(`keeps the split view's sides in step in a new window once Obsidian's styles arrive there${what} (#165)`, async function () {
+      await openLongPageSplit();
+      await nextFrames();
+      const styled = await browser.execute((active) => {
+        const pre = document.querySelector(
+          `${active} .html-page-viewer__split .html-page-viewer__source pre`,
+        )!;
+        const style = getComputedStyle(pre);
+        return { font: style.fontFamily, lineHeight: style.lineHeight };
+      }, ACTIVE);
+
+      await holdNewWindowStyles(20, reader);
+      let held: HeldStyles;
+      try {
+        await moveActiveTab("window");
+        await browser.waitUntil(
+          async () =>
+            (await browser.execute(
+              () => (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles.released,
+            )) === true,
+          { timeout: 15_000, timeoutMsg: "the new window's app.css was not held back and let go" },
+        );
+        held = await browser.execute(
+          () => (window as unknown as { e2eHeldStyles: HeldStyles }).e2eHeldStyles,
+        );
+      } finally {
+        await restoreWindowOpen();
+      }
+      expect(held).toMatchObject({
+        held: true,
+        released: true,
+        followed: true,
+        read: reader !== undefined,
+      });
+      await browser.waitUntil(
+        async () => {
+          const source = await movedSplitSource(line);
+          return source?.font === styled.font && source.lineHeight === styled.lineHeight;
+        },
+        { timeout: 10_000, timeoutMsg: "the new window did not get Obsidian's styles" },
+      );
+      await waitForMovedPage();
+      // The view's observer of the source's size, and the sides' following,
+      // run in the window's next frames.
+      await nextMovedFrames();
+      await nextMovedFrames();
+      const source = (await movedSplitSource(line))!;
+      expect(Math.abs(source.scrollTop - source.lineTop)).toBeLessThanOrEqual(2);
+      const page = (await pageState(true))!;
+      expect(Math.abs(page.top - paragraph)).toBeLessThanOrEqual(1);
+      if (held.pageY !== null) expect(Math.abs(page.scrollY - held.pageY)).toBeLessThanOrEqual(2);
+    });
+  }
+
   for (const trigger of ["layout-change", "resize"] as const) {
     const what = trigger === "resize" ? "a resize" : "a layout change";
     it(`leaves the split view's source at its start where the reader scrolls it, when ${what} comes before Chromium reports it (#157)`, async function () {
@@ -1224,6 +1558,71 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
       expect(await movedFind()).toMatchObject({ count: "2 of 11", matches: 11, current: 1 });
     });
   }
+
+  // The find bar searches what is typed into it after a short delay, which
+  // Enter cancels. The bar here was made in Obsidian's main window.
+  it("goes on to the next match when Enter comes before the find bar's delayed search, in a new window (#175)", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await clickToolbarButton("Source");
+    await browser.$(`${ACTIVE} .html-page-viewer__source`).click();
+    await browser.keys(["Control", "f"]);
+    await browser.execute((active) => {
+      document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!.dataset.e2eMoved =
+        "";
+    }, ACTIVE);
+    await moveActiveTab("window");
+    await browser.waitUntil(async () => (await movedFind())?.inWindow === true, {
+      timeout: 5000,
+      timeoutMsg: "the tab did not move to a new window",
+    });
+
+    // Paragraphs 4 and 40 to 49. The first Enter searches, the second goes on.
+    await typeIntoMovedFind(["Para", "Paragraph", "Paragraph 4"], 2);
+    expect((await movedFind())?.count).toBe("2 of 11");
+    await browser.pause(1000);
+    expect(await movedFind()).toMatchObject({ count: "2 of 11", current: 1, currentShown: true });
+  });
+
+  // The bar here was made in the new window, which closes when its last tab
+  // leaves it.
+  it("searches what is typed into the find bar after its tab moves back from a new window (#175)", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await clickToolbarButton("Source");
+    await browser.execute((active) => {
+      document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!.dataset.e2eMoved =
+        "";
+    }, ACTIVE);
+    await moveActiveTab("window");
+    await browser.waitUntil(async () => (await movedFind())?.inWindow === true, {
+      timeout: 5000,
+      timeoutMsg: "the tab did not move to a new window",
+    });
+    await browser.executeObsidian(({ app }) => {
+      app.workspace.iterateAllLeaves((leaf) => {
+        if (leaf.view.containerEl.querySelector(".html-page-viewer__source[data-e2e-moved]"))
+          (leaf.view as unknown as { openFind(): void }).openFind();
+      });
+    });
+    expect(await movedFind()).toMatchObject({ count: "", inWindow: true });
+
+    await moveMarkedTabToMainWindow();
+    await browser.waitUntil(
+      async () =>
+        (await movedFind())?.inWindow === false &&
+        (await browser.executeObsidian(({ app }) => {
+          let others = 0;
+          app.workspace.iterateAllLeaves((leaf) => {
+            if (leaf.view.containerEl.ownerDocument !== document) others += 1;
+          });
+          return others;
+        })) === 0,
+      { timeout: 5000, timeoutMsg: "the tab did not move back to the main window" },
+    );
+
+    await typeIntoMovedFind(["Para", "Paragraph", "Paragraph 4"], 0);
+    await browser.pause(1000);
+    expect(await movedFind()).toMatchObject({ count: "1 of 11", matches: 11, current: 1 });
+  });
 
   it("leaves its page where the reader scrolls it before the page has loaded", async function () {
     const { scrolled, loaded } = await scrollBeforeLoad("iframe[data-e2e-moved]", false);

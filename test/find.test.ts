@@ -376,6 +376,22 @@ describe("the find bar", () => {
     press(field, "Escape");
   });
 
+  it("stays on its match when Enter comes before the searches of several keys it waited for", async () => {
+    const { view } = await sourceView();
+    button(view, "Find in page").click();
+    const field = input(view);
+    for (const text of ["pa", "pag", "page"]) {
+      field.value = text;
+      field.dispatchEvent(new window.Event("input"));
+    }
+    press(field, "Enter");
+    press(field, "Enter");
+    assert.equal(count(view), "2 of 3");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(count(view), "2 of 3");
+    press(field, "Escape");
+  });
+
   it("keeps text typed just before the view changes, and searches the next file in the tab", async () => {
     const { harness, view } = await sourceView();
     button(view, "Find in page").click();
@@ -577,6 +593,79 @@ describe("the find bar", () => {
         }
       });
     }
+
+    // The bar searches what is typed after a delay, with a timer of the
+    // window that shows the bar then. Only that window can clear the timer,
+    // and a window that has closed runs none.
+    describe("its delay before it searches what was typed (#175)", () => {
+      function newWindow(): Window {
+        return new JSDOM("<!doctype html><html><head></head><body></body></html>", {
+          url: "app://obsidian.md/index.html",
+        }).window as unknown as Window;
+      }
+
+      it("stays on its match when Enter comes before the search it waited for, in a new window", async () => {
+        const { view } = await sourceView();
+        // The bar is made in the tests' window.
+        button(view, "Find in page").click();
+        const popout = newWindow();
+        try {
+          popout.document.body.append(view.contentEl);
+          const field = input(view);
+          field.value = "page";
+          field.dispatchEvent(new window.Event("input"));
+          press(field, "Enter");
+          press(field, "Enter");
+          assert.equal(count(view), "2 of 3");
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          assert.equal(count(view), "2 of 3");
+        } finally {
+          close(view);
+          popout.close();
+        }
+      });
+
+      it("stays on its match when Enter comes in a new window before the search it waited for from the window before", async () => {
+        const { view } = await sourceView();
+        document.body.append(view.contentEl);
+        button(view, "Find in page").click();
+        const popout = newWindow();
+        try {
+          const field = input(view);
+          field.value = "page";
+          field.dispatchEvent(new window.Event("input"));
+          popout.document.body.append(view.contentEl);
+          press(field, "Enter");
+          press(field, "Enter");
+          assert.equal(count(view), "2 of 3");
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          assert.equal(count(view), "2 of 3");
+        } finally {
+          close(view);
+          popout.close();
+        }
+      });
+
+      it("searches what is typed after its tab moved back from a new window, which closed", async () => {
+        const { view } = await sourceView();
+        const popout = newWindow();
+        popout.document.body.append(view.contentEl);
+        // The bar is made in the new window.
+        button(view, "Find in page").click();
+        document.body.append(view.contentEl);
+        popout.close();
+        try {
+          const field = input(view);
+          field.value = "page";
+          field.dispatchEvent(new window.Event("input"));
+          assert.equal(count(view), "", "the search waits");
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          assert.equal(count(view), "1 of 3");
+        } finally {
+          close(view);
+        }
+      });
+    });
 
     it("leaves the rendered page's matches to be found when the frame shows its next document", async () => {
       const harness = await Harness.load();
