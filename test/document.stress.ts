@@ -100,12 +100,15 @@ describe("preparing a page whose stylesheets import each other many times (#154)
     const rule = 'a.card:hover { color: blue; content: "example"; } /* ordinary comment */\n';
     const rules = rule.repeat(Math.ceil(20_000 / rule.length));
     const { text, copies } = await prepareFanOut(rules);
-    // Every level's file has the same length, so as many fit as the limit holds.
-    const fit = Math.floor(STYLESHEET_TEXT_LIMIT / sheet(0, rules).length);
+    // Every level's file has the same length, and each of its imports takes
+    // the length that it would have as a kept import, made absolute (#177),
+    // so as many fit as the limit holds.
+    const kept =
+      `@import url("${context.vaultUrl}Saved/1.css");`.length - '@import "1.css";'.length;
+    const fit = Math.floor(STYLESHEET_TEXT_LIMIT / (sheet(0, rules).length + FAN * kept));
     assert.ok(fit < STYLESHEET_COUNT_LIMIT);
     assert.equal(copies, fit);
-    // The imports left, made absolute, add a little to the text taken in.
-    assert.ok(text.length < STYLESHEET_TEXT_LIMIT + 1_000_000, `${text.length} characters`);
+    assert.ok(text.length <= STYLESHEET_TEXT_LIMIT, `${text.length} characters`);
   });
 
   it("shows whole a page of thousands of components that each link or import the same stylesheet", async () => {
@@ -138,6 +141,122 @@ describe("preparing a page whose stylesheets import each other many times (#154)
     assert.equal(output.split(sheet).length - 1, count);
     assert.doesNotMatch(output, /<link|@import/);
     assert.deepEqual(reads, ["Saved/item.css", "Saved/tokens.css"]);
+  });
+});
+
+describe("preparing a page whose stylesheets name many URLs (#177)", () => {
+  /** A vault at an ordinary path, as Obsidian names one on Linux. */
+  const vault = `app://${"0123456789abcdef".repeat(2)}/home/user/Documents/My%20Vault/`;
+  const link = (href: string) => `<link rel="stylesheet" href="${href}">`;
+
+  /**
+   * Prepares a page in `folder` with these files there, which must not throw.
+   * Returns its copy, how much longer it is than the page and its files, and
+   * how often preparing asked whether a path exists: once for each URL and
+   * import that it rewrites, and for each link that it resolves. Every path
+   * exists, so nothing is found by name.
+   */
+  async function prepareWith(html: string, files: Record<string, string>, folder = "Saved/") {
+    const asked = new Map<string, number>();
+    const ctx = {
+      pageUrl: `${vault}${folder.split("/").map(encodeURIComponent).join("/")}page.html`,
+      vaultUrl: vault,
+      read: (path: string) => Promise.resolve(files[path.slice(folder.length)] ?? null),
+      exists(path: string) {
+        asked.set(path, (asked.get(path) ?? 0) + 1);
+        return true;
+      },
+      locate: () => null,
+    };
+    const start = performance.now();
+    const { html: output } = await preparePage(html, ctx);
+    const ms = Math.round(performance.now() - start);
+    const input = html.length + Object.values(files).reduce((sum, text) => sum + text.length, 0);
+    const looked = (path: string) => asked.get(folder + path) ?? 0;
+    return { output, added: output.length - input, looked, ms };
+  }
+
+  it("keeps the copy of stylesheets whose URLs it makes absolute within the text limit", async () => {
+    // In #177, a link of the first stylesheet took the copy to 97 million
+    // characters, 8.8 times the stylesheet, in 5.6 to 6.6 s; on main at
+    // 6acb438, each of these added 78 or 82 million. Each stylesheet's text
+    // fits within the limit, but not with its URLs, or its imports that stay
+    // imports, made absolute.
+    const urls = "a{b:url(c)}".repeat(1_000_000);
+    const imports = '@import"a";'.repeat(1_000_000);
+    const kept = `@import url("${vault}Saved/urls.css");`;
+    // Rewriting stops once the text passes the room: each URL made absolute
+    // adds 78 characters, and each import 82, to a text of 11 million.
+    const most = Math.ceil((STYLESHEET_TEXT_LIMIT - urls.length) / 78) + 1;
+    // Each case's page, its files, the link or import that stays one, and the
+    // path that each rewrite asks about.
+    const cases: [string, string, Record<string, string>, string, string][] = [
+      ["a link of URLs", link("urls.css"), { "urls.css": urls }, link("urls.css"), "c"],
+      ["an import of URLs", '<style>@import "urls.css";</style>', { "urls.css": urls }, kept, "c"],
+      [
+        "an import of URLs in a linked stylesheet",
+        link("main.css"),
+        { "main.css": '@import "urls.css";', "urls.css": urls },
+        kept,
+        "c",
+      ],
+      [
+        "a link of imports that stay imports",
+        link("imports.css"),
+        { "imports.css": imports },
+        link("imports.css"),
+        "a",
+      ],
+    ];
+    for (const [name, html, files, left, path] of cases) {
+      const { output, added, looked } = await prepareWith(html, files);
+      assert.ok(added <= STYLESHEET_TEXT_LIMIT, `${name}: ${added} characters added`);
+      // A stylesheet that would pass the limit stays a link or an import, as
+      // one too large does.
+      assert.ok(output.includes(left), `${name}: no link or import left`);
+      const rewrites = looked(path);
+      assert.ok(rewrites > 0 && rewrites <= most, `${name}: ${rewrites} rewrites`);
+    }
+  });
+
+  it("prepares a stylesheet that stays a link at most twice, however often the page links it", async () => {
+    // The review of #177's first fix measured these pages at 26 to 30 s,
+    // against 0.4 s on main: each link of the stylesheet rewrote its URLs
+    // up to the room again. Each now takes about 0.5 s in jsdom. Its folder
+    // takes 3,900 bytes in names of U+3042, so that its 1,362 URLs, made
+    // absolute, pass the limit.
+    const names: string[] = [];
+    for (let left = 3_900; left > 0; left -= 256)
+      names.push("あ".repeat(Math.min(85, Math.floor(left / 3))));
+    const folder = `${names.join("/")}/`;
+    const per = `url("${vault}${names.map(encodeURIComponent).join("/")}/c")`.length;
+    const count = Math.floor(STYLESHEET_TEXT_LIMIT / per) + 1;
+    const files = { "s.css": "url(c)".repeat(count), "e.css": "" };
+    for (const [name, html, most] of [
+      // A link of the same URL is refused without preparing it again.
+      ["1,000 links", link("s.css").repeat(1_000), count],
+      // Another URL of it is prepared within what remains of the discard limit.
+      [
+        "1,000 links, each with its own query",
+        Array.from({ length: 1_000 }, (_, i) => link(`s.css?${i}`)).join(""),
+        2 * count,
+      ],
+    ] as const) {
+      const { output, looked, ms } = await prepareWith(html, files, folder);
+      const rewrites = looked("c");
+      assert.ok(rewrites > 0 && rewrites <= most, `${name}: ${rewrites} rewrites in ${ms} ms`);
+      assert.equal(output.split("<link").length - 1, 1_000, name);
+    }
+    // A page's own <style> keeps its URLs as written, so 20 of them, each
+    // with an import, ask about each URL once, to find it by name, take the
+    // import in, and rewrite nothing; the first fix asked twice, rewriting each
+    // up to the room. Finding a page's own references by name costs as much
+    // on main, for a <style> without imports too. CSS closes the rule that the
+    // URLs start with "{}".
+    const styles = `<style>@import "e.css";${"url(c)".repeat(count)}</style>`.repeat(20);
+    const { output, looked, ms } = await prepareWith(styles, files, folder);
+    assert.equal(looked("c"), 20 * count, `${ms} ms`);
+    assert.equal(output.split(`<style>${"url(c)".repeat(count)}{}</style>`).length - 1, 20);
   });
 });
 

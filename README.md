@@ -222,7 +222,8 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
 
   **Unreleased (#154):** for each page, also its shadow DOM, the viewer follows at most 1,000 links
   and imports of vault stylesheets, and copies at most 16 million characters of the stylesheets'
-  text, counting a stylesheet's own text when it follows a link or import of it. Each link and
+  text, counting a stylesheet's text as preparing writes it into the page (#177) when it follows a
+  link or import of it. Each link and
   import that it follows counts, also when its stylesheet is missing, too large, or then left as an
   import. A repeated link of a stylesheet in the page, or import of it in one of the page's own
   `<style>` elements, gets what the first link or import of it got, once the limits have left that
@@ -236,6 +237,32 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   still copied. Obsidian still does not respond while the viewer prepares a page, about a third to
   half a second for each million characters of stylesheets that it copies
   ([#158](https://github.com/viell-dev/slop-html-page-viewer/issues/158)).
+
+  **Unreleased (#177):** a stylesheet's text counts as preparing writes it into the page: closed
+  where CSS ends it, with its URLs made absolute against its own address or pointed at the file
+  found by name, and with each of its imports as long as the copy writes one that stays an import,
+  also when the viewer copies the imported stylesheet in its place. The limit counts that text, not
+  the copy that the view then serializes from it, which character references and escapes can make
+  several times longer ([#183](https://github.com/viell-dev/slop-html-page-viewer/issues/183)). A
+  page's own `<style>` keeps its URLs as written, which the copy's `<base>` resolves as the page
+  does, unless the page's `<base>` comes after it
+  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)), apart from those found
+  by name, and only what its imports that stay imports add counts.
+  Its own text, `style` attributes, and the page's other references count nothing, and the
+  references found by name there can make the copy far longer than the page
+  ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)). A stylesheet whose text,
+  so rewritten, would not fit stays a link or import, as one too large does, takes nothing from the
+  limit, and its imports are not followed: with its URLs as written, they would resolve against the
+  page, and its images and fonts would not load. A repeat of its link or import stays a link or
+  import without being prepared again. A `<style>` whose imports that stay imports would not fit
+  keeps its text as CSS closes it, apart from references found by name, and its imports stay
+  imports. What preparing such stylesheets and `<style>` elements wrote before it stopped counts
+  toward a limit of its own, of 32 million characters for each page, and the viewer copies a
+  stylesheet only within what remains of both: once that limit is spent, it copies no further
+  stylesheet, also one that would fit. So what it rewrites of stylesheets that it then leaves out
+  stays within that limit, apart from the text that closes the last of them, which counts at once
+  and can be as long as that stylesheet
+  ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
 
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets

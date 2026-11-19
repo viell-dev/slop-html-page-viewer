@@ -915,6 +915,82 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with a page's <style> whose imports the copy takes in (#177)", function () {
+    // The copy keeps such a <style>'s URLs as written, as it keeps one's
+    // without imports, so only its <base> resolves them as the page does:
+    // without it, they would resolve against Obsidian's own address.
+    const PURPLE: Color = [106, 27, 154];
+    const square = (id: string) =>
+      `<style>@import "Relative sheet.css"; #${id} { width: 64px; height: 64px; background: url(Relative/purple.png) }</style><div id="${id}"></div>`;
+    const page = [
+      square("document"),
+      `<div><template shadowrootmode="open">${square("shadow")}</template></div>`,
+      // A template's content, which the page's script puts in the page.
+      `<template id="later">${square("later")}</template>`,
+      `<script>document.body.append(document.getElementById("later").content.cloneNode(true));</script>`,
+    ].join("");
+
+    before(async function () {
+      await browser.executeObsidian(
+        async ({ app }, page, image) => {
+          await app.vault.createFolder("Saved/Relative");
+          const bytes = Uint8Array.from(atob(image), (char) => char.charCodeAt(0));
+          await app.vault.createBinary("Saved/Relative/purple.png", bytes.buffer);
+          await app.vault.create("Saved/Relative sheet.css", ".unused { color: red }");
+          await app.vault.create("Saved/Relative URLs.html", page);
+        },
+        page,
+        solidPng(64, PURPLE).toString("base64"),
+      );
+    });
+
+    after(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        for (const path of [
+          "Saved/Relative URLs.html",
+          "Saved/Relative sheet.css",
+          "Saved/Relative",
+        ]) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file, true);
+        }
+      });
+    });
+
+    it("resolves its URLs as written, in the document and in a shadow root", async function () {
+      await openInActiveTab("Saved/Relative URLs.html");
+      await waitForPage();
+      await saveScreenshot("relative-style-urls");
+      const texts = await browser.execute((active) => {
+        const doc = document.querySelector<HTMLIFrameElement>(`${active} iframe`)!.contentDocument!;
+        const host = [...doc.querySelectorAll("div")].find((div) => div.shadowRoot !== null)!;
+        return [doc.querySelector("style")!, host.shadowRoot!.querySelector("style")!].map(
+          (style) => style.textContent,
+        );
+      }, ACTIVE);
+      // The import is taken in, and the URL keeps its text.
+      for (const text of texts) {
+        expect(text).toContain("url(Relative/purple.png)");
+        expect(text).not.toContain("@import");
+      }
+      expect(await framePixels(PURPLE)).toBeGreaterThanOrEqual(2 * IMAGE_PIXELS * 0.9);
+    });
+
+    it("copies the files that they name into a page with scripts on, also in a template's content", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Relative URLs.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("relative-style-urls-scripts-on");
+        expect(await framePixels(PURPLE)).toBeGreaterThanOrEqual(3 * IMAGE_PIXELS * 0.9);
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   it("shows nothing from outside the vault", async function () {
     await openInActiveTab("Saved/Outside reference.html");
     await waitForPage();

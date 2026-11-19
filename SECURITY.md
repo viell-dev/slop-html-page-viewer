@@ -92,6 +92,14 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   none back, and at most 1,000 such elements are added
   ([#152](https://github.com/viell-dev/slop-html-page-viewer/issues/152)).
 
+  **Unreleased (#177):** so does what the copy adds to a stylesheet's text by closing it at its
+  end and by making its URLs and imports absolute. A stylesheet that would take the page past the
+  limit with it stays a link or an import, and the stylesheets that it imports are not read. A
+  page's own `<style>` keeps its URLs as written, which resolve against the page as before. The
+  limits decide only how many of the stylesheets that the page's CSS names are read and copied;
+  each read still passes the vault-path, `.css`, depth, cycle, and page-limit checks
+  ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
+
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
   files, that only CSS strings or comments named, or that imports named which never apply: one
   after a style rule, and one into a cascade layer written with a comment or an escape before
