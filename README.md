@@ -120,11 +120,12 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   an unquoted URL at the end of a linked stylesheet is that stylesheet's, resolved from its folder
   ([#155](https://github.com/viell-dev/slop-html-page-viewer/issues/155)).
 
-  **Unreleased (#194):** so does a `style` attribute: a string or a `url(` that its end leaves open,
-  as in `style='background-image: url("icon.png'`, names its file, which browsers load. Before a
-  later `<base>`, it resolves from the page's folder, a name that does not resolve as a path is
-  found by name, and with **Local files with scripts on** its file is copied. The attribute keeps
-  its text, apart from such a reference
+  **Unreleased (#194):** so does a `style` attribute: a `url(`, or a string in `image-set()` or
+  `-webkit-image-set()`, that its end leaves open, as in `style='background-image: url("icon.png'`,
+  names its file, which browsers load; another string left open there names nothing. Before a
+  later `<base>`, such a reference resolves from the page's folder, a name that does not resolve as
+  a path is found by name, and with **Local files with scripts on** its file is copied. The
+  attribute keeps its text, apart from such a reference
   ([#194](https://github.com/viell-dev/slop-html-page-viewer/issues/194)).
 
   **Unreleased (#179):** a string in `image-set()` or `-webkit-image-set()`, as in
@@ -151,12 +152,16 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   of a `srcset` and a `<picture>`, image inputs, video posters, video and audio and their sources,
   text tracks, frames, scripts, and SVG `<use>` and `<image>`, also in shadow DOM. The viewer makes
   their URLs absolute against the page's own address, and with **Local files with scripts on**
-  copies their files from the page's folder. Chromium resolves media, their sources, text tracks,
-  and SVG `<image>` a moment after it reads them, so in a browser those just before a `<base>` can
-  come from its folder instead; see [Limits](#limits). What making these URLs absolute adds to the
-  copy does not count toward the page's limits on stylesheets: each grows by about the length of
-  the page folder's address, so the copy grows with the page's own markup, as with references
-  found by name ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
+  copies their files from the page's folder. Chromium resolves image inputs, posters, media, their
+  sources, text tracks, and SVG `<image>` a moment after it reads them, so in a browser they come
+  from the page's folder in a longer page or one with a script before the `<base>`, but from the
+  `<base>`'s folder in a short page; see [Limits](#limits). The `background` attributes of tables
+  and the `<body>`, and SVG `<feImage>`, still resolve against the `<base>`, and are not copied
+  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)). What making these URLs
+  absolute adds to the copy does not count toward the page's limits on stylesheets: each grows by
+  about the length of the page folder's address, so the copy grows with the page's own markup, as
+  with references found by name
+  ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
@@ -356,11 +361,13 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   `<base>` against it, and does not imitate this caching, which Chromium versions do differently
   ([#191](https://github.com/viell-dev/slop-html-page-viewer/issues/191)).
 
-- **Unreleased (#187):** media, their sources, text tracks, and SVG `<image>` before a page's late
-  `<base>` come from the page's folder in the viewer. Chromium resolves their URLs when it starts
-  to load them, a moment after it reads them: against the page's address when it reads the `<base>`
-  later, but against the `<base>` when it reads that first, as it can when the `<base>` follows
-  them closely. The viewer cannot tell which a browser would do
+- **Unreleased (#187):** image inputs, video posters, media, their sources, text tracks, and SVG
+  `<image>` before a page's late `<base>` come from the page's folder in the viewer. Chromium
+  resolves their URLs when it lays them out or starts to load them, a moment after it reads them:
+  against the page's address when it has not read the `<base>` by then, as in a longer page or one
+  with a script before the `<base>`, but against the `<base>` in a short page that it reads at
+  once. For such a short page, version 0.6.0 shows them as browsers do, from the `<base>`'s folder,
+  and the viewer no longer does
   ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
 
 - **With scripts on, a `<base>` that a page's script adds** does not apply in the viewer, where a

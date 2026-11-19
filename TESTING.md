@@ -1260,27 +1260,51 @@ starts left neither test a step after it, and the screenshot was taken.
   `<base>` give each element attributes of its own
   ([#191](https://github.com/viell-dev/slop-html-page-viewer/issues/191)).
 
-- **Unreleased (#187):** Chromium resolves the URL of an image, a picture's source, an image input,
-  a poster, a frame, a script, and an SVG `<use>` as it parses the element, so always before a
-  later `<base>`. It resolves those of video, audio, and their sources, text tracks, SVG `<image>`,
-  `<embed>`, and `<object>` when it starts to load them, soon after: against the page if it parses
-  the `<base>` later, against the `<base>` if it has parsed that first. In served pages measured on
-  2026-11-19 in Obsidian 1.5.3 and 1.15.1, two runs each, media and their tracks in the document
-  before the `<base>` resolved against the page in every run, also with no script that the parser
-  waited for. The media of a declarative shadow root just before the `<base>`, which Chromium
-  attaches where the shadow root ends, resolved against the `<base>` in some runs. SVG `<image>`,
-  `<embed>`, and `<object>` resolved against the `<base>` where the parser read the rest of the
-  page at once after a script had loaded, and against the page otherwise. The viewer resolves all
-  of them against the page. `resources.e2e.ts` delays the served page's script before the `<base>`,
-  so that Chromium has resolved them by then; it does not test the other order.
+- **Unreleased (#187):** Chromium resolves the URL of an image, a picture's source, a frame, a
+  script, and an SVG `<use>` as it parses the element, so always before a later `<base>`. It
+  resolves those of image inputs, posters, video, audio, and their sources, text tracks, SVG
+  `<image>`, `<embed>`, and `<object>` later, when it lays the element out or starts to load it:
+  against the page if it has not parsed the `<base>` by then, against the `<base>` if it has. Which
+  comes first depends on the page. In served pages in Obsidian 1.5.3 and 1.15.1, which #187's
+  measurements and the review of #197 ran three to six times each:
+  - **A short page that the parser reads in one go**, with the `<base>` a few elements later and no
+    script that the parser waits for: an image input, a poster, SVG `<image>`, and a `background`
+    attribute came from the `<base>`'s folder in every run on both hosts, and an `<img>` from the
+    page's.
+  - **23 elements before the `<base>`**, also with an inline script just before it: on 1.5.3, text
+    tracks came from the `<base>`'s folder in every run, sources, `<embed>`, and `<object>` in some,
+    and the others from the page's; on 1.15.1, tracks, video, audio, sources, `<embed>`, and
+    `<object>` came from the `<base>`'s folder in a third of the runs, and the image input from both
+    folders. The media of a declarative shadow root just before the `<base>`, which Chromium
+    attaches where the shadow root ends, varied too.
+  - **The same elements with a script before the `<base>` that the parser waits for, or 300 KB of
+    text**: every one came from the page's folder in every run on both hosts.
+
+  The viewer resolves all of them against the page, as Chromium does for a long page and for one
+  with such a script. For a short page, `main` at `c853231`, whose copy left them to its `<base>`,
+  showed the second kind as Chromium does, and this change does not: that is the cost of one rule
+  for every page. `resources.e2e.ts` delays the served page's script before the `<base>`, which
+  fixes the order for all of them; it does not test the other order.
+
 - **Unreleased (#187):** the URLs that the copy makes absolute before a later `<base>` do not count
   toward the text limit: each grows by about the length of the page folder's address, and more
   where a URL escapes its characters, so the copy grows with the page's own markup, as with the
-  references found by name (#184).
+  references found by name (#184). The factor is that length over the length of the markup of
+  each reference. In a folder of 1,000 characters, in jsdom, `document.stress.ts`'s images make
+  the copy about 60 times as long as the page, but one `<img>` whose `srcset` is 100,000 times
+  `a 1x,`, half a million characters, made it 208 times as long, 104 million characters, in 2.1 s,
+  as the review of #197 measured. What the frame does with a copy of that length is not measured
+  (#158).
 - With scripts off, a video's poster, a text track, and an SVG `<use>` of another file from the
   vault do not show in the viewer, also without a `<base>`, while the same page served outside
   Obsidian shows them. `resources.e2e.ts` reads their URLs from the copy, not what they show
   ([#196](https://github.com/viell-dev/slop-html-page-viewer/issues/196)).
+- The `background` attributes of `<body>`, tables, and their cells, and SVG `<feImage>`, are not
+  among the resource attributes that the viewer prepares: they are not found by name, nor copied
+  with scripts on, and before a later `<base>` the copy resolves them against it. Chromium resolves
+  `<feImage>` against the page in every run measured by the review of #197, and `background`
+  attributes unless the `<base>` follows closely, as for image inputs
+  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)).
 - With scripts on, a `<base>` that the page's script adds does not apply when it comes after the
   copy's own `<base>`, which is first in the `<head>`: in Obsidian 1.5.3 and 1.15.1, what the page
   named after it resolved against the page's folder, where a served page resolved it against the

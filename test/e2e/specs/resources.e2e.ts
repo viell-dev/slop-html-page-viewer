@@ -1582,11 +1582,13 @@ describe("A page's local files in Obsidian", function () {
     // page's <base>, which comes after them, also after a declarative shadow
     // root. After it come a repeat of the first image, which Chromium
     // resolves anew against the <base>, an SVG <image>, and a template's
-    // image, which the page's script adds. Chromium resolves media, their
-    // sources, text tracks, and SVG <image> when it starts to load them, soon
-    // after it parses them: the served page's script, just before the <base>,
-    // arrives late, so that Chromium has resolved them before it parses the
-    // <base>, as in most measured pages (TESTING.md's limits).
+    // image, which the page's script adds. Chromium resolves image inputs,
+    // posters, media, their sources, text tracks, and SVG <image> when it
+    // lays them out or starts to load them, soon after it parses them: the
+    // served page's script, just before the <base>, arrives late, so that
+    // Chromium has resolved them before it parses the <base>, as in a longer
+    // page or one with such a script. In a short page that the parser reads
+    // in one go, it resolves them against the <base> (TESTING.md's limits).
     const res = "Late res";
     const image = (name: string) => `<img src="${res}/${name}.png" width="64" height="64">`;
     const svgImages = (first: string, second: string) =>

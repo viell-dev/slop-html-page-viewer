@@ -903,17 +903,19 @@ function addTooltips(root: ParentNode, baseUrl: string, context: PageContext): v
  * did, and those before a later `<base>` are made absolute against the
  * page's address (`parsedBases`), as Chromium resolves them (#187).
  *
- * In Obsidian 1.5.3 and 1.15.1, Chromium resolves an image's, a picture
- * source's, an image input's, and a poster's URL, a frame's, a script's, and
- * an SVG `<use>`'s, as it parses their element, so always before a later
- * `<base>`. It resolves those of media and their sources, text tracks, SVG
- * `<image>`, `<embed>`, and `<object>` when it starts to load them, soon
- * after: against the page's address when it parses the `<base>` later, as it
- * did in most measured pages, but against the `<base>` when it parses that
- * first, as it did for some just before it (TESTING.md's limits). The copy
- * takes the page's address for both. Its policy refuses `<embed>` and
- * `<object>` anyway (`pagePolicy`). The `style` attributes are prepared with
- * the stylesheets (`prepareStyleAttributes`).
+ * In Obsidian 1.5.3 and 1.15.1, Chromium resolves the URL of an image, a
+ * picture's source, a frame, a script, and an SVG `<use>` as it parses the
+ * element, so always before a later `<base>`. It resolves those of image
+ * inputs, posters, media and their sources, text tracks, SVG `<image>`,
+ * `<embed>`, and `<object>` later, when it lays the element out or starts to
+ * load it: against the page's address where the parser waits for a script,
+ * or reads on in a longer page, before it reaches the `<base>`, but against
+ * the `<base>` in a short page that it reads in one go (TESTING.md's limits).
+ * The copy takes the page's address for both. So for such a short page it
+ * shows the second kind from the page's folder, where Chromium shows them
+ * from the `<base>`'s, as the copy's `<base>` alone did. Its policy refuses
+ * `<embed>` and `<object>` anyway (`pagePolicy`). The `style` attributes are
+ * prepared with the stylesheets (`prepareStyleAttributes`).
  */
 function prepareReferences(
   root: ParentNode,

@@ -122,9 +122,10 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
 
   **Unreleased (#194):** a `style` attribute is read closed at its end, as CSS reads it, so that a
-  string or a `url(` that its end leaves open names a file, which **Local files with scripts on**
-  copies, by the same file types, limits, and vault-only paths as any `url()`'s. Version 0.6.0
-  copies nothing for such a reference, which browsers load
+  `url(`, or a string in `image-set()` or `-webkit-image-set()`, that its end leaves open names a
+  file, which **Local files with scripts on** copies, by the same file types, limits, and
+  vault-only paths as any `url()`'s. Another string left open there still names nothing. Version
+  0.6.0 copies nothing for such a reference, which browsers load
   ([#194](https://github.com/viell-dev/slop-html-page-viewer/issues/194)).
 
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
@@ -194,9 +195,11 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   ([#192](https://github.com/viell-dev/slop-html-page-viewer/issues/192)).
 
   **Unreleased (#187):** with **Local files with scripts on**, it copies the files that the page's
-  images, media, text tracks, and scripts before its `<base>` name from the page's folder, where
-  Chromium resolves them, instead of from the `<base>`'s, as it copies the files of stylesheets
-  there since #185. The same file types, limits, and vault-only paths apply
+  images, media, text tracks, and scripts before its `<base>` name from the page's folder, instead
+  of from the `<base>`'s, as it copies the files of stylesheets there since #185. That is the
+  viewer's choice: Chromium resolves images and scripts there in every page, but image inputs,
+  posters, media, their sources, text tracks, and SVG `<image>` against the `<base>` in a short page
+  that it reads in one go. The same file types, limits, and vault-only paths apply
   ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
