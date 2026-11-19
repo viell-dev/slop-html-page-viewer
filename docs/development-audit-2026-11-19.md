@@ -1,5 +1,8 @@
 # Development dependency assessment — 19 November 2026
 
+> Historical assessment: superseded by [the follow-up](development-audit-2026-11-19-followup.md).
+
+
 Issue #16 assesses development tooling for HTML Page Viewer 0.1.6. Obsidian SDK is updated to 1.14.4 and typescript-eslint to 8.73.0. This removes the vulnerable Moment transitive and updates the TypeScript ESLint minimatch path without forcing an incompatible override or downgrading the official linter.
 
 On Linux with Node 24.21.0 and npm 11.19.0, npm ci, all 56 tests, build, official lint, TypeScript and production audit passed. The production bundle remains byte-identical to published 0.1.6: SHA-256 `036348d99049ed86bcee81d89dc4fba8d4e1bdcbca7c6a38adf55e0300f48f89`. No new runtime or platform compatibility claim follows from tooling checks.
