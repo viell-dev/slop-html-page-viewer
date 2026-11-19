@@ -100,6 +100,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | **Unreleased (#167):** The source stays where the find bar scrolls it, and goes back after a move that comes with a modifier key in it                                             | `source.test.ts`: the find bar's scroll before Chromium reports it; modifier keys; `move.test.ts`                                                                         | `move.e2e.ts`: the find bar's scroll to the start; a modifier key in the task of the move                                              |
 | **Unreleased (#175):** After its tab moves to another window, Enter cancels the find bar's delayed search; after a move out of a window that closes, the bar still searches        | `find.test.ts`: Enter in a new window, also after typing before the move; typing after a move out of a window that closed                                                 | `move.e2e.ts`: typing and Enter in a new window; typing after the move back                                                            |
 | **Unreleased (#165):** The split view's sides stay in step in a new window when Obsidian's styles arrive there after the view has followed the page                                | `split.test.ts`: the first resize of the source's lines soon after a move to a new window; a source that led keeps its line; none in one window                           | `move.e2e.ts`: the new window's app.css held back until the view has followed the page or the reader                                   |
+| **Unreleased (#178):** A tab shown again after another tab of its tab group keeps the place of a page that scrolls as a whole, and the split view's sides in step there            | `move.test.ts`: back once the frame's window lays it out again, not at its resize or after the reader's input; `split.test.ts`: the find bar, the split view's sides      | `move.e2e.ts`: rendered, split, also at once; the find bar; the reader's scroll to the top; the Source view and a scrolling column     |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                        |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                              |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                          |
@@ -556,6 +557,31 @@ paragraph 17. Each of these deliberate breakages failed a unit test:
   the signal or the first change, from the first report whatever its size, or by the height only;
   and not measuring again when asked. `split.test.ts`.
 
+**Unreleased (#178):** On 2026-11-19, with the view as `main` at `14f066e` has it, four of
+`move.e2e.ts`'s tests of a tab shown again after another tab of its tab group failed in Obsidian
+1.5.3 and 1.15.1, and its other tests passed. The page showed from its top, at 0 px in place of
+3312 px at paragraph 30, and in place of 1490 px, or 1484 px in 1.5.3, where the find bar had put
+it. In the split view, shown again after a moment and at once, the page was at 0 px while the
+source was back at line 30, 920 px from where the page followed it. A build that kept the scroll
+that the hidden page reports failed the same four tests in both versions. One that let the split
+view follow the hidden page failed the test of a tab shown again at once in both versions: it
+measured the hidden sides, and when the tab showed again it sent the source to its start, which the
+view put back, and the page 143 or 155 px from its place. In 1.5.3 it also failed the test after a
+moment once, with the source at line 1. One that put the page back at every resize of its frame,
+not only when the frame shows again, failed a test of #157 in its one run, in 1.15.1: after a move
+to a new window, the page went back to paragraph 12 instead of following the reader's scroll of the
+source to its start. Each of these deliberate breakages failed a unit test, and the last two in
+the view's list failed no test in Obsidian:
+
+- In the page's kept place: keeping a scroll reported while the frame is hidden; not putting the
+  page back, or putting it back at a resize of a frame that shows; not saying that it did; not
+  disconnecting the observer at the signal; an observer of the plugin's window; listening on the
+  page's document instead of its window; a frame that shows another document; and no guard for
+  the reader's input. `move.test.ts` and `split.test.ts`, and for the guard `source.test.ts`.
+- In the view: not keeping the page's place; the split view following the hidden page; a signal
+  that never aborts; the page that goes back not leading the sides; and the find bar not telling
+  the page's kept place. `split.test.ts`.
+
 On 2026-11-17, each of these deliberate breakages failed the check named (#91):
 
 - The regular expressions used before #91, which read URLs and imports inside CSS strings and
@@ -957,6 +983,17 @@ starts left neither test a step after it, and the screenshot was taken.
   window that then closes is not searched, since its delay runs in that window. Enter searches it,
   and the next key does after its delay. `move.e2e.ts` and `find.test.ts` type into the bar after
   such a move, or before a move to a window that stays open.
+- **Unreleased (#178):** The view puts a page back when the ResizeObserver of its frame's window
+  reports that the frame has a size again after it had none, which the HTML standard has a window
+  do before it paints; no test checks the frame that Chromium paints first. A tab hidden and shown
+  again within one of Chromium's frames, with a layout in between, as only a script can do, can
+  leave the page at its top. The page goes back as far down as it was scrolled, not to the element
+  at its top as after a move (#126), and the split view's sides are put in step from there.
+  `move.e2e.ts` hides the tab by opening a new tab in its tab group through Obsidian's API, and
+  shows it again by clicking its tab header, or, for a quick switch, through the API four frames
+  later. That a page with scripts on starts from its top, and that Chromium keeps the places of the
+  frame's other scrolling elements and of the view's own, was measured for #178 on both versions;
+  `move.e2e.ts` tests the last two.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`

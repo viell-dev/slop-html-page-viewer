@@ -979,24 +979,27 @@ async function themeBackground(): Promise<string> {
   });
 }
 
-describe("A tab moved to another tab group or window in Obsidian", function () {
-  beforeEach(async function () {
-    await browser.executeObsidian(({ app }) => {
-      // Closing a window's tabs closes the window.
-      const away: { detach(): void }[] = [];
-      app.workspace.iterateAllLeaves((leaf) => {
-        if (leaf.view.containerEl.ownerDocument !== document) away.push(leaf);
-      });
-      for (const leaf of away) leaf.detach();
-      const fresh = app.workspace.getLeaf("tab");
-      app.workspace.setActiveLeaf(fresh, { focus: true });
-      const old: (typeof fresh)[] = [];
-      app.workspace.iterateRootLeaves((leaf) => {
-        if (leaf !== fresh) old.push(leaf);
-      });
-      for (const leaf of old) leaf.detach();
+/** Closes every tab but a new empty one in the main window, which becomes the active tab. */
+async function freshTab(): Promise<void> {
+  await browser.executeObsidian(({ app }) => {
+    // Closing a window's tabs closes the window.
+    const away: { detach(): void }[] = [];
+    app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view.containerEl.ownerDocument !== document) away.push(leaf);
     });
+    for (const leaf of away) leaf.detach();
+    const fresh = app.workspace.getLeaf("tab");
+    app.workspace.setActiveLeaf(fresh, { focus: true });
+    const old: (typeof fresh)[] = [];
+    app.workspace.iterateRootLeaves((leaf) => {
+      if (leaf !== fresh) old.push(leaf);
+    });
+    for (const leaf of old) leaf.detach();
   });
+}
+
+describe("A tab moved to another tab group or window in Obsidian", function () {
+  beforeEach(freshTab);
 
   after(async function () {
     await browser.executeObsidian(({ app }) => {
@@ -1638,5 +1641,252 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
     expect(loaded.readyState).toBe("complete");
     expect(loaded.top).toBe(scrolled.top);
     expect(Math.abs((loaded.line ?? 0) - (scrolled.line ?? 0))).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * Opens a new tab in the active tab's tab group, which hides the active tab
+ * with `display: none` while it shows, and then shows the active tab again by
+ * clicking its tab header, as the reader does (#178). The tab's frame, if it
+ * has one, is marked as moveActiveTab marks it, for pageState(true) to find,
+ * and so is its source, for movedSource.
+ */
+async function showTabAgain(): Promise<void> {
+  await browser.executeObsidian(({ app }) => {
+    const leaf = app.workspace.getMostRecentLeaf()!;
+    leaf.view.containerEl.querySelector("iframe")?.setAttribute("data-e2e-moved", "");
+    leaf.view.containerEl
+      .querySelector(".html-page-viewer__source")
+      ?.setAttribute("data-e2e-moved", "");
+    (window as unknown as { e2eShownAgain: typeof leaf }).e2eShownAgain = leaf;
+    app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
+  });
+  const displayed = (): Promise<boolean> =>
+    browser.execute(() => {
+      const leaf = (window as unknown as { e2eShownAgain: { containerEl: HTMLElement } })
+        .e2eShownAgain;
+      return getComputedStyle(leaf.containerEl).display !== "none";
+    });
+  await browser.waitUntil(async () => !(await displayed()), {
+    timeout: 5000,
+    timeoutMsg: "Obsidian did not hide the tab",
+  });
+  // Chromium reports the hidden page's scroll in its next frame.
+  await nextFrames();
+  const header = await browser.execute(() => {
+    const leaf = (window as unknown as { e2eShownAgain: { tabHeaderEl: HTMLElement } })
+      .e2eShownAgain;
+    const box = leaf.tabHeaderEl.getBoundingClientRect();
+    return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+  });
+  await browser.action("pointer").move(header).down().up().perform();
+  await browser.waitUntil(displayed, { timeout: 5000, timeoutMsg: "the tab did not show again" });
+  await nextFrames();
+}
+
+/**
+ * Checks that the page that showTabAgain showed again is at `place`, and
+ * stays there: a moment later, after Obsidian's resize of the view and
+ * anything else that the showing starts.
+ */
+async function expectShownAgainAt(place: { scrollY: number; top: number }): Promise<void> {
+  for (const wait of [0, 500]) {
+    await browser.pause(wait);
+    const after = (await pageState(true))!;
+    expect({ scrollY: after.scrollY, top: after.top }).toEqual({
+      scrollY: place.scrollY,
+      top: place.top,
+    });
+  }
+}
+
+/**
+ * Opens the long page in the active tab's split view, as openLongPageSplit
+ * does, and scrolls its source on to line 30, which the page follows to
+ * paragraph 22.
+ */
+async function openLongPageSplitAtLine30(): Promise<void> {
+  await openLongPageSplit();
+  await scrollSourceToLine(30);
+  await browser.waitUntil(async () => Math.abs(((await pageState(false))?.top ?? 0) - 22) <= 1, {
+    timeout: 5000,
+    timeoutMsg: "the page did not follow the source to paragraph 22",
+  });
+}
+
+/**
+ * Checks that the split view of openLongPageSplitAtLine30, shown again, has
+ * its page where it was, `before`, and its sides in step at line 30 and
+ * paragraph 22, and that they stay there.
+ */
+async function expectSplitShownAgainAt(before: PageState): Promise<void> {
+  for (const wait of [0, 500]) {
+    await browser.pause(wait);
+    const after = (await pageState(true))!;
+    expect(Math.abs(after.scrollY - before.scrollY)).toBeLessThanOrEqual(1);
+    expect(Math.abs((after.line ?? 0) - 30)).toBeLessThanOrEqual(1);
+    expect(Math.abs(after.top - 22)).toBeLessThanOrEqual(1);
+  }
+}
+
+describe("A tab shown again after another tab of its tab group in Obsidian", function () {
+  beforeEach(freshTab);
+
+  it("shows its page where it was (#178)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    const before = (await pageState(false))!;
+    expect(before).toMatchObject({ top: 30 });
+
+    await showTabAgain();
+    await expectShownAgainAt(before);
+  });
+
+  it("leaves its page at its top where the reader scrolled it there (#178)", async function () {
+    await writeParagraphsPage();
+    await openInActiveTab(PARAGRAPHS);
+    await waitForPage();
+    await scrollToParagraph(30, 0.5);
+    const frame = await browser.execute((active) => {
+      const box = document
+        .querySelector(`${active} iframe.html-page-viewer__frame`)!
+        .getBoundingClientRect();
+      return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+    }, ACTIVE);
+    await browser
+      .action("wheel")
+      .scroll({ ...frame, deltaX: 0, deltaY: -20_000, duration: 100 })
+      .perform();
+    await browser.waitUntil(async () => (await pageState(false))?.scrollY === 0, {
+      timeout: 5000,
+      timeoutMsg: "the reader's wheel did not scroll the page to its top",
+    });
+    await nextFrames();
+
+    await showTabAgain();
+    await expectShownAgainAt({ scrollY: 0, top: 1 });
+  });
+
+  it("shows its page where the find bar scrolled it (#178)", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await waitForPage();
+    await browser.$(`${ACTIVE} button[aria-label="Find in page"]`).click();
+    await browser.$(`${ACTIVE} .html-page-viewer__find input`).setValue("Paragraph 45 of");
+    await browser.keys("Enter");
+    await browser.waitUntil(async () => ((await pageState(false))?.top ?? 0) > 30, {
+      timeout: 5000,
+      timeoutMsg: "the find bar did not scroll the page to paragraph 45",
+    });
+    await nextFrames();
+    const before = (await pageState(false))!;
+
+    await showTabAgain();
+    await expectShownAgainAt(before);
+    const count = await browser.execute(
+      (active) => document.querySelector(`${active} .html-page-viewer__find-count`)?.textContent,
+      ACTIVE,
+    );
+    expect(count).toBe("1 of 1");
+  });
+
+  it("keeps the split view's sides where they were, in step (#178)", async function () {
+    await openLongPageSplitAtLine30();
+    await nextFrames();
+    const before = (await pageState(false))!;
+
+    await showTabAgain();
+    await expectSplitShownAgainAt(before);
+  });
+
+  // As a quick switch to another tab and back does, a moment after the
+  // reader's last scroll. The view measures the sides again when their sizes
+  // have changed, at most once every 250 ms, and a measurement of the hidden
+  // sides would last until 250 ms after it.
+  it("keeps the split view's sides in step when its tab shows again at once (#178)", async function () {
+    await openLongPageSplitAtLine30();
+    await browser.pause(500);
+    const before = (await pageState(false))!;
+
+    const hidden = await browser.executeObsidian(async ({ app }) => {
+      const leaf = app.workspace.getMostRecentLeaf()!;
+      leaf.view.containerEl.querySelector("iframe")!.setAttribute("data-e2e-moved", "");
+      const frame = (): Promise<void> =>
+        new Promise((resolve) => requestAnimationFrame(() => resolve()));
+      const started = performance.now();
+      app.workspace.setActiveLeaf(app.workspace.getLeaf("tab"), { focus: true });
+      // Chromium reports the hidden page's scroll in its next frame, and the
+      // view would follow it in the frame after.
+      for (let count = 0; count < 4; count += 1) await frame();
+      const pageY = leaf.view.containerEl.querySelector("iframe")!.contentWindow!.scrollY;
+      app.workspace.setActiveLeaf(leaf, { focus: true });
+      return { pageY, hiddenFor: performance.now() - started };
+    });
+    // The premise: Chromium scrolled the hidden page to its start.
+    expect(hidden.pageY).toBe(0);
+    expect(hidden.hiddenFor).toBeLessThan(250);
+    await nextFrames();
+    await expectSplitShownAgainAt(before);
+  });
+
+  // Chromium keeps the places of elements that scroll by themselves, in the
+  // view and in the page, when it lays them out again.
+  it("keeps the Source view where it was (#178)", async function () {
+    await openInActiveTab("Saved/Long page.html");
+    await clickToolbarButton("Source");
+    const before = await browser.execute((active) => {
+      const source = document.querySelector<HTMLElement>(`${active} .html-page-viewer__source`)!;
+      source.scrollTop = 571;
+      return source.scrollTop;
+    }, ACTIVE);
+    expect(before).toBe(571);
+    await nextFrames();
+
+    await showTabAgain();
+    await browser.pause(500);
+    expect((await movedSource())?.top).toBe(before);
+  });
+
+  it("keeps the place of a page that scrolls inside an element (#178)", async function () {
+    await writePage(
+      "Saved/Scrolling column.html",
+      "Scrolling column",
+      "<style>html, body { height: 100%; margin: 0; overflow: hidden } #column { height: 100%; overflow: auto }</style>\n",
+      `<div id="column">\n${paragraphs(1, 60)}\n</div>\n`,
+    );
+    await openInActiveTab("Saved/Scrolling column.html");
+    await waitForPage();
+    await browser.execute((active) => {
+      const doc = document.querySelector<HTMLIFrameElement>(
+        `${active} iframe.html-page-viewer__frame`,
+      )!.contentDocument!;
+      const column = doc.getElementById("column")!;
+      column.scrollTop = doc.getElementById("p30")!.offsetTop;
+    }, ACTIVE);
+    await nextFrames();
+    const column = async (): Promise<number | null> =>
+      browser.executeObsidian(({ app }) => {
+        let top: number | null = null;
+        app.workspace.iterateAllLeaves((leaf) => {
+          const element = leaf.view.containerEl
+            .querySelector<HTMLIFrameElement>("iframe[data-e2e-moved]")
+            ?.contentDocument?.getElementById("column");
+          if (element) top = element.scrollTop;
+        });
+        return top;
+      });
+    const before = await browser.execute(
+      (active) =>
+        document
+          .querySelector<HTMLIFrameElement>(`${active} iframe.html-page-viewer__frame`)!
+          .contentDocument!.getElementById("column")!.scrollTop,
+      ACTIVE,
+    );
+    expect(before).toBeGreaterThan(1000);
+
+    await showTabAgain();
+    await browser.pause(500);
+    expect(await column()).toBe(before);
   });
 });

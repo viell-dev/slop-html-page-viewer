@@ -103,9 +103,19 @@ export async function loadFrame(
   const page = new JSDOM(iframe.srcdoc, { url: "about:srcdoc" }).window.document;
   prepare?.(page);
   Object.defineProperty(iframe, "contentDocument", { configurable: true, get: () => page });
+  if (!Object.hasOwn(iframe, "clientHeight")) layOutFrame(iframe, 600);
   iframe.dispatchEvent(new window.Event("load"));
   await settle();
   return page;
+}
+
+/**
+ * Gives a frame the height that Chromium lays it out at, and jsdom does not:
+ * `loadFrame` gives it 600 pixels, and a frame in a tab that Obsidian hides
+ * with `display: none` has none (#178).
+ */
+export function layOutFrame(iframe: HTMLIFrameElement, height: number): void {
+  Object.defineProperty(iframe, "clientHeight", { configurable: true, get: () => height });
 }
 
 /**

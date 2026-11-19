@@ -23,7 +23,9 @@ import { type PaneChoice, watchLinks } from "./links";
 import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
 import {
+  frameShows,
   isPinned,
+  keepPageScrolling,
   keepScrolling,
   type KeptScrolling,
   placeNextDocument,
@@ -199,6 +201,11 @@ class HtmlPageViewerView extends TextFileView {
    * for after its tab moves (#135, #157).
    */
   private sourceScrolling: KeptScrolling | null = null;
+  /**
+   * Where the frame's page is scrolled to, for after Obsidian hid the tab and
+   * showed it again (#178), while the view can reach the page.
+   */
+  private pageScrolling: KeptScrolling | null = null;
   /**
    * What the reader does in the view while the frame has dropped its page's
    * document and the view does not show the next one yet, as after its tab
@@ -421,6 +428,7 @@ class HtmlPageViewerView extends TextFileView {
     // reader for the frame's next page; this view shows a new frame instead.
     this.stopReaderWatch();
     this.sourceScrolling = null;
+    this.pageScrolling = null;
     this.shownStyle = null;
     container.addClass("html-page-viewer");
 
@@ -746,9 +754,9 @@ class HtmlPageViewerView extends TextFileView {
     }
     if (current && reveal) {
       scrollToRange(current);
-      // Outside the rendered view the match is in the source, which keeps
-      // where the find bar put it as its place (#167).
-      this.sourceScrolling?.placed();
+      // What shows the match, the page in the rendered view and the source
+      // otherwise, keeps where the find bar put it as its place (#167, #178).
+      (this.mode === "rendered" ? this.pageScrolling : this.sourceScrolling)?.placed();
     }
   }
 
@@ -977,12 +985,14 @@ class HtmlPageViewerView extends TextFileView {
     // the split view's source, which outlive it unless removed.
     const showing = new AbortController();
     let placed = false;
+    let kept: KeptScrolling | null = null;
     // While pagehide runs, the document still has its layout, so it can say
     // where it is scrolled to; one that has not been placed yet keeps the
     // place that it was to show.
     doc.defaultView?.addEventListener("pagehide", () => {
       showing.abort();
       if (placed) frame.place = scrollPlace(doc);
+      if (kept !== null && this.pageScrolling === kept) this.pageScrolling = null;
       if (this.iframe === iframe) this.startReaderWatch();
     });
     // Search the page, follow its scrolling in the split view, and show it
@@ -1006,6 +1016,11 @@ class HtmlPageViewerView extends TextFileView {
         this.mode === "split" ? this.syncScrolling(iframe, doc, showing.signal, newWindow) : null;
       placeNextDocument(doc, frame.place, reader, follower, [this.contentEl], showing.signal);
       placed = true;
+      // The page goes back to its place when its tab shows again after
+      // another tab of its tab group, and leads the split view's sides there,
+      // as a moved page that the view places does (#178).
+      kept = keepPageScrolling(iframe, doc, showing.signal, () => follower?.placed("page"));
+      if (this.iframe === iframe) this.pageScrolling = kept;
     };
     if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", parsed);
     else parsed();
@@ -1135,7 +1150,16 @@ class HtmlPageViewerView extends TextFileView {
         }),
     );
     source.addEventListener("scroll", () => follower.scrolled("source"), { signal });
-    win.addEventListener("scroll", () => follower.scrolled("page"), { signal });
+    // A hidden frame's page reports Chromium's scroll of it to its start,
+    // which no side follows: the page goes back when the frame shows again,
+    // and would measure the sides while they are not laid out (#178).
+    win.addEventListener(
+      "scroll",
+      () => {
+        if (frameShows(iframe, doc)) follower.scrolled("page");
+      },
+      { signal },
+    );
     // Obsidian 1.5.3 lays a new window's elements out before its app.css has
     // arrived there, so the sides can be put in step for lines that then move
     // (#165). The first size change of the source's lines measures both sides

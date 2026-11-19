@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { JSDOM } from "jsdom";
 import {
+  keepPageScrolling,
   placeNextDocument,
   placeTop,
   type ReaderActivity,
@@ -11,6 +12,7 @@ import {
   watchReader,
 } from "../src/scrolling";
 import { ScrollFollower } from "../src/split";
+import { resizeObservers } from "./support/observers";
 
 /**
  * A page laid out as its elements' `data-top` and `data-height` say, in page
@@ -570,5 +572,172 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
       next.load();
       assert.deepEqual(next.scrolls, { page: [], source: [] });
     }
+  });
+});
+
+describe("a page's place when Obsidian hides its tab and shows it again (#178)", () => {
+  /**
+   * A frame in an Obsidian window, with that window's ResizeObservers, which
+   * `report` runs, and a page in the frame, as jsdom lays neither out: the
+   * frame 400 pixels high, and the page's window scrolled down by `scrollY`.
+   * `scroll` scrolls the page and reports it, as Chromium does in its next
+   * frame, and `jump` scrolls it without a report; `scrolledTo` collects
+   * where its scrollTo sends it, which reports nothing. `hide` does what
+   * Chromium does when Obsidian hides the tab with `display: none`: the frame
+   * has no size, and its page goes to its start and reports that; then the
+   * window's observers report. `show` lays the frame out again, and they
+   * report. The page has animation frames, which run when `nextFrame` says.
+   */
+  function framedPage() {
+    const owner = new JSDOM("<!doctype html><html><body></body></html>").window;
+    const { observers, report } = resizeObservers(owner as unknown as Window);
+    const frame = owner.document.createElement("iframe");
+    owner.document.body.append(frame);
+    const doc = new JSDOM("<!doctype html><html><body><p>One</p></body></html>", {
+      url: "about:srcdoc",
+    }).window.document;
+    const win = doc.defaultView!;
+    let height = 400;
+    let scrollY = 0;
+    Object.defineProperty(frame, "contentDocument", { configurable: true, get: () => doc });
+    Object.defineProperty(frame, "clientHeight", { configurable: true, get: () => height });
+    Object.defineProperty(win, "scrollY", { configurable: true, get: () => scrollY });
+    Object.defineProperty(win, "scrollX", { configurable: true, value: 0 });
+    const scrolledTo: number[] = [];
+    win.scrollTo = ((options: ScrollToOptions) => {
+      scrollY = options.top ?? scrollY;
+      scrolledTo.push(scrollY);
+    }) as typeof win.scrollTo;
+    const callbacks: FrameRequestCallback[] = [];
+    win.requestAnimationFrame = (callback) => callbacks.push(callback);
+    const scroll = (to: number): void => {
+      scrollY = to;
+      doc.dispatchEvent(new win.Event("scroll", { bubbles: true }));
+    };
+    return {
+      owner,
+      frame,
+      doc,
+      observers,
+      report,
+      scrolledTo,
+      scroll,
+      jump: (to: number): void => {
+        scrollY = to;
+      },
+      hide: (): void => {
+        height = 0;
+        scroll(0);
+        report();
+      },
+      show: (): void => {
+        height = 400;
+        report();
+      },
+      nextFrame: (): void => {
+        for (const callback of callbacks.splice(0)) callback(0);
+      },
+      signal: () => new owner.AbortController().signal,
+    };
+  }
+
+  it("goes back to where it was as soon as its frame's window lays the frame out again", () => {
+    const page = framedPage();
+    let moved = 0;
+    keepPageScrolling(page.frame, page.doc, page.signal(), () => (moved += 1));
+    assert.equal(page.observers.length, 1, "an observer of the frame's own window");
+    assert.deepEqual(page.observers[0].observed, [page.frame]);
+    page.report();
+    page.scroll(900);
+    page.hide();
+    assert.deepEqual(page.scrolledTo, [], "a hidden frame has nothing to scroll");
+    page.show();
+    assert.deepEqual(page.scrolledTo, [900]);
+    assert.equal(moved, 1);
+    page.report();
+    page.hide();
+    page.show();
+    assert.deepEqual(page.scrolledTo, [900, 900], "and again after it was hidden again");
+  });
+
+  it("stays where the reader scrolled it, also at its start", () => {
+    const page = framedPage();
+    let moved = 0;
+    keepPageScrolling(page.frame, page.doc, page.signal(), () => (moved += 1));
+    page.scroll(900);
+    page.scroll(0);
+    page.hide();
+    page.show();
+    assert.deepEqual(page.scrolledTo, []);
+    assert.equal(moved, 0);
+  });
+
+  it("is not sent back at a resize of a frame that shows", () => {
+    const page = framedPage();
+    keepPageScrolling(page.frame, page.doc, page.signal());
+    page.scroll(900);
+    // As a page that the frame's new height holds whole, or one that the
+    // split view's follower has just sent to its start: Chromium reports
+    // the scroll in its next frame.
+    page.jump(0);
+    page.report();
+    assert.deepEqual(page.scrolledTo, []);
+  });
+
+  it("is not sent back where the reader's input in the page scrolled it before Chromium reported it", () => {
+    const page = framedPage();
+    keepPageScrolling(page.frame, page.doc, page.signal());
+    page.scroll(900);
+    page.doc.body.dispatchEvent(new page.doc.defaultView!.WheelEvent("wheel", { bubbles: true }));
+    page.jump(0);
+    page.hide();
+    page.show();
+    assert.deepEqual(page.scrolledTo, [], "not while the scroll is unreported");
+    page.nextFrame();
+    page.hide();
+    page.show();
+    assert.deepEqual(page.scrolledTo, [900], "but once Chromium's next frame has passed");
+  });
+
+  it("goes back to where the view scrolled it itself, as the find bar does", () => {
+    const page = framedPage();
+    const kept = keepPageScrolling(page.frame, page.doc, page.signal());
+    page.scroll(900);
+    page.jump(300);
+    kept!.placed();
+    page.hide();
+    page.show();
+    assert.deepEqual(page.scrolledTo, [300]);
+  });
+
+  it("puts nothing back once the frame shows another document, or after its signal", () => {
+    const page = framedPage();
+    keepPageScrolling(page.frame, page.doc, page.signal());
+    page.scroll(900);
+    page.hide();
+    Object.defineProperty(page.frame, "contentDocument", {
+      configurable: true,
+      value: new JSDOM("").window.document,
+    });
+    page.show();
+    assert.deepEqual(page.scrolledTo, []);
+
+    const other = framedPage();
+    const showing = new other.owner.AbortController();
+    keepPageScrolling(other.frame, other.doc, showing.signal);
+    other.scroll(900);
+    showing.abort();
+    assert.equal(other.observers[0].connected, false);
+    other.hide();
+    other.show();
+    assert.deepEqual(other.scrolledTo, []);
+    assert.equal(keepPageScrolling(other.frame, other.doc, showing.signal), null);
+    assert.equal(other.observers.length, 1, "nothing is observed after the signal aborted");
+  });
+
+  it("is not kept in a window without ResizeObserver", () => {
+    const page = framedPage();
+    delete (page.owner as { ResizeObserver?: unknown }).ResizeObserver;
+    assert.equal(keepPageScrolling(page.frame, page.doc, page.signal()), null);
   });
 });

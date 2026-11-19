@@ -149,6 +149,14 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   step there. The place is the part of the page at the window's top, so it holds where the page
   wraps differently in its new pane. The **Source** view stays scrolled as far as it was; where long
   lines wrap differently in its new pane, that can show other lines.
+
+  **Unreleased (#178):** a page that scrolls as a whole also keeps its place when its tab shows
+  again after another tab of its tab group, instead of showing from its top, and the split view's
+  two sides stay in step there. The page goes back as far down as it was scrolled, so where its
+  pane changed width meanwhile and the page wraps differently, it can show another part. The
+  **Source** view, and the parts of a page that scroll by themselves, keep their place there, as
+  they did before.
+
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
   on by default; and **File extensions**, `html, htm` by default.
@@ -276,6 +284,10 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   the source view, and the split view's sides scroll apart.
 - **A page with scripts on starts again from its top** when its tab moves to another tab group or
   window, and its scripts run again: the viewer cannot reach the page to keep its place.
+
+  **Unreleased (#178):** it also starts again from its top, without running its scripts again,
+  when its tab shows again after another tab of its tab group.
+
 - **Parts of a page that scroll by themselves start again from their beginning** when its tab
   moves to another tab group or window, as does a page that scrolls only inside such a part, such as
   a main column beside a sidebar, or a wide table or code block in a box of its own. Only the place
