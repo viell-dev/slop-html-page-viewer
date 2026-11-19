@@ -1576,6 +1576,136 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with links and URL attributes that hold other spaces than HTML's (#192)", function () {
+    // HTML splits a link's rel and a srcset, and strips a URL attribute, on
+    // ASCII whitespace only. Each square has a stylesheet of its own, linked
+    // with `stylesheet`, a space, and `x`: each of the other spaces that
+    // JavaScript's \s matches, and four of ASCII's. An image names a file
+    // with U+00A0 before its name, which is blue, as is one with U+00A0 in a
+    // srcset's URL; the file of the name without it is green.
+    const UNICODE_SPACES = [
+      ...[0x0b, 0xa0, 0x1680],
+      ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
+      ...[0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff],
+    ];
+    const ASCII_SPACES: Record<string, string> = { space: " ", lf: "\n", tab: "\t", ff: "\f" };
+    const spaces: Record<string, string> = {
+      ...Object.fromEntries(
+        UNICODE_SPACES.map((code) => [`u${code.toString(16)}`, String.fromCodePoint(code)]),
+      ),
+      ...ASCII_SPACES,
+    };
+    const nbsp = String.fromCodePoint(0xa0);
+    const files: Record<string, string | Buffer> = {
+      "Saved/Rel spaces.html": [
+        `<style>.sq { display: inline-block; width: 16px; height: 16px }</style>`,
+        ...Object.entries(spaces).map(
+          ([id, space]) =>
+            `<link rel="stylesheet${space}x" href="Rel spaces/${id}.css"><div id="${id}" class="sq"></div>`,
+        ),
+        `<img id="nbsp" src="${nbsp}Rel nb.png" width="64" height="64">`,
+        `<img id="srcset" srcset="Rel${nbsp}set.png 1x" width="64" height="64">`,
+      ].join("\n"),
+      ...Object.fromEntries(
+        Object.keys(spaces).map((id) => [
+          `Saved/Rel spaces/${id}.css`,
+          `#${id} { background: rgb(0, 128, 0) }`,
+        ]),
+      ),
+      [`Saved/${nbsp}Rel nb.png`]: solidPng(64, BLUE),
+      "Saved/Rel nb.png": solidPng(64, GREEN),
+      [`Saved/Rel${nbsp}set.png`]: solidPng(64, BLUE),
+    };
+
+    before(async function () {
+      // Obsidian's API names a file that it creates with a space for U+00A0,
+      // so the files of such names are written as a sync tool would.
+      const entries = Object.entries(files);
+      await createVaultFiles(Object.fromEntries(entries.filter(([path]) => !path.includes(nbsp))));
+      await writeFilesAsNamed(
+        Object.fromEntries(
+          entries.filter((entry): entry is [string, Buffer] => entry[0].includes(nbsp)),
+        ),
+      );
+    });
+
+    after(async function () {
+      await deleteVaultPaths(Object.keys(files).filter((path) => !path.includes("/Rel spaces/")));
+      await deleteVaultPaths(["Saved/Rel spaces"]);
+    });
+
+    afterEach(async function () {
+      await restoreHost();
+    });
+
+    /** Which squares a stylesheet colors, and the file that each image shows. Run inside the frame. */
+    function read() {
+      const applied: Record<string, boolean> = {};
+      for (const square of document.querySelectorAll(".sq"))
+        applied[square.id] = getComputedStyle(square).backgroundColor === "rgb(0, 128, 0)";
+      const file = (id: string) => {
+        const source = document.querySelector<HTMLImageElement>(`#${id}`)!.currentSrc;
+        return decodeURIComponent(new URL(source).pathname.split("/").at(-1)!);
+      };
+      return {
+        applied,
+        images: { nbsp: file("nbsp"), srcset: file("srcset") },
+        chromium: Number(/Chrome\/(\d+)/.exec(navigator.userAgent)?.[1]),
+      };
+    }
+
+    /** The squares that ASCII whitespace splits from `stylesheet`, on Chromium of this major version. */
+    function applied(chromium: number) {
+      // Chromium 114, in Obsidian 1.5.3, splits rel only on spaces and line
+      // feeds; 1.15.1 on ASCII whitespace, as the viewer does.
+      const split = chromium === 114 ? ["space", "lf"] : Object.keys(ASCII_SPACES);
+      return Object.fromEntries(Object.keys(spaces).map((id) => [id, split.includes(id)]));
+    }
+
+    it("is measured against what Chromium applies to the same page outside Obsidian", async function () {
+      const served = await inServedPage(files, "Saved/Rel spaces.html", () =>
+        browser.execute(read),
+      );
+      expect(served).toEqual({
+        applied: applied(served.chromium),
+        images: { nbsp: `${nbsp}Rel nb.png`, srcset: `Rel${nbsp}set.png` },
+        chromium: served.chromium,
+      });
+    });
+
+    it("reads and applies only the links whose stylesheet type ASCII whitespace splits off", async function () {
+      await recordReads("Saved/Rel spaces/");
+      await openInActiveTab("Saved/Rel spaces.html");
+      await waitForPage();
+      const shown = await inViewerFrame(() => browser.execute(read));
+      expect({ ...shown, reads: await recordedReads() }).toEqual({
+        applied: applied(0),
+        images: { nbsp: `${nbsp}Rel nb.png`, srcset: `Rel${nbsp}set.png` },
+        chromium: shown.chromium,
+        reads: Object.keys(ASCII_SPACES)
+          .map((id) => `Saved/Rel spaces/${id}.css`)
+          .sort(),
+      });
+    });
+
+    it("copies the files that such URLs name into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Rel spaces.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("rel-spaces-scripts-on");
+        expect({
+          blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+          green: await framePixels(GREEN),
+        }).toEqual({ blue: 2, green: 0 });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   it("shows nothing from outside the vault", async function () {
     await openInActiveTab("Saved/Outside reference.html");
     await waitForPage();
@@ -1710,6 +1840,73 @@ describe("A page's local files in Obsidian", function () {
   });
 });
 
+/** Creates vault files, text or binary, and the folders that they need. */
+async function createVaultFiles(files: Record<string, string | Buffer>): Promise<void> {
+  const entries = Object.entries(files).map(([path, body]) =>
+    typeof body === "string"
+      ? { path, text: body, base64: null }
+      : { path, text: null, base64: body.toString("base64") },
+  );
+  await browser.executeObsidian(async ({ app }, entries) => {
+    const folders = new Set<string>();
+    for (const { path } of entries) {
+      const parts = path.split("/");
+      for (let i = 1; i < parts.length; i++) folders.add(parts.slice(0, i).join("/"));
+    }
+    for (const folder of [...folders].sort())
+      if (!app.vault.getAbstractFileByPath(folder)) await app.vault.createFolder(folder);
+    for (const { path, text, base64 } of entries) {
+      if (text !== null) await app.vault.create(path, text);
+      else
+        await app.vault.createBinary(
+          path,
+          Uint8Array.from(atob(base64!), (char) => char.charCodeAt(0)).buffer,
+        );
+    }
+  }, entries);
+}
+
+/**
+ * Writes binary files into the vault's folder by their exact paths, as a tool
+ * outside Obsidian would, and waits until the vault lists them. Obsidian's
+ * own API would change some characters of a name, such as U+00A0, which it
+ * names a file with a space for.
+ */
+async function writeFilesAsNamed(files: Record<string, Buffer>): Promise<void> {
+  const entries = Object.entries(files).map(([path, body]) => ({
+    path,
+    base64: body.toString("base64"),
+  }));
+  await browser.executeObsidian(async ({ app }, entries) => {
+    const adapter = app.vault.adapter as unknown as {
+      writeBinary(path: string, data: ArrayBuffer): Promise<void>;
+    };
+    for (const { path, base64 } of entries)
+      await adapter.writeBinary(
+        path,
+        Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)).buffer,
+      );
+  }, entries);
+  await browser.waitUntil(
+    () =>
+      browser.executeObsidian(
+        ({ app }, paths) => paths.every((path) => app.vault.getAbstractFileByPath(path) !== null),
+        Object.keys(files),
+      ),
+    { timeout: 10_000, timeoutMsg: "the vault did not list the files written by their names" },
+  );
+}
+
+/** Deletes vault files and folders, with what the folders hold. */
+async function deleteVaultPaths(paths: string[]): Promise<void> {
+  await browser.executeObsidian(async ({ app }, paths) => {
+    for (const path of paths) {
+      const file = app.vault.getAbstractFileByPath(path);
+      if (file) await app.vault.delete(file, true);
+    }
+  }, paths);
+}
+
 /** Creates or replaces a vault file, as a fixture that needs the vault's address. */
 async function writeVaultFile(filePath: string, text: string): Promise<void> {
   await browser.executeObsidian(
@@ -1812,6 +2009,15 @@ async function recordedReads(): Promise<string[]> {
   return [...new Set(reads)].sort();
 }
 
+/** The content types that {@link inServedPage} serves files with, by extension; HTML otherwise. */
+const SERVED_TYPES: Readonly<Record<string, string>> = {
+  css: "text/css",
+  js: "text/javascript",
+  png: "image/png",
+  svg: "image/svg+xml",
+  vtt: "text/vtt",
+};
+
 /**
  * Serves `files`, by their vault paths, over HTTP from this process, loads
  * `page` from there in a frame of Obsidian's window without a sandbox, and
@@ -1822,7 +2028,7 @@ async function recordedReads(): Promise<string[]> {
  * vault files only to its own origin (#147).
  */
 async function inServedPage<T>(
-  files: Record<string, string>,
+  files: Record<string, string | Buffer>,
   page: string,
   read: () => Promise<T>,
 ): Promise<T> {
@@ -1833,12 +2039,12 @@ async function inServedPage<T>(
     } catch {
       // A malformed request names no file.
     }
-    const text = Object.hasOwn(files, name) ? files[name] : undefined;
-    response.writeHead(text === undefined ? 404 : 200, {
-      "Content-Type": name.endsWith(".css") ? "text/css" : "text/html; charset=utf-8",
+    const body = Object.hasOwn(files, name) ? files[name] : undefined;
+    response.writeHead(body === undefined ? 404 : 200, {
+      "Content-Type": SERVED_TYPES[path.extname(name).slice(1)] ?? "text/html; charset=utf-8",
       "Cache-Control": "no-store",
     });
-    response.end(text ?? "");
+    response.end(body ?? "");
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
@@ -1867,6 +2073,19 @@ async function inServedPage<T>(
     await browser.execute(() => document.getElementById("e2e-served")?.remove());
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+/**
+ * Runs `read` inside the active tab's frame, which a page with scripts on
+ * keeps from the window, but not from WebDriver.
+ */
+async function inViewerFrame<T>(read: () => Promise<T>): Promise<T> {
+  await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+  try {
+    return await read();
+  } finally {
+    await browser.switchFrame(null);
   }
 }
 

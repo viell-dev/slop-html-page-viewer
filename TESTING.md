@@ -430,6 +430,24 @@ the viewer, with scripts off, the page shows what Chromium applied, the viewer r
 stylesheets that apply, and the copy keeps the others as written; with scripts on and files copied,
 it copies only the figure of each `<style>` that applies.
 
+**Unreleased (#192):** `document.test.ts` checks that a link is read only when ASCII whitespace
+separates `stylesheet` from its other link types: with each of the 20 other spaces that
+JavaScript's `\s` matches, U+000B, U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F,
+U+205F, U+3000, and U+FEFF, after it, before it, or at the start, the link stays a link and nothing
+is read; with a space, a tab, a line feed, a form feed, or a carriage return, which the parser
+reads as a line feed, and in any ASCII case, it is read. Such a link names no stylesheet set, and
+an `alternate` one so joined applies nothing. With copying, an image whose `src` holds U+00A0 and
+a name between ASCII spaces, a `srcset` with U+00A0 inside a URL, and a script whose `src` starts
+with U+2003 copy the files of those names; found by name, such a reference stays as written when
+only the name without the space would match. `resources.e2e.ts` checks in Obsidian 1.5.3 and the
+latest a page of 24 links, each to a stylesheet of its own, with `stylesheet` and `x` joined by
+each of those 20 spaces or by a space, a line feed, a tab, or a form feed, and two images whose
+files are named with U+00A0, written into the vault by their exact names. The served page applies
+only the links of ASCII whitespace, all four on Chromium 150 and those of a space and a line feed
+on Chromium 114, and shows the images of the names with U+00A0. In the viewer, the copy applies
+and reads the four links of ASCII whitespace, and with scripts on and files copied, it shows those
+images, not the files of the names without U+00A0.
+
 ## Shown to fail
 
 On 2026-10-21, each of these deliberate breakages failed the check named:
@@ -1031,6 +1049,21 @@ breakages failed the check named in `document.test.ts`:
   review of #188 found to pass every test, and a link whose `href` is no URL naming the set: the
   test of sets.
 
+**Unreleased (#192):** On 2026-11-19, the preparation of `main` at `c853231` failed all four new
+tests of ASCII whitespace in `document.test.ts`, and both viewer tests of `resources.e2e.ts` in
+Obsidian 1.5.3 and 1.15.1, where the served page showed what the tests expect. There, the viewer
+read and applied the 20 links whose types other spaces join, and with scripts on and files copied
+it showed the green image of the name without U+00A0, and none for the `srcset`. Each of these
+breakages failed the check named in `document.test.ts`:
+
+- Splitting `rel` on JavaScript's whitespace: the tests of links and of stylesheet sets.
+- Splitting a `srcset`, or stripping a URL attribute, on JavaScript's whitespace: the tests of
+  copying and of finding by name.
+
+Lowercasing `rel` with `toLowerCase` instead of in ASCII passes every test: no character but an
+ASCII capital lowercases into a letter of `stylesheet` or `alternate`, so that part only keeps the
+rule exact.
+
 **Unreleased (#147):** On 2026-11-18, the preparation of `<style>` and `<link>` elements as `main`
 had it at `eb92df5` failed both viewer tests of types in `resources.e2e.ts` in Obsidian 1.5.3 and
 1.15.1. There, the links of other types and the disabled links applied, as `<style>` elements put in
@@ -1105,7 +1138,11 @@ starts left neither test a step after it, and the screenshot was taken.
   their `type` and a link's `disabled` attribute. A link's `rel` values other than `stylesheet`
   and `alternate stylesheet`, its `media`, and a `type` that a script changes are not measured in
   Obsidian. **Unreleased (#169):** titles and `alternate stylesheet` links are measured there,
-  as the coverage of #169 describes.
+  as the coverage of #169 describes. **Unreleased (#192):** so is what splits a link's `rel`:
+  Chromium 150, in Obsidian 1.15.1, splits it on ASCII whitespace, as the viewer does, but Chromium
+  114, in Obsidian 1.5.3, only on spaces and line feeds. There, a link whose `rel` has a tab or a
+  form feed before or after `stylesheet` loads nothing, but the viewer reads it, and the copy
+  applies it as a `<style>`. The versions between them are not tested.
 - **Unreleased (#169):** which titled stylesheets apply is decided from the page as it is parsed. A
   script that switches to another set, as by enabling a stylesheet, gets no linked stylesheet of it,
   as Obsidian's policy refuses a link, and its `<style>` elements without their imports, whose URLs

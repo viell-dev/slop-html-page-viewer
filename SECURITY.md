@@ -179,6 +179,13 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   also one in the preferred set, which Chromium applies
   ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
 
+  **Unreleased (#192):** a link is a stylesheet link only when ASCII whitespace separates
+  `stylesheet` from the other words of its `rel`, as HTML splits it. Version 0.6.0 also splits it
+  at U+00A0 and the other spaces of JavaScript's `\s`, and so reads, applies, and copies for links
+  that browsers do not load. With **Local files with scripts on**, the viewer copies the file that
+  a URL attribute names with such a space at its start or end, or a `srcset` inside a URL, where
+  0.6.0 copies the file of the name without it, or none. Each read and copy passes the same checks
+  ([#192](https://github.com/viell-dev/slop-html-page-viewer/issues/192)).
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with
 scripts off.

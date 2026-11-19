@@ -763,9 +763,11 @@ const RESOURCE_ATTRIBUTES: Record<string, readonly string[]> = {
 /**
  * A URL in a `srcset`, with the comma and the space before it. A URL itself
  * can contain commas, as a `data:` URL does; a comma that ends it is left for
- * the next URL, which starts after it.
+ * the next URL, which starts after it. HTML splits a `srcset` on ASCII
+ * whitespace only, so a URL can hold U+00A0 and the other spaces that
+ * JavaScript's `\s` also matches (#192).
  */
-const SRCSET_URL = /(^|,)(\s*)([^\s,][^\s]*?)(?=,?(?:\s|$))/g;
+const SRCSET_URL = /(^|,)([\t\n\f\r ]*)([^\t\n\f\r ,][^\t\n\f\r ]*?)(?=,?(?:[\t\n\f\r ]|$))/g;
 
 /** Applies `locatedUrl` to each URL of a `srcset`, keeping its descriptors. */
 function locateSrcset(srcset: string, baseUrl: string, context: PageContext): string {
@@ -873,13 +875,15 @@ function locateReferences(root: ParentNode, baseUrl: string, context: PageContex
   for (const element of root.querySelectorAll(Object.keys(RESOURCE_ATTRIBUTES).join(", "))) {
     for (const name of RESOURCE_ATTRIBUTES[element.localName] ?? []) {
       const value = element.getAttribute(name);
-      if (value === null || value.trim() === "") continue;
+      if (value === null) continue;
+      const reference = stripSpaces(value);
+      if (reference === "") continue;
       if (name === "srcset") {
         element.setAttribute(name, locateSrcset(value, baseUrl, context));
         continue;
       }
-      const absolute = resolve(value.trim(), baseUrl);
-      const located = absolute === null ? null : locatedUrl(value.trim(), absolute, context);
+      const absolute = resolve(reference, baseUrl);
+      const located = absolute === null ? null : locatedUrl(reference, absolute, context);
       if (located !== null) element.setAttribute(name, located);
     }
   }
@@ -1410,9 +1414,17 @@ function styleElements(root: ParentNode, preferred: StylesheetSet): Element[] {
   );
 }
 
-/** A link's link types, in lowercase. */
+/**
+ * A link's link types, in ASCII lowercase, as HTML reads `rel`: split on
+ * ASCII whitespace only (#192). JavaScript's whitespace, `\s`, also matches
+ * U+00A0 and other spaces, which HTML takes for part of a type: `stylesheet`,
+ * U+00A0, and `x` make one type, and no stylesheet link, which headless
+ * Chrome 158 and Obsidian 1.5.3 and 1.15.1 load nothing for. Chromium 114, in
+ * Obsidian 1.5.3, also takes a tab or a form feed for part of a type, where
+ * 1.15.1 splits on them (TESTING.md's limits).
+ */
 function linkTypes(link: Element): string[] {
-  return (link.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
+  return asciiLowercase(link.getAttribute("rel") ?? "").split(/[\t\n\f\r ]+/);
 }
 
 /**
@@ -1433,7 +1445,12 @@ function inStylesheetSet(element: Element, preferred: StylesheetSet): boolean {
   return title === preferred;
 }
 
-/** Removes the ASCII whitespace that HTML strips from either end of a value. */
+/**
+ * Removes the ASCII whitespace that HTML strips from either end of a value,
+ * as Chromium strips it from a URL attribute's. `trim` would also remove
+ * U+00A0 and the other spaces of JavaScript's `\s`, which such a URL holds,
+ * escaped (#192). Resolving the URL strips the C0 controls left around it.
+ */
 function stripSpaces(value: string): string {
   return value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, "");
 }
@@ -1959,13 +1976,15 @@ async function visitFileReferences(
   for (const element of root.querySelectorAll(Object.keys(COPIED_ATTRIBUTES).join(", "))) {
     for (const name of COPIED_ATTRIBUTES[element.localName] ?? []) {
       const value = element.getAttribute(name);
-      if (value === null || value.trim() === "") continue;
+      if (value === null) continue;
+      const reference = stripSpaces(value);
+      if (reference === "") continue;
       if (name === "srcset") {
         const replaced = await visitSrcset(value, baseUrl, visit);
         if (replaced !== value) element.setAttribute(name, replaced);
         continue;
       }
-      const absolute = resolve(value.trim(), baseUrl);
+      const absolute = resolve(reference, baseUrl);
       const replaced = absolute === null ? null : await visit(absolute);
       if (replaced !== null) element.setAttribute(name, replaced);
     }

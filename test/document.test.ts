@@ -499,6 +499,113 @@ describe("<style> and <link> elements that Chromium applies, by type and disable
   });
 });
 
+describe("attributes that HTML splits or strips on ASCII whitespace (#192)", () => {
+  // HTML splits a link's rel and a srcset, and strips a URL attribute, on
+  // ASCII whitespace only, as resources.e2e.ts checks against Chromium.
+  // JavaScript's \s also matches each of these.
+  const unicodeSpaces = [
+    ...[0x0b, 0xa0, 0x1680],
+    ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
+    ...[0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff],
+  ];
+  const named = (code: number) => `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
+  const nbsp = String.fromCodePoint(0xa0);
+  const emSpace = String.fromCodePoint(0x2003);
+
+  /** What preparing a page reads, and how many links the copy keeps. */
+  async function linkPage(html: string) {
+    const ctx = context({ "Saved/real.css": "REAL{}" });
+    const copy = parse(await prepare(html, ctx));
+    return { reads: ctx.reads, links: copy.querySelectorAll("link").length };
+  }
+
+  it("reads a link only when ASCII whitespace separates stylesheet from its other types", async () => {
+    for (const code of unicodeSpaces) {
+      const space = String.fromCodePoint(code);
+      for (const rel of [`stylesheet${space}x`, `x${space}stylesheet`, `${space}stylesheet`]) {
+        assert.deepEqual(
+          await linkPage(`<link rel="${rel}" href="real.css">`),
+          { reads: [], links: 1 },
+          `${named(code)} in ${JSON.stringify(rel)}`,
+        );
+      }
+    }
+    // A tab or a form feed splits it as in Chromium 150; Chromium 114 takes
+    // them for part of a type (TESTING.md's limits). The parser reads a
+    // carriage return as a line feed.
+    for (const rel of ["stylesheet x", "x\tstylesheet", "x\nstylesheet", "x\fstylesheet"]) {
+      assert.deepEqual(
+        await linkPage(`<link rel="${rel}" href="real.css">`),
+        { reads: ["Saved/real.css"], links: 0 },
+        JSON.stringify(rel),
+      );
+    }
+    for (const rel of ["STYLESHEET", " StyleSheet\r"]) {
+      assert.deepEqual(
+        await linkPage(`<link rel="${rel}" href="real.css">`),
+        { reads: ["Saved/real.css"], links: 0 },
+        JSON.stringify(rel),
+      );
+    }
+  });
+
+  it("names no stylesheet set, and applies no alternate one, with such a link", async () => {
+    const files = { "Saved/a.css": "A{}", "Saved/b.css": "B{}", "Saved/c.css": "C{}" };
+    const ctx = context(files);
+    await prepare(
+      [
+        `<link rel="stylesheet${nbsp}x" title="A" href="a.css">`,
+        `<link rel="stylesheet" title="B" href="b.css">`,
+        `<style title="A">@import "c.css";</style>`,
+        `<link rel="alternate${nbsp}stylesheet" title="B" href="c.css">`,
+      ].join(""),
+      ctx,
+    );
+    assert.deepEqual(ctx.reads, ["Saved/b.css"]);
+  });
+
+  it("copies the file of a URL attribute or a srcset candidate that holds such a space", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    const copy = parse(
+      await prepare(
+        `<img src=" ${nbsp}nb.png "><img srcset="a${nbsp}b.png 2x, c.png 1x"><script src="${emSpace}s.js"></script>`,
+        context({}),
+        { copyFiles },
+      ),
+    );
+    assert.deepEqual(
+      copies.sort(),
+      [`Saved/${nbsp}nb.png`, `Saved/a${nbsp}b.png`, "Saved/c.png", `Saved/${emSpace}s.js`].sort(),
+    );
+    const data = (type: string) => `data:${type};base64,AQ==`;
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src") ?? image.getAttribute("srcset")),
+      [data("image/png"), `${data("image/png")} 2x, ${data("image/png")} 1x`],
+    );
+  });
+
+  it("finds by name only the reference that such an attribute names, with its spaces", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: () => false,
+      locate: (linktext) => (linktext === "nb.png" ? "Found/nb.png" : null),
+    };
+    const html = `<img src="${nbsp}nb.png"><img srcset="${nbsp}nb.png 2x">`;
+    const copy = parse(await prepare(html, ctx));
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src") ?? image.getAttribute("srcset")),
+      [`${nbsp}nb.png`, `${nbsp}nb.png 2x`],
+    );
+  });
+});
+
 it("leaves a style element that needs no change as it is", async () => {
   // An SVG <style> can hold elements, which assigning its text would remove.
   const ctx = context({});

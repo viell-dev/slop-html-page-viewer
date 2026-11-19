@@ -105,6 +105,16 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   stylesheets, and its `<style>` elements without their imports
   ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
 
+  **Unreleased (#192):** a link is a stylesheet link only when a space, tab, line feed, or form feed
+  separates `stylesheet` from the other words of its `rel`, as HTML splits it. With a no-break space
+  or another space between them, the words are one, browsers load nothing, and the viewer reads
+  nothing for it; version 0.6.0 reads and applies such a link. A URL attribute keeps such a space at
+  its start or end, and a `srcset` one inside a URL, as browsers read them, so that with **Local
+  files with scripts on** the file of that name is copied, not one without the space. Obsidian 1.5.3
+  splits `rel` only at spaces and line feeds, so there a link with a tab or a form feed in its `rel`
+  applies in the viewer but not in a browser
+  ([#192](https://github.com/viell-dev/slop-html-page-viewer/issues/192)).
+
   **Unreleased (#155):** each of the page's own stylesheets ends where CSS ends it, as an imported
   one does: an import without its `;` at the end of a `<style>` or a linked stylesheet counts, and
   an unquoted URL at the end of a linked stylesheet is that stylesheet's, resolved from its folder
