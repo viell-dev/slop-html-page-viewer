@@ -429,6 +429,245 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with titled stylesheets of several sets (#169)", function () {
+    const COLOR = "rgb(46, 125, 50)";
+    const FIGURE = "Saved/2026-01-15/figure.png";
+    const titled = (title: string | null) => (title === null ? "" : ` title="${title}"`);
+    /** A stylesheet link to a file that colors `#id`. */
+    const link = (title: string | null, id: string, rel = "stylesheet") =>
+      `<link id="${id}-link" rel="${rel}"${titled(title)} href="Style sets/${id}.css">`;
+    /** A <style> that colors `#id`, names the figure, and imports a file that colors `#id-imported`. */
+    const style = (title: string | null, id: string) =>
+      `<style id="${id}-style"${titled(title)}>@import "Style sets/${id}.css";` +
+      ` #${id} { color: ${COLOR}; background-image: url("${FIGURE}") }</style>`;
+    const svgStyle = (title: string, id: string) =>
+      `<svg width="0" height="0">${style(title, id)}</svg>`;
+    const meta = (content: string) => `<meta http-equiv="Default-Style" content="${content}">`;
+    // The first title is that of a link to a missing file, which still names
+    // its set; a <meta> at the end changes nothing. A shadow root applies its
+    // stylesheets whatever their titles, but not an alternate link.
+    const sets = [
+      `<link rel="stylesheet" title="A" href="Style sets/missing.css">`,
+      link("B", "b1"),
+      link(null, "c1"),
+      link("A", "a1"),
+      link("A", "alt1", "alternate stylesheet"),
+      link("B", "alt2", "alternate stylesheet"),
+      link(null, "p1", "alternate stylesheet"),
+      link(" ", "sp"),
+      style("A", "sa"),
+      style("B", "sb"),
+      style("a", "sl"),
+      svgStyle("A", "svga"),
+      svgStyle("B", "svgb"),
+    ];
+    const shadow = [link("B", "hb"), style("B", "hs"), link("A", "halt", "alternate stylesheet")];
+    const defaults = [
+      meta("B"),
+      link("A", "ma"),
+      link("B", "mb"),
+      style("A", "msa"),
+      style("B", "msb"),
+    ];
+    const linkIds = ["b1", "c1", "a1", "alt1", "alt2", "p1", "sp", "hb", "halt", "ma", "mb"];
+    const styleIds = ["sa", "sb", "sl", "svga", "svgb", "hs", "msa", "msb"];
+    const paragraphs = (ids: string[]) =>
+      ids
+        .flatMap((id) => (styleIds.includes(id) ? [id, `${id}-imported`] : [id]))
+        .map((id) => `<p id="${id}">${id}</p>`)
+        .join("");
+    const files: Record<string, string> = {
+      ...Object.fromEntries(
+        linkIds.map((id) => [`Style sets/${id}.css`, `#${id} { color: ${COLOR} }`]),
+      ),
+      ...Object.fromEntries(
+        styleIds.map((id) => [`Style sets/${id}.css`, `#${id}-imported { color: ${COLOR} }`]),
+      ),
+      "Style sets.html": [
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Style sets</title>`,
+        sets.join(""),
+        `</head><body>`,
+        paragraphs([
+          "b1",
+          "c1",
+          "a1",
+          "alt1",
+          "alt2",
+          "p1",
+          "sp",
+          "sa",
+          "sb",
+          "sl",
+          "svga",
+          "svgb",
+        ]),
+        `<div id="host"><template shadowrootmode="open">${shadow.join("")}${paragraphs(["hb", "hs", "halt"])}</template></div>`,
+        meta("B"),
+        `</body></html>`,
+      ].join(""),
+      "Default style.html": [
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Default style</title>`,
+        defaults.join(""),
+        `</head><body>${paragraphs(["ma", "mb", "msa", "msb"])}</body></html>`,
+      ].join(""),
+    };
+    const FRAME = `${ACTIVE} iframe.html-page-viewer__frame`;
+    const PAGES = ["Style sets.html", "Default style.html"];
+
+    // What Chromium applies in each page, as headless Chrome 158 applied it.
+    const APPLIED: Record<string, { page: string[]; shadow: string[] }> = {
+      "Style sets.html": {
+        page: ["a1", "alt1", "c1", "sa", "sa-imported", "svga", "svga-imported"],
+        shadow: ["hb", "hs", "hs-imported"],
+      },
+      "Default style.html": { page: ["mb", "msb", "msb-imported"], shadow: [] },
+    };
+    /** The vault stylesheets of the elements that apply, which the copy reads. */
+    const READS: Record<string, string[]> = {
+      "Style sets.html": ["a1", "alt1", "c1", "hb", "hs", "sa", "svga"],
+      "Default style.html": ["mb", "msb"],
+    };
+
+    /** What Chromium applies to each page outside Obsidian, on this host. */
+    const chromium: Record<string, unknown> = {};
+
+    before(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        if (!app.vault.getAbstractFileByPath("Style sets"))
+          await app.vault.createFolder("Style sets");
+      });
+      for (const [path, text] of Object.entries(files)) await writeVaultFile(path, text);
+      for (const page of PAGES)
+        chromium[page] = await inServedPage(files, page, () => browser.execute(read, COLOR));
+    });
+
+    after(async function () {
+      await browser.executeObsidian(
+        async ({ app }, paths) => {
+          for (const path of paths) {
+            const file = app.vault.getAbstractFileByPath(path);
+            if (file) await app.vault.delete(file, true);
+          }
+        },
+        [...PAGES, "Style sets"],
+      );
+    });
+
+    afterEach(async function () {
+      await restoreHost();
+    });
+
+    /**
+     * Which paragraphs a stylesheet colors, in the document and in its shadow
+     * root, and which <style> and <link> elements are as the page has them: a
+     * <style> that keeps its import, and a link. Run inside the frame.
+     */
+    function read(color: string) {
+      const tree = (root: Document | ShadowRoot | null) =>
+        root === null
+          ? []
+          : [...root.querySelectorAll("p[id]")]
+              .filter((p) => getComputedStyle(p).color === color)
+              .map((p) => p.id)
+              .sort();
+      const kept = (root: Document | ShadowRoot | null) =>
+        root === null
+          ? []
+          : [
+              ...[...root.querySelectorAll("style[id]")]
+                .filter((style) => (style.textContent ?? "").includes("@import"))
+                .map((style) => style.id),
+              ...[...root.querySelectorAll("link")].map(
+                (link) => link.id || link.getAttribute("href"),
+              ),
+            ].sort();
+      const shadow = document.getElementById("host")?.shadowRoot ?? null;
+      return {
+        applied: { page: tree(document), shadow: tree(shadow) },
+        kept: { page: kept(document), shadow: kept(shadow) },
+      };
+    }
+
+    /** What the viewer's frame shows, and how many copied images its copy holds. */
+    async function shown() {
+      const copy = await browser.execute(
+        (selector) => document.querySelector<HTMLIFrameElement>(selector)!.srcdoc,
+        FRAME,
+      );
+      await browser.switchFrame(browser.$(FRAME));
+      try {
+        return {
+          ...(await browser.execute(read, COLOR)),
+          copied: copy.split("data:image/png").length - 1,
+        };
+      } finally {
+        await browser.switchFrame(null);
+      }
+    }
+
+    /**
+     * The elements that do not apply, which the copy keeps as the page has
+     * them, and the missing file's link, which stays a link.
+     */
+    const KEPT: Record<string, { page: string[]; shadow: string[] }> = {
+      "Style sets.html": {
+        page: [
+          "Style sets/missing.css",
+          ...["b1", "alt2", "p1", "sp"].map((id) => `${id}-link`),
+          ...["sb", "sl", "svgb"].map((id) => `${id}-style`),
+        ].sort(),
+        shadow: ["halt-link"],
+      },
+      "Default style.html": { page: ["ma-link", "msa-style"], shadow: [] },
+    };
+
+    it("is measured against what Chromium applies to the same pages outside Obsidian", async function () {
+      for (const page of PAGES)
+        expect({ page, applied: (chromium[page] as ReturnType<typeof read>).applied }).toEqual({
+          page,
+          applied: APPLIED[page],
+        });
+    });
+
+    it("reads and prepares only the stylesheets of the set that applies, and keeps the others as written", async function () {
+      for (const page of PAGES) {
+        await recordReads("Style sets/");
+        await openInActiveTab(page);
+        await waitForPage();
+        await saveScreenshot(`style-sets-${PAGES.indexOf(page)}`);
+        const result = { ...(await shown()), reads: await recordedReads() };
+        expect({ page, ...result }).toEqual({
+          page,
+          applied: (chromium[page] as ReturnType<typeof read>).applied,
+          kept: KEPT[page],
+          copied: 0,
+          reads: READS[page].map((id) => `Style sets/${id}.css`).sort(),
+        });
+        await restoreHost();
+      }
+    });
+
+    it("copies only the files of the stylesheets of that set into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Style sets.html");
+        await waitForPage();
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("style-sets-scripts-on");
+        const result = await shown();
+        // The figure, once for each <style> that applies: sa, svga, and hs.
+        expect({ applied: result.applied, copied: result.copied }).toEqual({
+          applied: (chromium["Style sets.html"] as ReturnType<typeof read>).applied,
+          copied: 3,
+        });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   describe("with stylesheet imports (#136, #139, #144, #151, #152, #155)", function () {
     const green = "rgb(46, 125, 50)";
     const red = "rgb(198, 40, 40)";

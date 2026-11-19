@@ -95,6 +95,16 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   stylesheet, as the viewer's frame loads no linked stylesheets but Google Fonts
   ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
+  **Unreleased (#169):** the viewer also reads only the titled stylesheets that Chromium applies.
+  In the page itself, an untitled `<style>` or stylesheet link applies, and a titled one only with
+  the title of the preferred set: the first title of a `<style>` or a stylesheet link, also one
+  whose file is missing, or the content of a `<meta http-equiv="Default-Style">` before it. An
+  `alternate stylesheet` link applies only with that title. In shadow DOM, titles do not matter,
+  and no alternate link applies. The others stay as the page has them, and nothing is read or
+  copied for them; a page whose script switches to another set gets none of that set's linked
+  stylesheets, and its `<style>` elements without their imports
+  ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
+
   **Unreleased (#155):** each of the page's own stylesheets ends where CSS ends it, as an imported
   one does: an import without its `;` at the end of a `<style>` or a linked stylesheet counts, and
   an unquoted URL at the end of a linked stylesheet is that stylesheet's, resolved from its folder

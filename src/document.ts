@@ -1371,17 +1371,92 @@ function isCssStyle(style: Element): boolean {
 }
 
 /**
- * The `<style>` elements whose text is a stylesheet that Chromium applies:
- * HTML ones, and SVG ones, which SVG processes as HTML's, of a CSS type
- * (`isCssStyle`). MathML has no `<style>`, so one there is an unknown element,
- * which Chromium applies nothing from. The others stay as the page has them.
+ * Whether a `<style>` element's text is a stylesheet: an HTML one, or an SVG
+ * one, which SVG processes as HTML's, of a CSS type (`isCssStyle`). MathML has
+ * no `<style>`, so one there is an unknown element, which Chromium applies
+ * nothing from.
  */
-function styleElements(root: ParentNode): Element[] {
-  return [...root.querySelectorAll("style")].filter(
-    (style) =>
-      (style.namespaceURI === HTML_NAMESPACE || style.namespaceURI === SVG_NAMESPACE) &&
-      isCssStyle(style),
+function isStylesheetStyle(style: Element): boolean {
+  return (
+    (style.namespaceURI === HTML_NAMESPACE || style.namespaceURI === SVG_NAMESPACE) &&
+    isCssStyle(style)
   );
+}
+
+/**
+ * The `<style>` elements whose text is a stylesheet that Chromium applies
+ * (`isStylesheetStyle`), in a document only those of the stylesheet set that
+ * applies (`inStylesheetSet`, with `preferred` as there). The others stay as
+ * the page has them.
+ */
+function styleElements(root: ParentNode, preferred?: string | null): Element[] {
+  return [...root.querySelectorAll("style")].filter(
+    (style) => isStylesheetStyle(style) && inStylesheetSet(style, preferred),
+  );
+}
+
+/** A link's link types, in lowercase. */
+function linkTypes(link: Element): string[] {
+  return (link.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
+}
+
+/**
+ * Whether a stylesheet's title and link types let it apply (#169), as
+ * Chromium applies stylesheet sets. In a document, `preferred` is the name of
+ * the preferred set (`preferredSet`), or null when nothing names one: an
+ * untitled stylesheet applies, and a titled one only with that name, also an
+ * `alternate stylesheet` link, but an untitled alternate one never does. In a
+ * shadow root, Chromium applies every stylesheet, whatever its title, but an
+ * alternate link; so does the content of a template, which `preferred`
+ * undefined stands for, as the content of most templates goes in shadow
+ * roots. Headless Chrome 158 and Obsidian 1.5.3 and 1.15.1 apply them so.
+ */
+function inStylesheetSet(element: Element, preferred?: string | null): boolean {
+  const alternate = element.localName === "link" && linkTypes(element).includes("alternate");
+  const title = element.getAttribute("title") ?? "";
+  if (preferred === undefined || title === "") return !alternate;
+  return title === preferred;
+}
+
+/** Removes the ASCII whitespace that HTML strips from either end of a value. */
+function stripSpaces(value: string): string {
+  return value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, "");
+}
+
+/**
+ * The name of a document's preferred stylesheet set (#169), as Chromium
+ * finds it while it parses the page: the first, in tree order, of the
+ * content of a `<meta http-equiv="Default-Style">` that is not empty, and the
+ * title of a `<style>` (`isStylesheetStyle`) or of a stylesheet link that is
+ * not an alternate one (`isStylesheetLink`), whose `href` is not blank, and
+ * which has a title. Such a link names the set before it loads, so also when
+ * its stylesheet is missing, or when the copy leaves it a link that Obsidian's
+ * policy refuses. A later one, also a `<meta>`, changes nothing, and none in a
+ * shadow root or a template names one. Null when nothing names a set: then
+ * only untitled stylesheets apply. Titles compare exactly, their case and
+ * spaces included.
+ */
+function preferredSet(doc: Document): string | null {
+  for (const element of doc.querySelectorAll("meta, style, link")) {
+    let name = "";
+    if (element.localName === "meta") {
+      const equiv = element.getAttribute("http-equiv");
+      if (
+        element.namespaceURI === HTML_NAMESPACE &&
+        asciiLowercase(equiv ?? "") === "default-style"
+      )
+        name = element.getAttribute("content") ?? "";
+    } else if (element.localName === "style") {
+      if (isStylesheetStyle(element)) name = element.getAttribute("title") ?? "";
+    } else if (
+      isStylesheetLink(element) &&
+      !linkTypes(element).includes("alternate") &&
+      stripSpaces(element.getAttribute("href") ?? "") !== ""
+    )
+      name = element.getAttribute("title") ?? "";
+    if (name !== "") return name;
+  }
+  return null;
 }
 
 /** A `<style>` element's own text nodes, in order. */
@@ -1467,17 +1542,29 @@ function isCssLink(link: Element): boolean {
  * markup. A `disabled` link, or one of another type (`isCssLink`), loads
  * nothing either, and stays as the page has it. A script that enables a
  * disabled link later cannot load it in the frame, as Obsidian's policy
- * allows only inline styles there.
+ * allows only inline styles there. Whether an `alternate stylesheet` link
+ * applies depends on its title (`inStylesheetSet`).
  */
 function isStylesheetLink(element: Element): element is HTMLLinkElement {
-  if (element.namespaceURI !== HTML_NAMESPACE) return false;
-  const rel = (element.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
   return (
-    rel.includes("stylesheet") &&
-    !rel.includes("alternate") &&
+    element.namespaceURI === HTML_NAMESPACE &&
+    linkTypes(element).includes("stylesheet") &&
     element.hasAttribute("href") &&
     !element.hasAttribute("disabled") &&
     isCssLink(element)
+  );
+}
+
+/**
+ * The stylesheet links that Chromium applies (`isStylesheetLink`), in a
+ * document only those of the stylesheet set that applies (`inStylesheetSet`,
+ * with `preferred` as there). The others stay as the page has them, and are
+ * not read: a script that switches to their set with scripts on gets no
+ * stylesheet, as Obsidian's policy refuses a link.
+ */
+function stylesheetLinks(root: ParentNode, preferred?: string | null): HTMLLinkElement[] {
+  return [...root.querySelectorAll("link")].filter(
+    (link) => isStylesheetLink(link) && inStylesheetSet(link, preferred),
   );
 }
 
@@ -1486,15 +1573,14 @@ function isStylesheetLink(element: Element): element is HTMLLinkElement {
  * files in the vault with their text, and inlines the imports of its
  * `<style>` elements, as Obsidian's policy allows only inline styles. Only
  * the `<style>` and `<link>` elements that Chromium applies are prepared
- * (`styleElements`, `isStylesheetLink`), each closed at its end as CSS closes
+ * (`styleElements`, `stylesheetLinks`), each closed at its end as CSS closes
  * it. Links and imports past the page's limits stay as they are. Then come
  * its `style` attributes (`prepareStyleAttributes`). Each element's
- * stylesheet resolves against its own base (`sheetBase`, `stylesheetBases`),
- * and `baseUrl` is the copy's `<base>`.
+ * stylesheet resolves against its own base (`PageRoot.sheetBase`), and
+ * `baseUrl` is the copy's `<base>`.
  */
 async function inlineStylesheets(
-  root: ParentNode,
-  sheetBase: (element: Element) => string,
+  { node: root, sheetBase, preferred }: PageRoot,
   baseUrl: string,
   context: PageContext,
   budget: StylesheetBudget,
@@ -1502,8 +1588,8 @@ async function inlineStylesheets(
   // The <style> elements that links become have their imports inlined
   // already. Preparing them again would take their imports from the page's
   // limits again, with the import depth and cycle checks restarted.
-  const originalStyles = styleElements(root);
-  for (const link of [...root.querySelectorAll("link")].filter(isStylesheetLink)) {
+  const originalStyles = styleElements(root, preferred);
+  for (const link of stylesheetLinks(root, preferred)) {
     const href = link.getAttribute("href") ?? "";
     const resolved = resolve(href, sheetBase(link));
     const sheetUrl = (resolved && locatedUrl(href, resolved, context)) ?? resolved;
@@ -1835,12 +1921,12 @@ async function visitSrcset(srcset: string, baseUrl: string, visit: Visit): Promi
 /**
  * Visits the references to files that a page's images, media, fonts, and
  * scripts load, in document order: their attributes, then `<style>` elements
- * and `style` attributes, which resolve against their own base (`sheetBase`).
- * A reference that `visit` gives a URL for gets it.
+ * and `style` attributes, which resolve against their own base
+ * (`PageRoot.sheetBase`), of the `<style>` elements that apply only. A
+ * reference that `visit` gives a URL for gets it.
  */
 async function visitFileReferences(
-  root: ParentNode,
-  sheetBase: (element: Element) => string,
+  { node: root, sheetBase, preferred }: PageRoot,
   baseUrl: string,
   visit: Visit,
   scans: Map<string, readonly CssToken[]>,
@@ -1869,7 +1955,7 @@ async function visitFileReferences(
       if (replaced !== null) element.setAttribute(name, replaced);
     }
   }
-  for (const style of styleElements(root)) {
+  for (const style of styleElements(root, preferred)) {
     const css = styleText(style);
     const replaced = await visitCssUrls(css, sheetBase(style), visit, urls(css));
     if (replaced !== css) setStyleText(style, replaced);
@@ -1889,17 +1975,16 @@ async function visitFileReferences(
  * each template.
  */
 async function copyReferencedFiles(
-  roots: readonly ParentNode[],
-  sheetBase: (element: Element) => string,
+  roots: readonly PageRoot[],
   baseUrl: string,
   files: LocalFiles,
   vaultUrl: string,
 ): Promise<CopiedFiles> {
   const copier = new FileCopier(files, vaultUrl);
   const scans = new Map<string, readonly CssToken[]>();
-  for (const root of roots) await visitFileReferences(root, sheetBase, baseUrl, copier.note, scans);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.note, scans);
   copier.plan();
-  for (const root of roots) await visitFileReferences(root, sheetBase, baseUrl, copier.copy, scans);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy, scans);
   return copier.result;
 }
 
@@ -2024,11 +2109,28 @@ function openShadowRoots(found: readonly HTMLTemplateElement[]): void {
 
 /**
  * Whether a page has a stylesheet of its own that Chromium applies: a <style>
- * or a stylesheet link, as preparation finds them. A page whose only ones do
- * not apply shows as it would without them.
+ * or a stylesheet link, as preparation finds them, of the stylesheet set that
+ * applies (`preferredSet`). A page whose only ones do not apply shows as it
+ * would without them.
  */
-function hasOwnStyles(doc: Document): boolean {
-  return styleElements(doc).length > 0 || [...doc.querySelectorAll("link")].some(isStylesheetLink);
+function hasOwnStyles(doc: Document, preferred: string | null): boolean {
+  return styleElements(doc, preferred).length > 0 || stylesheetLinks(doc, preferred).length > 0;
+}
+
+/**
+ * A part of the page that is prepared as a whole: the document, or the
+ * content of a template, with what decides how its stylesheets apply.
+ */
+interface PageRoot {
+  readonly node: ParentNode;
+  /** The base URL that each of its stylesheets resolves against (`stylesheetBases`). */
+  readonly sheetBase: (element: Element) => string;
+  /**
+   * The document's preferred stylesheet set (`preferredSet`), or undefined
+   * for a template's content, where titles do not decide which stylesheets
+   * apply (`inStylesheetSet`).
+   */
+  readonly preferred?: string | null;
 }
 
 /** Prepares the copy of a page that the rendered view shows. */
@@ -2038,7 +2140,10 @@ export async function preparePage(
   options: PageOptions = {},
 ): Promise<PreparedPage> {
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const ownStyles = hasOwnStyles(doc);
+  // Which of the document's titled stylesheets apply, as preparing leaves its
+  // titles and the elements that name its set where they are.
+  const preferred = preferredSet(doc);
+  const ownStyles = hasOwnStyles(doc, preferred);
 
   // The page's base URL, which the copy's <base> gives every reference that
   // resolves once the page is parsed. The page's own <base>, if any, is
@@ -2053,23 +2158,24 @@ export async function preparePage(
   // document's base, as the frame resolves them. Content without elements has
   // nothing to prepare.
   const found = templates(doc);
-  const roots: ParentNode[] = [doc];
-  for (const { content } of found) if (content.firstElementChild !== null) roots.push(content);
   // The stylesheets that Chromium parses before a <base> resolve against the
   // page's address instead.
   const sheetBase = stylesheetBases(doc, found, base.element, context.pageUrl, baseUrl);
+  const roots: PageRoot[] = [{ node: doc, sheetBase, preferred }];
+  for (const { content } of found)
+    if (content.firstElementChild !== null) roots.push({ node: content, sheetBase });
   // The roots share the page's stylesheet limits, in their order, as they
   // share its copy limits.
   const budget = new StylesheetBudget(context);
   for (const root of roots) {
-    locateReferences(root, baseUrl, context);
-    addTooltips(root, baseUrl, context);
-    await inlineStylesheets(root, sheetBase, baseUrl, context, budget);
+    locateReferences(root.node, baseUrl, context);
+    addTooltips(root.node, baseUrl, context);
+    await inlineStylesheets(root, baseUrl, context, budget);
   }
 
   // After locating and copying, so that the references are final.
   const copiedFiles = options.copyFiles
-    ? await copyReferencedFiles(roots, sheetBase, baseUrl, options.copyFiles, context.vaultUrl)
+    ? await copyReferencedFiles(roots, baseUrl, options.copyFiles, context.vaultUrl)
     : undefined;
 
   // A refresh would navigate the frame away from the copy, past the policy
@@ -2081,7 +2187,7 @@ export async function preparePage(
   if (options.openShadowRoots) {
     // A comment's text is in the source as it is, so only a page whose source
     // has the mark's text can have a comment with it.
-    if (html.includes(SHADOW_ROOT_MARK)) changeMarkComments(roots);
+    if (html.includes(SHADOW_ROOT_MARK)) changeMarkComments(roots.map(({ node }) => node));
     openShadowRoots(found);
   }
   const root = doc.documentElement;

@@ -24,6 +24,10 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   before the `<base>` name from its own folder, as browsers do, instead of from the `<base>`'s
   folder. A `<base>` inside SVG, or one with a `data:` or `javascript:` URL, which browsers ignore,
   no longer changes where the page's files come from (#185).
+- The viewer reads and copies only the titled stylesheets that browsers apply: a titled `<style>`
+  or stylesheet link outside the page's preferred set, which the page's first title or a
+  `<meta http-equiv="Default-Style">` names, keeps its text or stays a link, and an
+  `alternate stylesheet` link with that set's title now applies, as in browsers (#169).
 - A page whose stylesheets import each other many times opens in moments instead of keeping
   Obsidian from responding for seconds to hours: for each page, the viewer follows at most 1,000
   links and imports of vault stylesheets and copies at most 16 million characters of their text,

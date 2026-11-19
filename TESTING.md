@@ -399,6 +399,28 @@ Chromium 114, in Obsidian 1.5.3, applies an SVG `<style>` of type `TEXT/CSS` onl
 and Chromium 150, in 1.15.1, as an HTML one; the spec accepts either for that case, and the viewer
 prepares it on both, so on 1.5.3 it reads that `<style>`'s import, which applies nothing there.
 
+**Unreleased (#169):** `document.test.ts` checks, by the files that preparing reads, which
+stylesheets the copy prepares by their titles, in each case that headless Chrome 158 measured: of
+links, the first title's set, a repeat of it, untitled links, and an `alternate stylesheet` link of
+that title, and no other titled link, no other alternate one, no untitled alternate one, and none
+titled with a space. A titled `<style>` names the set as a link does, also an SVG one, and a link
+names it before it loads, also when its file is missing; a disabled link, a link of another type or
+with an `href` that is empty or blank, an alternate link, and a `<style>` of another type name none.
+A `<meta http-equiv="Default-Style">` names the set before any title, but not after one; an empty
+one names none, and the first one counts. Titles match only in the same case and with the same
+spaces. In a shadow root and a template, every stylesheet but an alternate link is prepared, and
+their titles and `<meta>` name no set. With copying, a `<style>` of another set keeps its text, and
+its files are not copied, and links of other sets stay as written; a page whose only stylesheets are
+outside the set gets the reading style. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest,
+against what Chromium applies to the same pages served outside Obsidian, a page whose first title is
+that of a link to a missing file, with links of both sets, untitled, alternate, and titled with a
+space, `<style>` elements and SVG `<style>` elements of both sets and of a title in other case, a
+`<meta>` at the end, and a shadow root with a link and a `<style>` of the other set and an alternate
+link, and a page whose `<meta>` names the second set. In the viewer, with scripts off, the page
+shows what Chromium applied, the viewer reads only the stylesheets that apply, and the copy keeps
+the others as written; with scripts on and files copied, it copies only the figure of each `<style>`
+that applies.
+
 ## Shown to fail
 
 On 2026-10-21, each of these deliberate breakages failed the check named:
@@ -914,6 +936,25 @@ failed the check named:
   with two attributes, and `document.stress.ts`, where the copy added 19.5 million characters.
 - Keeping the URLs of a `<style>` without imports as written: four of the tests.
 
+**Unreleased (#169):** On 2026-11-19, the preparation of `main` at `bcaaec5` failed all four new
+tests of stylesheet sets in `document.test.ts`, and both viewer tests of sets in
+`resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where both served pages showed what the tests
+expect. There, the viewer read five stylesheets of the other set, which apply nothing, did not
+prepare the `alternate stylesheet` link of the preferred set, which Chromium applies, and with
+scripts on copied six images where the `<style>` elements that apply name three. Each of these
+breakages failed the check named in `document.test.ts`:
+
+- A `<meta http-equiv="Default-Style">` that names no set: the tests of sets and of the reading
+  style.
+- An alternate link, or one with a blank `href`, or any link with a title, that names the set:
+  the test of sets.
+- Titles that never matter: all four tests.
+- No alternate link that applies: the tests of sets and of the reading style.
+- Titles that matter in the content of templates: the test of shadow roots and templates.
+- Copying the files of every `<style>`, whatever its set: the test of what the copy keeps.
+- A page's own styles counted whatever their set: the test of the reading style.
+- Titles compared in any case: the test of sets.
+
 **Unreleased (#147):** On 2026-11-18, the preparation of `<style>` and `<link>` elements as `main`
 had it at `eb92df5` failed both viewer tests of types in `resources.e2e.ts` in Obsidian 1.5.3 and
 1.15.1. There, the links of other types and the disabled links applied, as `<style>` elements put in
@@ -985,12 +1026,16 @@ starts left neither test a step after it, and the screenshot was taken.
   download; 1.5.3 is the oldest version tested. The versions between 1.5.3 and the latest are not
   tested.
 - **Unreleased (#147):** which `<style>` and `<link>` elements Chromium applies was measured by
-  their `type` and a link's `disabled` attribute. A link's `rel` values other than `stylesheet`,
-  `alternate stylesheet` among them, its `media` and `title`, and a `type` that a script changes are
-  not measured in Obsidian. The viewer leaves `alternate stylesheet` links as they are, which
-  headless Chrome 158 does not apply either, with or without a `title`. It reads a link whose
-  `title` is not the page's first, which Chrome 158 does not apply
-  ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
+  their `type` and a link's `disabled` attribute. A link's `rel` values other than `stylesheet`
+  and `alternate stylesheet`, its `media`, and a `type` that a script changes are not measured in
+  Obsidian. **Unreleased (#169):** titles and `alternate stylesheet` links are measured there,
+  as the coverage of #169 describes.
+- **Unreleased (#169):** which titled stylesheets apply is decided from the page as it is parsed. A
+  script that switches to another set, as by enabling a stylesheet, gets no linked stylesheet of it,
+  as Obsidian's policy refuses a link, and its `<style>` elements without their imports, whose
+  URLs resolve as written. A titled stylesheet in a template's content is prepared, though a script
+  that puts it in the page itself would have its title decide whether it applies, and a `<meta>`
+  or a title that a script adds names no set here.
 - **Unreleased (#185):** which base a stylesheet resolves against follows where it stands in the
   prepared tree, which is the order in which the HTML parser made its elements. Content that a
   script adds, as from a template, resolves against the page's `<base>`, as when the script runs

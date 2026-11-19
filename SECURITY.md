@@ -169,6 +169,16 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   still prepared, though it applies nothing
   ([#147](https://github.com/viell-dev/slop-html-page-viewer/issues/147)).
 
+  **Unreleased (#169):** of those, it reads and copies only for the stylesheets of the set that
+  Chromium applies. In the page itself, they are the untitled ones and those titled with the name
+  of the preferred set, which the page's first title of a `<style>` or a stylesheet link, or a
+  `<meta http-equiv="Default-Style">` before it, gives, `alternate stylesheet` links of that title
+  among them; in shadow DOM and in templates, every one but alternate links. A titled stylesheet
+  of another set causes no reads or copying, and the copy keeps it as the page has it. Version
+  0.6.0 reads and copies for every titled stylesheet, and none for an `alternate stylesheet` link,
+  also one in the preferred set, which Chromium applies
+  ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
+
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with
 scripts off.

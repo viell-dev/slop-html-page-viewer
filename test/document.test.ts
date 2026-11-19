@@ -2330,6 +2330,173 @@ describe("a <base> after the page's stylesheets (#185)", () => {
   });
 });
 
+describe("stylesheet sets (#169)", () => {
+  // As headless Chrome 158 and Obsidian 1.5.3 and 1.15.1 apply them, and
+  // resources.e2e.ts checks: in a document, untitled stylesheets and those of
+  // the set that the first title names. Each link names a file of its own,
+  // and each <style> imports one, so that the reads show what is prepared.
+  const titled = (title: string | null) => (title === null ? "" : ` title="${title}"`);
+  const link = (title: string | null, name: string, extra = "") =>
+    `<link rel="stylesheet"${titled(title)} href="${name}.css"${extra}>`;
+  const alternate = (title: string | null, name: string) =>
+    `<link rel="alternate stylesheet"${titled(title)} href="${name}.css">`;
+  const style = (title: string | null, name: string, extra = "") =>
+    `<style${titled(title)}${extra}>@import "${name}.css";</style>`;
+  const meta = (content: string) => `<meta http-equiv="Default-Style" content="${content}">`;
+
+  /** The names of the files that preparing the page reads, sorted: each exists but missing.css. */
+  async function read(html: string): Promise<string[]> {
+    const reads: string[] = [];
+    await prepare(html, {
+      ...context({}),
+      async read(path) {
+        reads.push(path);
+        return path.endsWith("/missing.css") ? null : "p{}";
+      },
+    });
+    return reads.map((path) => path.replace(/^Saved\/(.*)\.css$/, "$1")).sort();
+  }
+
+  it("prepares untitled stylesheets and those of the set that the first title names", async () => {
+    for (const [what, html, expected] of [
+      [
+        "links, with alternate ones, a repeat of the first title, and a title of a space",
+        [
+          link("A", "a1"),
+          link("B", "b1"),
+          link(null, "c1"),
+          link("A", "a2"),
+          alternate("A", "alt1"),
+          alternate("B", "alt2"),
+          alternate(null, "p1"),
+          link(" ", "sp"),
+          link("B", "b2"),
+        ],
+        ["a1", "a2", "alt1", "c1"],
+      ],
+      [
+        "a <style> first",
+        [style("B", "sb"), link("A", "a1"), link("B", "b1"), style("A", "sa"), style(null, "ss")],
+        ["b1", "sb", "ss"],
+      ],
+      [
+        "a link first, which names its set before it loads",
+        [link("A", "a1"), style("B", "sb"), link("B", "b1"), style("A", "sa")],
+        ["a1", "sa"],
+      ],
+      [
+        "a missing first link, which names its set too",
+        [link("A", "missing"), link("B", "b1"), link("A", "a1")],
+        ["a1", "missing"],
+      ],
+      [
+        "a disabled first link, which names none",
+        [link("A", "a1", " disabled"), link("B", "b1"), link("A", "a2")],
+        ["b1"],
+      ],
+      [
+        "a Default-Style <meta> first",
+        [meta("B"), link("A", "a1"), link("B", "b1"), style("A", "sa"), style("B", "sb")],
+        ["b1", "sb"],
+      ],
+      ["a Default-Style <meta> after", [link("A", "a1"), style("B", "sb"), meta("B")], ["a1"]],
+      [
+        "an empty Default-Style <meta>, then two",
+        [meta(""), meta("B"), meta("A"), link("A", "a1"), link("B", "b1")],
+        ["b1"],
+      ],
+      [
+        "titled elements that name no set: a link of another type or without an href, an alternate link, and a <style> of another type",
+        [
+          link("A", "t1", ' type="text/plain"'),
+          `<link rel="stylesheet" title="A" href="">`,
+          `<link rel="stylesheet" title="A" href=" \t">`,
+          alternate("A", "alt1"),
+          style("A", "sx", ' type="text/x-scss"'),
+          link("B", "b1"),
+          link("A", "a2"),
+        ],
+        ["b1"],
+      ],
+      [
+        "SVG <style> elements",
+        [
+          `<svg><style title="B">@import "svgb.css";</style><style title="A">@import "svga.css";</style></svg>`,
+          link("A", "a1"),
+          link("B", "b1"),
+        ],
+        ["b1", "svgb"],
+      ],
+      [
+        "titles that differ in case or spaces",
+        [link("a", "lower"), link("A", "upper"), link(" a ", "spaced"), meta("A")],
+        ["lower"],
+      ],
+      [
+        "a Default-Style <meta> with spaces",
+        [meta(" B "), link(" B ", "spaced"), link("B", "b1")],
+        ["spaced"],
+      ],
+    ] as const) {
+      assert.deepEqual(await read(html.join("")), [...expected].sort(), what);
+    }
+  });
+
+  it("prepares every stylesheet but alternate links in shadow roots and templates, whose titles name no set", async () => {
+    const html = [
+      link("A", "a1"),
+      `<div><template shadowrootmode="open">`,
+      [link("B", "b2"), style("B", "sb"), alternate("A", "alt1"), link(null, "c1"), meta("B")].join(
+        "",
+      ),
+      `</template></div>`,
+      `<template>${link("B", "t1")}${alternate("A", "t2")}</template>`,
+      link("B", "b1"),
+    ].join("");
+    assert.deepEqual(await read(html), ["a1", "b2", "c1", "sb", "t1"]);
+  });
+
+  it("keeps the others as the page has them, and copies nothing for them", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    const html = [
+      `<style title="A">a { b: url(a.png) }</style>`,
+      `<style title="B">c { d: url(b.png) }</style>`,
+      `<style>e { f: url(c.png) }</style>`,
+      link("B", "b1"),
+      alternate("B", "alt2"),
+    ].join("");
+    const copy = parse(await prepare(html, context({ "Saved/b1.css": "g{}" }), { copyFiles }));
+    assert.deepEqual(copies.sort(), ["Saved/a.png", "Saved/c.png"]);
+    assert.equal(copy.querySelector('style[title="B"]')!.textContent, "c { d: url(b.png) }");
+    assert.deepEqual(
+      [...copy.querySelectorAll("link")].map((element) => element.outerHTML),
+      [link("B", "b1"), alternate("B", "alt2")],
+    );
+  });
+
+  it("gives the reading style to a page whose only stylesheets are outside the set", async () => {
+    for (const [html, own] of [
+      [`<style title="A">p{}</style>`, true],
+      [`${meta("X")}<style title="A">p{}</style>`, false],
+      [`${meta("X")}${link("A", "a1")}${alternate("X", "x")}`, true],
+      [`${style("A", "sa")}${alternate("B", "alt")}`, true],
+      [`${style(null, "plain")}${meta("X")}`, true],
+      [`${link("A", "a1")}${link("B", "b1")}`, true],
+      [`${meta("X")}${link("A", "a1")}`, false],
+    ] as const) {
+      const prepared = await preparePage(html, context({}), { readingStyle: "p{}" });
+      assert.equal(prepared.ownStyles, own, html);
+    }
+  });
+});
+
 function context(
   files: Record<string, string>,
   page = "Saved/Example article.html",
