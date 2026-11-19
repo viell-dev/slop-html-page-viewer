@@ -34,14 +34,20 @@ message names those requests and the ones refused before Mocha went on; the firs
 after that is printed to the log. So code that a test or hook starts can send requests only until
 that test or hook has its result: a `before` hook cannot leave work running for the tests after it.
 
-`test/e2e/support/late-requests.check.ts`, which `session.sh` runs before the tests in Obsidian,
-checks this without Obsidian, in Mocha with WebdriverIO's own wrapping of tests and a stand-in
-browser. A test that times out sends no request once its `afterTest` hook starts, while the
-screenshot goes through; Mocha waits for a request still outstanding at the result; each failure
-says what its code still did; and the first refusal after a test passed is printed. Breaking each
-of these fails the check. `harness.e2e.ts` checks in Obsidian that a request from code that goes on
-after its test passed is refused and never reaches Obsidian. Each run therefore prints one such
-refusal to the log for each host, as expected:
+The configuration spreads these hooks from `test/e2e/support/hooks.ts`: `transformRequest`,
+`before`, `beforeTest`, and `afterTest` with its screenshot. `session.sh` runs
+`test/e2e/support/late-requests.check.ts` before the tests in Obsidian, which runs the same hooks
+without Obsidian. It uses Mocha with WebdriverIO's own wrapping of tests, and a stand-in browser
+that sends each request in WebdriverIO 10's order. It checks four things. A test's code has ended
+when the configuration's `afterTest` returns, before anything that the hook awaits, so a test that
+times out sends no request once that hook starts, while the screenshot goes through. Mocha waits for
+a request still outstanding at the result. Each failure says what its code still did. The first
+refusal after a test passed is printed. Breaking any of these in `hooks.ts` or `late-requests.ts`
+fails the check, and so does an `afterTest` that ends the test's code only after the screenshot or
+after an `await`. The check does not cover that `wdio.conf.mts` spreads these hooks, since
+importing the configuration downloads hosts and clears results. `harness.e2e.ts` checks in Obsidian
+that a request from code that goes on after its test passed is refused and never reaches Obsidian.
+Each run therefore prints one such refusal to the log for each host, as expected:
 `[late requests] Refused executeScript from "The test run in Obsidian leaves code running after it passes"…`.
 A test that runs outside its scope, as under a copy of Mocha other than the one that
 `@wdio/mocha-framework` runs, makes every request fail.
@@ -641,7 +647,9 @@ starts left neither test a step after it, and the screenshot was taken.
   after WebdriverIO fails the test, which the run refuses (#170). Until then it goes on, and what it
   does without WebDriver, such as writing the vault's files on disk as `read-only.e2e.ts` does, can
   still change what the tests after it see. Once Mocha has gone on, a refusal is no longer added to
-  the failure, and only the first is printed to the log.
+  the failure, and only the first is printed to the log. WebdriverIO's own retries, the third
+  argument of `it`, run each attempt in the test's one scope, so the run cannot refuse one attempt's
+  late requests during the next; Mocha's `retries` can. No spec uses either.
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request
   records.

@@ -93,6 +93,11 @@ export function endTestCode<T>(error: unknown, work: () => T): T {
   return scopes.run(scopeOf(scope.runnable), work);
 }
 
+/** Whether the code that runs is a test's or hook's that has its result, whose requests are refused. */
+export function codeHasEnded(): boolean {
+  return scopes.getStore()?.result !== undefined;
+}
+
 /**
  * Whether the scope's requests have their answers, within ANSWER_LIMIT_MS. It then waits one turn
  * of the event loop, in which code that waited for an answer sends its next request, refused.
@@ -144,8 +149,13 @@ function describeLateCode(scope: Scope, waited: readonly string[], answered: boo
   }
 }
 
+/** The events that WebdriverIO's browser emits for each WebDriver request. */
+export interface RequestEvents {
+  on(event: "command" | "result", listener: (event: { command: string }) => void): unknown;
+}
+
 /** Records each WebDriver request of the browser's session in the scope that sends it. */
-export function watchRequests(browser: WebdriverIO.Browser): void {
+export function watchRequests(browser: RequestEvents): void {
   browser.on("command", ({ command }) => {
     scopes.getStore()?.unanswered.push(command);
   });

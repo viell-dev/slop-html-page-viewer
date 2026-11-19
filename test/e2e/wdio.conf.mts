@@ -18,13 +18,8 @@ import path from "node:path";
 import { browser } from "@wdio/globals";
 import { parseObsidianVersions } from "wdio-obsidian-service";
 import { selectedSpecs, rejectSpecArguments } from "../../scripts/e2e-selection.ts";
-import {
-  checkScope,
-  endTestCode,
-  refuseLateRequest,
-  scopeRunnables,
-  watchRequests,
-} from "./support/late-requests.ts";
+import { testHooks } from "./support/hooks.ts";
+import { scopeRunnables } from "./support/late-requests.ts";
 
 rejectSpecArguments(process.argv.slice(2));
 // E2E_ONLY lists spec file names to run, such as "links.e2e.ts", for a quick
@@ -151,39 +146,11 @@ export const config: WebdriverIO.Config = {
   // WebdriverIO 10 rejects ambiguous single-element queries.
   strictSelectors: true,
   mochaOpts: { ui: "bdd", timeout: 60_000 },
-  // A test that times out fails, but its code goes on running; its WebDriver requests are refused
-  // from then on, so that it cannot drive Obsidian during the tests after it (#170).
-  //
-  // This replaces wdio-obsidian-service's own transformRequest, which it sets in beforeSession only
-  // when the configuration has none. In 3.5.0 that one removes the Connection and Content-Length
-  // headers, which WebdriverIO 10 never sets (webdriverio/webdriverio#15265, closed); recheck it
-  // when the service changes.
-  transformRequest(requestOptions) {
-    refuseLateRequest();
-    return requestOptions;
-  },
-  before() {
-    watchRequests(browser);
-  },
-  beforeTest(_test, context: Mocha.Context) {
-    checkScope(context.test);
-  },
-  // A failed test leaves a screenshot of Obsidian's window among the results
-  // that CI keeps, named for the Obsidian version and the test (#77). The
-  // test's own code ends as this hook starts, before the screenshot.
-  afterTest(test, _context, { error, passed }) {
-    return endTestCode(error, async () => {
-      if (passed) return;
-      const name = `${test.parent} ${test.title}`
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "")
-        .slice(0, 100);
-      const file = `failed-${browser.getObsidianVersion()}-${name}.png`;
-      await browser
-        .saveScreenshot(path.join(outputDir, "screenshots", file))
-        .catch(() => undefined);
-    });
-  },
+  // transformRequest, before, beforeTest, and afterTest. A test that times out
+  // fails, but its code goes on running; its WebDriver requests are refused
+  // from then on, so that it cannot drive Obsidian during the tests after it
+  // (#170). A failed test leaves a screenshot of Obsidian's window among the
+  // results that CI keeps, named for the Obsidian version and the test (#77).
+  ...testHooks(browser, path.join(outputDir, "screenshots")),
   logLevel: "warn",
 };

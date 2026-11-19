@@ -1,30 +1,39 @@
-// Checks late-requests.ts without Obsidian (#170). Tests in Mocha, wrapped by @wdio/utils as
-// @wdio/mocha-framework wraps them, with the configuration's beforeTest and afterTest, drive a
-// stand-in browser. It sends each request as webdriver 10 does: its "command" event, then
-// transformRequest, which may refuse it, then its "result" event once it has its answer or fails.
-// session.sh runs it with `node --test` before the tests in Obsidian.
+// Checks the run's refusal of a finished test's requests without Obsidian (#170). Tests in Mocha,
+// wrapped by @wdio/utils as @wdio/mocha-framework wraps them, run the configuration's own
+// transformRequest, before, beforeTest, and afterTest hooks from hooks.ts, which wdio.conf.mts
+// spreads into its configuration, against a stand-in browser. The stand-in sends each request as
+// webdriver 10 does: its "command" event, then transformRequest, which may refuse it, then its
+// "result" event once it has its answer or fails. That wdio.conf.mts uses these hooks is not
+// checked here. session.sh runs this file with `node --test` before the tests in Obsidian.
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import path from "node:path";
 import { test } from "node:test";
 import { wrapGlobalTestMethod } from "@wdio/utils";
 import Mocha from "mocha";
-import {
-  checkScope,
-  endTestCode,
-  refuseLateRequest,
-  scopeRunnables,
-  watchRequests,
-} from "./late-requests.ts";
+import { testHooks } from "./hooks.ts";
+import { codeHasEnded, scopeRunnables } from "./late-requests.ts";
 
 /** What the stand-in browser and the hooks did, in order. */
 const events: string[] = [];
-const browser = new EventEmitter();
+/** How long the next failure screenshot takes. */
+let screenshotMs = 0;
+const screenshots: string[] = [];
+
+const browser = Object.assign(new EventEmitter(), {
+  getObsidianVersion: () => "check",
+  saveScreenshot(file: string): Promise<void> {
+    screenshots.push(file);
+    return request("takeScreenshot", screenshotMs);
+  },
+});
+const hooks = testHooks(browser, "screenshots");
 
 /** A WebDriver request that has its answer after `ms`, unless the run refuses it. */
 function request(command: string, ms: number): Promise<void> {
   browser.emit("command", { command });
   try {
-    refuseLateRequest();
+    hooks.transformRequest({});
   } catch (error) {
     events.push(`refused ${command}`);
     return Promise.reject(error).finally(() =>
@@ -38,19 +47,18 @@ function request(command: string, ms: number): Promise<void> {
   });
 }
 
-/** How long the failure screenshot of the next test takes. */
-let screenshotMs = 0;
-
 interface Outcome {
   failures: Map<string, string>;
   passes: string[];
   logged: string[];
+  /** For each test, whether its code had ended when its afterTest hook returned. */
+  endedAtAfterTest: boolean[];
 }
 
 async function runTests(): Promise<Outcome> {
   scopeRunnables();
-  watchRequests(browser as unknown as WebdriverIO.Browser);
-  const outcome: Outcome = { failures: new Map(), passes: [], logged: [] };
+  hooks.before();
+  const outcome: Outcome = { failures: new Map(), passes: [], logged: [], endedAtAfterTest: [] };
   const mocha = new Mocha({ ui: "bdd", timeout: 300 });
   mocha.reporter(
     class extends Mocha.reporters.Base {
@@ -64,23 +72,20 @@ async function runTests(): Promise<Outcome> {
     },
   );
   mocha.suite.emit("pre-require", globalThis, "", mocha);
-  // As @wdio/mocha-framework passes them, and as in wdio.conf.mts.
+  // The arguments that @wdio/mocha-framework passes to the hooks.
   const hookArgs = (context: unknown): [unknown, unknown] => {
     const { test } = context as Mocha.Context;
     return [{ ...test, parent: test?.parent?.title }, context];
   };
-  const beforeTest = (_test: unknown, context: Mocha.Context) => checkScope(context.test);
-  const afterTest = (
-    _test: unknown,
-    _context: unknown,
-    result: { passed: boolean; error?: unknown },
-  ) =>
-    endTestCode(result.error, async () => {
-      if (result.passed) return;
-      events.push("afterTest");
-      await request("takeScreenshot", screenshotMs).catch(() => undefined);
-    });
-  wrapGlobalTestMethod(true, beforeTest, hookArgs, afterTest, hookArgs, "it", "0-0");
+  // WebdriverIO starts the configuration's afterTest first, and the others only once it returns
+  // its promise: the test's code must have ended by then, before anything that the hook awaits.
+  const afterTest: typeof hooks.afterTest = (test, context, result) => {
+    events.push(`afterTest ${test.parent} ${test.title}`);
+    const running = hooks.afterTest(test, context, result);
+    outcome.endedAtAfterTest.push(codeHasEnded());
+    return running;
+  };
+  wrapGlobalTestMethod(true, hooks.beforeTest, hookArgs, afterTest, hookArgs, "it", "0-0");
   for (const name of ["before", "after", "beforeEach", "afterEach"])
     wrapGlobalTestMethod(false, [], hookArgs, [], hookArgs, name, "0-0");
 
@@ -131,7 +136,7 @@ async function runTests(): Promise<Outcome> {
 }
 
 test("a test's code cannot send requests once the test has its result", async () => {
-  const { failures, passes, logged } = await runTests();
+  const { failures, passes, logged, endedAtAfterTest } = await runTests();
   const trace = events.join(", ");
   const at = (event: string) => {
     const index = events.indexOf(event);
@@ -145,7 +150,10 @@ test("a test's code cannot send requests once the test has its result", async ()
   const refused = steps.findIndex((event) => event.startsWith("refused"));
   assert.ok(refused > 0, trace);
   assert.equal(steps.length, refused + 1, trace);
-  assert.ok(events.indexOf(steps[refused - 1]) < at("afterTest"), trace);
+  assert.ok(
+    events.indexOf(steps[refused - 1]) < at("afterTest between short requests times out"),
+    trace,
+  );
   assert.ok(at("sent takeScreenshot") < events.indexOf(steps[refused]), trace);
   const step = steps[refused].slice("refused ".length);
   assert.match(
@@ -165,6 +173,13 @@ test("a test's code cannot send requests once the test has its result", async ()
     failures.get("during a long request times out") ?? "",
     /\nIts code was still running after its result \(#170\): the run waited for the answers to 1 request \(long\), and refused 1 request \(after long\)\. The run refuses its later requests\.$/,
   );
+
+  // Each test's code ended as its afterTest hook started, and only failed tests have a screenshot.
+  assert.deepEqual(endedAtAfterTest, [true, true, true, true, true]);
+  assert.deepEqual(screenshots, [
+    path.join("screenshots", "failed-check-between-short-requests-times-out.png"),
+    path.join("screenshots", "failed-check-during-a-long-request-times-out.png"),
+  ]);
 
   // Only the two tests that time out fail; code that goes on after its test passed is refused,
   // and the first refusal is printed to the log.
