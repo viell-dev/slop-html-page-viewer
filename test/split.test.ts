@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { JSDOM } from "jsdom";
 import "./support/dom";
 import {
   alignSequences,
   anchorElements,
   lineAtTop,
   lineForPageTop,
+  onFirstResize,
   pageTopForLine,
   remeasured,
   ScrollFollower,
@@ -564,6 +566,52 @@ describe("following a scrolled side", () => {
     frame();
     assert.deepEqual(source.scrolls, [], "the snapped position is not taken for a user's scroll");
   });
+
+  it("has the side that led last lead again, once the sides map differently (#165)", () => {
+    const source = side(1000);
+    const page = side(2000);
+    let scale = 2;
+    const frames: (() => void)[] = [];
+    const following = new ScrollFollower(
+      { source, page },
+      { source: (top) => top * scale, page: (top) => top / scale },
+      (run) => frames.push(run),
+    );
+    const frame = (): void => {
+      for (const run of frames.splice(0)) run();
+    };
+    following.again();
+    assert.equal(frames.length, 0, "nothing before a side has led");
+
+    page.set(600);
+    following.placed("page");
+    frame();
+    assert.deepEqual(source.scrolls, [300]);
+    scale = 1.5;
+    following.again();
+    frame();
+    assert.deepEqual(source.scrolls, [300, 400], "the placed page leads again");
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [], "the source's report of following is passed over");
+
+    source.set(300);
+    following.scrolled("source");
+    frame();
+    assert.deepEqual(page.scrolls, [450]);
+    scale = 2;
+    following.again();
+    frame();
+    assert.deepEqual(page.scrolls, [450, 600], "the source led last");
+
+    // A side that waits to lead leads once, from where it is.
+    page.set(1000);
+    following.scrolled("page");
+    following.again();
+    frame();
+    assert.deepEqual(source.scrolls, [300, 400, 500]);
+    assert.deepEqual(page.scrolls, [450, 600]);
+  });
 });
 
 describe("start tags", () => {
@@ -681,6 +729,166 @@ describe("measuring again", () => {
     time = 300;
     assert.equal(value(), 2);
     assert.equal(value(), 2, "not while the size stays");
+  });
+
+  it("measures again at once when asked, also before it is due (#165)", () => {
+    let size = 100;
+    let time = 0;
+    let measures = 0;
+    const value = remeasured(
+      () => (measures += 1),
+      () => size,
+      () => time,
+      250,
+    );
+    size = 200;
+    time = 100;
+    value.again();
+    assert.equal(value(), 2);
+    time = 400;
+    assert.equal(value(), 2, "not again for the size that it measured at");
+    size = 300;
+    assert.equal(value(), 3, "again when due");
+  });
+});
+
+/**
+ * A window of its own, with a stand-in for the ResizeObserver that jsdom
+ * does not have, as `resizeObservers` gives it.
+ */
+function observingWindow() {
+  const win = new JSDOM("<!doctype html><html><head></head><body></body></html>", {
+    url: "app://obsidian.md/index.html",
+  }).window as unknown as Window;
+  return { win, ...resizeObservers(win) };
+}
+
+/**
+ * Gives a window a stand-in for the ResizeObserver that jsdom does not have:
+ * each observer that the window makes, the elements that it observes, and
+ * whether it is still connected. `report` runs the callbacks of those
+ * connected, as a window does once its layout has changed sizes.
+ */
+function resizeObservers(win: Window) {
+  const observers: { observed: Element[]; connected: boolean; callback: () => void }[] = [];
+  class ResizeObserver {
+    private readonly record;
+    constructor(callback: () => void) {
+      this.record = { observed: [] as Element[], connected: true, callback };
+      observers.push(this.record);
+    }
+    observe(element: Element): void {
+      this.record.observed.push(element);
+    }
+    disconnect(): void {
+      this.record.connected = false;
+    }
+  }
+  Object.defineProperty(win, "ResizeObserver", { configurable: true, value: ResizeObserver });
+  const report = (): void => {
+    for (const observer of observers) if (observer.connected) observer.callback();
+  };
+  return { observers, report };
+}
+
+/** Animation frames for a window, which jsdom does not have, that run when `run` says. */
+function animationFrames(win: Window): { run(): void } {
+  const callbacks: FrameRequestCallback[] = [];
+  Object.defineProperty(win, "requestAnimationFrame", {
+    configurable: true,
+    value: (callback: FrameRequestCallback) => callbacks.push(callback),
+  });
+  return {
+    run: () => {
+      for (const callback of callbacks.splice(0)) callback(0);
+    },
+  };
+}
+
+/** Gives an element the size that a layout would, which jsdom does not lay out. */
+function sized(element: HTMLElement, size: { width: number; height: number }): void {
+  Object.defineProperties(element, {
+    offsetWidth: { configurable: true, get: () => size.width },
+    offsetHeight: { configurable: true, get: () => size.height },
+  });
+}
+
+describe("the first resize of an element (#165)", () => {
+  function observed() {
+    const { win, observers, report } = observingWindow();
+    const element = win.document.createElement("pre");
+    win.document.body.append(element);
+    const size = { width: 300, height: 600 };
+    sized(element, size);
+    return { win, element, size, observers, report };
+  }
+
+  it("is noticed once, by an observer of the element's own window, from its size at the start", () => {
+    const { win, element, size, observers, report } = observed();
+    // The plugin's own window, whose rendering does not report the sizes of
+    // another window's elements.
+    const own = resizeObservers(globalThis as unknown as Window);
+    try {
+      let calls = 0;
+      onFirstResize(element, () => (calls += 1), new AbortController().signal, 10_000);
+      assert.equal(own.observers.length, 0);
+      assert.equal(observers.length, 1);
+      assert.deepEqual(observers[0].observed, [element]);
+      // A window's first report gives the size that the element has then.
+      report();
+      assert.equal(calls, 0);
+      size.height = 560;
+      report();
+      assert.equal(calls, 1);
+      assert.equal(observers[0].connected, false);
+      size.width = 320;
+      report();
+      assert.equal(calls, 1, "only the first change");
+    } finally {
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+      (win as unknown as { close(): void }).close();
+    }
+  });
+
+  it("is noticed at the first report when the size has changed since the start", () => {
+    const { win, element, size, report } = observed();
+    try {
+      let calls = 0;
+      onFirstResize(element, () => (calls += 1), new AbortController().signal, 10_000);
+      size.width = 320;
+      report();
+      assert.equal(calls, 1);
+    } finally {
+      (win as unknown as { close(): void }).close();
+    }
+  });
+
+  it("is no longer watched for once its time has passed, or the signal aborts", async () => {
+    const { win, element, size, observers, report } = observed();
+    try {
+      let calls = 0;
+      onFirstResize(element, () => (calls += 1), new AbortController().signal, 20);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      assert.equal(observers[0].connected, false);
+
+      const showing = new AbortController();
+      onFirstResize(element, () => (calls += 1), showing.signal, 10_000);
+      showing.abort();
+      assert.equal(observers[1].connected, false);
+      size.height = 560;
+      report();
+      assert.equal(calls, 0);
+
+      onFirstResize(element, () => (calls += 1), showing.signal, 10_000);
+      assert.equal(observers.length, 2, "nothing is observed after the signal aborted");
+    } finally {
+      (win as unknown as { close(): void }).close();
+    }
+  });
+
+  it("is not watched for in a window without ResizeObserver", () => {
+    const element = document.createElement("pre");
+    assert.doesNotThrow(() => onFirstResize(element, () => {}, new AbortController().signal, 20));
   });
 });
 
@@ -825,5 +1033,149 @@ describe("the find bar in a page shown again (#157)", () => {
     await loadFrame(view, watchReveals);
     assert.deepEqual(revealed, ["Two"]);
     input.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+});
+
+describe("the split view after its tab moves to a new window (#165)", () => {
+  const LONG = `<!doctype html>\n<title>Long</title>\n${Array.from(
+    { length: 10 },
+    (_, index) => `<p>Paragraph ${index + 1}</p>`,
+  ).join("\n")}`;
+
+  /**
+   * Lays a frame's page out as jsdom does not: its paragraphs, which are on
+   * the source's lines 3 to 12, in a column, each `paragraphs.height` pixels
+   * high, in a window 200 pixels high, scrolled from its top by scrollTo,
+   * which reports no scroll. `scrolledTo` collects where scrollTo sends it.
+   */
+  function laidOutPage(
+    scrolledTo: number[],
+    paragraphs = { height: 100 },
+  ): (page: Document) => void {
+    return (page) => {
+      const win = page.defaultView!;
+      let scrollY = 0;
+      Object.defineProperty(win, "scrollY", { configurable: true, get: () => scrollY });
+      win.scrollTo = ((options: ScrollToOptions) => {
+        scrollY = options.top ?? scrollY;
+        scrolledTo.push(scrollY);
+      }) as typeof win.scrollTo;
+      Object.defineProperties(page.documentElement, {
+        scrollHeight: { configurable: true, value: 1000 },
+        clientHeight: { configurable: true, value: 200 },
+      });
+      Object.defineProperty(win.Element.prototype, "getBoundingClientRect", {
+        configurable: true,
+        value(this: Element) {
+          const index =
+            this.localName === "p" ? [...this.parentElement!.children].indexOf(this) : 0;
+          const { height } = paragraphs;
+          const top = index * height - scrollY;
+          return { top, bottom: top + height, height, width: 100, left: 0, right: 100 };
+        },
+      });
+    };
+  }
+
+  /**
+   * Lays the split view's source out as jsdom does not: its 12 lines from 10
+   * pixels down, each `lines.height` pixels high, with its `<pre>` as high as
+   * they are, in a source 200 pixels high, which scrollTo scrolls without a
+   * report. The reader's scroll reports one.
+   */
+  function laidOutSource(view: { readonly contentEl: HTMLElement }) {
+    const source = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+    const lines = { height: 20 };
+    let top = 0;
+    for (const [index, line] of source
+      .querySelectorAll<HTMLElement>(".html-page-viewer__source-line")
+      .entries())
+      Object.defineProperty(line, "offsetTop", {
+        configurable: true,
+        get: () => 10 + index * lines.height,
+      });
+    Object.defineProperties(source, {
+      scrollTop: { configurable: true, get: () => top },
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTo: {
+        configurable: true,
+        value: (options: ScrollToOptions) => {
+          top = options.top ?? top;
+        },
+      },
+    });
+    sized(source.querySelector("pre")!, {
+      width: 300,
+      get height() {
+        return 20 + 12 * lines.height;
+      },
+    });
+    return {
+      lines,
+      readerScrolls: (to: number): void => {
+        top = to;
+        source.dispatchEvent(new window.Event("scroll"));
+      },
+    };
+  }
+
+  async function splitView() {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(view, "Long.html", LONG);
+    button(view, "Split").click();
+    const pageScrolls: number[] = [];
+    await loadFrame(view, laidOutPage(pageScrolls));
+    return { view, pageScrolls, source: laidOutSource(view) };
+  }
+
+  it("measures again at the first resize of its source's lines, and the side that led last leads again", async () => {
+    const { view, pageScrolls, source } = await splitView();
+    const { win: popout, observers, report } = observingWindow();
+    const frames = animationFrames(popout);
+    const paragraphs = { height: 100 };
+    try {
+      popout.document.createElement("div").append(view.contentEl);
+      await moveFrame(view, { prepare: laidOutPage(pageScrolls, paragraphs) });
+      assert.equal(observers.length, 1, "an observer of the new window");
+      assert.deepEqual(observers[0].observed, [
+        view.contentEl.querySelector(".html-page-viewer__source pre"),
+      ]);
+      report();
+
+      // Line 8, paragraph 6's, at the source's top.
+      source.readerScrolls(150);
+      frames.run();
+      assert.deepEqual(pageScrolls, [500]);
+
+      // As when Obsidian's styles arrive in the window, and the sides take
+      // other widths: 150 pixels are then most of the way through line 8,
+      // and the page's paragraphs are shorter.
+      source.lines.height = 18;
+      paragraphs.height = 80;
+      report();
+      frames.run();
+      assert.deepEqual(pageScrolls, [500, 462]);
+      assert.equal(observers[0].connected, false);
+    } finally {
+      (popout as unknown as { close(): void }).close();
+    }
+  });
+
+  it("observes nothing for the frame's first document, nor after a move in the same window", async () => {
+    const { observers } = resizeObservers(window);
+    const frames = animationFrames(window);
+    try {
+      const { view, pageScrolls, source } = await splitView();
+      await moveFrame(view, { prepare: laidOutPage(pageScrolls) });
+      source.readerScrolls(150);
+      frames.run();
+      assert.deepEqual(pageScrolls, [500], "the view follows the source");
+      assert.equal(observers.length, 0);
+    } finally {
+      delete (window as { ResizeObserver?: unknown }).ResizeObserver;
+      delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+    }
   });
 });

@@ -38,6 +38,12 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   gone, while the bar still counted the matches (#162). The find bar's own scroll of the source to
   its start, to a match on its first lines, is no longer undone by a layout change or a resize that
   comes before Chromium reports it (#167).
+- After a tab moves to another window, Enter pressed right after typing in the find bar goes on
+  from the match that it shows, instead of the search of what was typed taking the bar back to the
+  first match a moment later. After the tab moves out of a window that then closes, the find bar
+  searches what is typed again without waiting for Enter (#175).
+- On Obsidian 1.5.3, the split view's two sides stay in step after its tab moves to a new window,
+  instead of ending a line or two apart once Obsidian's styles have arrived in the window (#165).
 
 ## [0.6.0](.github/release-notes/0.6.0.md) - 2026-11-18
 
