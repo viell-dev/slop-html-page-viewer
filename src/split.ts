@@ -4,6 +4,7 @@
 // position between two such elements maps to the lines between theirs.
 
 import { declaresShadowRoot, SHADOW_ROOT_MARK } from "./document";
+import type { Placing } from "./scrolling";
 
 /** A start tag in the source: its element's name, lowercased, and its line, from 1. */
 export interface StartTag {
@@ -196,16 +197,16 @@ export function anchorElements(body: Element, tags: readonly StartTag[]): Anchor
 }
 
 /**
- * The index of the last item at or before `value` in a sorted list, by
- * `key`, or -1 if there is none.
+ * The index of the last of `count` items at or before `value`, sorted by
+ * `key`, the item's value at an index, or -1 if there is none.
  */
-function lastAtOrBefore<T>(items: readonly T[], value: number, key: (item: T) => number): number {
+function lastAtOrBefore(count: number, value: number, key: (index: number) => number): number {
   let low = 0;
-  let high = items.length - 1;
+  let high = count - 1;
   let found = -1;
   while (low <= high) {
     const middle = (low + high) >> 1;
-    if (key(items[middle]) <= value) {
+    if (key(middle) <= value) {
       found = middle;
       low = middle + 1;
     } else {
@@ -233,7 +234,7 @@ function along(
   to: keyof Point,
 ): number | null {
   if (points.length === 0) return null;
-  const index = lastAtOrBefore(points, value, (point) => point[from]);
+  const index = lastAtOrBefore(points.length, value, (at) => points[at][from]);
   if (index === -1) return points[0][to];
   const a = points[index];
   const b = points[index + 1];
@@ -254,7 +255,7 @@ export function lineForPageTop(points: readonly Point[], top: number): number | 
 
 /** The source line, as a fraction from 1, at a height of the source view, given each line's top. */
 export function lineAtTop(lineTops: readonly number[], top: number): number {
-  const index = lastAtOrBefore(lineTops, top, (value) => value);
+  const index = lastAtOrBefore(lineTops.length, top, (at) => lineTops[at]);
   if (index === -1) return 1;
   const next = lineTops[index + 1];
   const height = next === undefined ? 0 : next - lineTops[index];
@@ -268,6 +269,42 @@ export function topOfLine(lineTops: readonly number[], line: number): number {
   const next = lineTops[index + 1];
   const height = next === undefined ? 0 : next - lineTops[index];
   return lineTops[index] + Math.min(1, Math.max(0, line - 1 - index)) * height;
+}
+
+/**
+ * What a source shows at its top: the index of its line there, from 0, and
+ * how far its top is into that line, as a share of the line's height. Above
+ * its first line, in its top padding, the index is -1, and `into` is how far
+ * it is scrolled down, in pixels, as the padding does not wrap.
+ */
+export interface LinePlace {
+  readonly index: number;
+  readonly into: number;
+}
+
+/**
+ * The line at the top of a source, as a place that holds where its lines
+ * wrap at another width (#182), for keeping its scroll position. It reads the
+ * tops of only the lines that it searches, of the line elements that the
+ * source has now: the view renders a source anew to change its text.
+ */
+export function linePlacing(source: HTMLElement): Placing<LinePlace> {
+  const lines = [...source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")];
+  const topOf = (index: number): number => lines[index].offsetTop;
+  return {
+    measure: () => {
+      const top = source.scrollTop;
+      const index = lastAtOrBefore(lines.length, top, topOf);
+      if (index === -1) return { index, into: top };
+      const height = lines[index].offsetHeight;
+      return { index, into: height > 0 ? (top - topOf(index)) / height : 0 };
+    },
+    topFor: ({ index, into }) => {
+      if (index === -1) return into;
+      const line = lines[Math.min(index, lines.length - 1)];
+      return line ? line.offsetTop + into * line.offsetHeight : null;
+    },
+  };
 }
 
 /**

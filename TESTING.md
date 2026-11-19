@@ -101,6 +101,8 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | **Unreleased (#175):** After its tab moves to another window, Enter cancels the find bar's delayed search; after a move out of a window that closes, the bar still searches        | `find.test.ts`: Enter in a new window, also after typing before the move; typing after a move out of a window that closed                                                 | `move.e2e.ts`: typing and Enter in a new window; typing after the move back                                                            |
 | **Unreleased (#165):** The split view's sides stay in step in a new window when Obsidian's styles arrive there after the view has followed the page                                | `split.test.ts`: the first resize of the source's lines soon after a move to a new window; a source that led keeps its line; none in one window                           | `move.e2e.ts`: the new window's app.css held back until the view has followed the page or the reader                                   |
 | **Unreleased (#178):** A tab that Obsidian shows again after hiding it keeps the place of a page that scrolls as a whole, and the split view's sides where they were, in step      | `move.test.ts`: the frame's own observer; held while hidden, back when shown; `split.test.ts`: either order of reports, the side that led last, the reader, the find bar  | `move.e2e.ts`: rendered, split, wrapped lines, a long head, the reader, the find bar, a sidebar; the Source view and a column          |
+| **Unreleased (#182):** Shown again after its pane changed width while hidden, a page shows the element at its top, and the split view's source the line at its top                 | `move.test.ts`: measured once scrolling settles for 100 ms, out of date after a scroll or a layout change, not hidden, sideways; `split.test.ts`: the source's line       | `move.e2e.ts`: narrowed while hidden, rendered, split, sideways; Readable line length and narrowing while shown; hidden mid-scroll     |
+| **Unreleased (#186):** A tab moved while hidden shows its page where it was, and the split view's sides in step; also one whose hidden frame reloads                               | `split.test.ts`: the hidden page's element for the next document, also one with no size yet, twice; a page moved while it shows                                           | `move.e2e.ts`: rendered and split, by the tab header's menu, a drop's calls, and Split down in the tab in front                        |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                        |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                              |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                          |
@@ -682,6 +684,60 @@ Each of these 26 failed a unit test, in `move.test.ts` or `split.test.ts`:
   there; and leaving the hold on when the frame drops its document.
 - The find bar not telling the page's kept place.
 
+**Unreleased (#182, #186):** On 2026-11-19, with the view as `main` at `c3411ee` has it, the five
+first new tests of `move.e2e.ts` failed in Obsidian 1.5.3 and 1.15.1. In a view narrowed to 500 px
+while its tab was hidden, the page came back at paragraph 14 on 1.15.1 and 15 on 1.5.3, in place
+of 30. In a split view narrowed to 900 px, the sides came back at paragraph 21 and line 28 where
+the page led, and at paragraph 20 and line 27 where the source led, in place of 30 and 37. After a
+hidden tab moved to a new window with its tab header's menu, the page showed from its top; in the
+split view, the source showed line 46 there, beside the page at its top on 1.5.3 and at paragraph
+39 on 1.15.1.
+
+The version that the in-depth review read, `800babe`, failed six later tests, in both versions:
+
+- The four of **Split down** in the tab in front of a hidden tab, rendered and split, with the new
+  pane left open or closed again: the page at its top, beside the source at line 37.
+- Readable line length turned off while the tab showed: the page went back to paragraph 30, at
+  2616 px, in place of paragraph 38, at 3312 px.
+- A page without scroll anchoring narrowed while it showed: paragraph 30, at 4341 px, in place of
+  paragraph 14 at 1987 px (15 at 2141 px on 1.5.3).
+
+Each of these deliberate breakages failed the tests named in Obsidian, in both versions:
+
+- Going back as far down as it was, whatever it showed: the three tests of a narrowed view.
+- The split view's source without its line: the narrowed split view where the source led, which
+  came back at paragraph 20 and line 27.
+- Measuring nothing once the scrolling settles: the first five.
+- Giving the frame's next document the hidden page's own place: the two tests of a hidden tab's
+  move by its menu.
+- No starting place for the next document: the four of Split down.
+- No observer of the page's root and body: the Readable line length and narrowing tests.
+- The sideways place lost: the page scrolled 300 px sideways.
+- Using a measurement after a scroll that it predates: the hide two frames after a scroll, and
+  three tests of #178, among them the find bar's scroll in the task that hid the tab.
+
+Measuring after one quiet frame, in place of 100 ms, passed every test in Obsidian; only
+`move.test.ts` tests it. Each of these 32 failed a unit test, in `move.test.ts` or
+`split.test.ts`:
+
+- In the kept place: going back as far down as it was whatever it showed; using a measurement
+  after a scroll that it predates, or after a change of layout; no exact return within a pixel, or
+  no rounding; the sideways place lost; measuring while not laid out; a measurement that does not
+  end its being out of date; measuring in the frame of the report, after one quiet frame, by quiet
+  counted from the report's frame, or in one window's frames whatever window the source is in; and
+  measuring nothing at a report, after `placed`, or after `release`.
+- In the page's kept place: no starting place, or one not passed by the view; a layout change
+  counted while hidden, or not measured again; no observer of the page, one of its root only, or
+  one never disconnected; and `placeNextDocument` returning no place, or a place where the page
+  follows the source.
+- In the split view's source's line: none kept; the share into the line not counted, or the line
+  before the top; and the top padding as a share of the first line.
+- In the view: the hidden page's own place at `pagehide`, or the kept place also for a page that
+  shows; and the frame's hiding not recorded, or never ended.
+
+One changed nothing: taking the place of a page at its top for one that cannot tell, since both
+go back to the page's top.
+
 On 2026-11-17, each of these deliberate breakages failed the check named (#91):
 
 - The regular expressions used before #91, which read URLs and imports inside CSS strings and
@@ -1215,12 +1271,49 @@ starts left neither test a step after it, and the screenshot was taken.
   paints first.
   - A scroll that Chromium has yet to report when the tab hides, made in the frame before, is not
     kept: the page or the source goes back to where it was before that scroll.
-  - A tab hidden and shown again within one of Chromium's frames, with a layout in between, as only
-    a script can do, can leave the page at its top.
-  - The sides go back as far down as they were scrolled, and the side that led last puts them in
-    step once. Where the pane changed width meanwhile, they show another part
-    ([#182](https://github.com/viell-dev/slop-html-page-viewer/issues/182)); only `split.test.ts`
-    tests that the sides are measured again and put in step there.
+  - A tab shown again after the frame's window reported it hidden, but before Chromium reported the
+    hidden page's scroll to its start, as a script can do within one of Chromium's frames, leaves
+    the page at its top: Chromium reports that scroll once the frame is laid out again, and the view
+    takes it for the page's place. A hide and a show within one task, with a layout in between,
+    leave the page where it was.
+  - Once the sides are back, the side that led last puts them in step once; only `split.test.ts`
+    tests that the sides are measured again for that.
+  - **Unreleased (#182):** The page goes back to the element that was at its top, and the split
+    view's source to the line that was at its top, as the view measured them once their scrolling
+    had settled: once 100 ms of their window's animation frames had passed without a scroll
+    report. Finding that element in every frame of a scroll would show: on 2026-11-19, in Docker on
+    Obsidian 1.5.3 and 1.15.1, it took a median of 1.9 to 2.3 ms, and up to 7.8 ms, in each of 300
+    frames of a scroll through a copy of the corpus's 500-row table, and a median of 11 to 12 ms,
+    and up to 29 ms, through a page of 3,000 paragraphs. Obsidian's `active-leaf-change`, which
+    could have been the moment to measure it once, came 27 to 46 ms after the tab hid, when the
+    page had no layout.
+    - A scroll that comes in steps less than 100 ms apart is searched once, at its end. On the page
+      of 3,000 paragraphs, 20-pixel steps every second, third, or sixth frame were searched once or
+      twice, where one quiet frame had searched after each of their 60, 40, and 20 steps. Steps
+      further apart are each searched, as mouse-wheel notches more than 100 ms apart are: every
+      eighth frame, 15 searches for 15 steps, at a median of 28 ms on 1.15.1 and 56 ms on 1.5.3
+      while a second container ran beside them.
+    - A page or a source that was still scrolling when the tab hid, or that stopped less than
+      100 ms before, goes back as far down as it was. `move.e2e.ts` hides the tab two frames after
+      a scroll, at the same width, and checks that the page goes back to the pixel and not to the
+      element measured before; `move.test.ts` and `split.test.ts` test it too.
+    - A change of the page's layout while it shows, without a scroll, makes the element measured
+      out of date until it is measured again, once 100 ms pass: the page's own window's
+      `ResizeObserver` reports the sizes of its root and its body. Until then, the page goes back
+      as far down as it was. `move.e2e.ts` turns Obsidian's Readable line length off, and narrows a
+      page with `overflow-anchor: none`, while the tab shows, and turns Readable line length off
+      two frames before the tab hides, before the view has measured the page again. A change that
+      moves the page's text but changes neither size, or a page whose root or body changes size in
+      every frame, is not tested; the second is never measured, and goes back in pixels.
+    - Showing the tab again lays its page out anew, which the page's window reports right after
+      `back`, in the same animation frame: that report is passed over, and where `back` showed the
+      element, it is up to date where `back` put the page. So a tab shown for less than 100 ms, as
+      one passed over while stepping through a tab group's tabs, keeps the element for its next
+      show. `move.e2e.ts` shows the tab for two frames, and narrows its view while it is hidden
+      again; only `move.test.ts` tests a brief show at another width.
+    - `move.e2e.ts` narrows the tab's view with a style while the tab is hidden, as a narrower pane
+      would; a sidebar opened meanwhile is not tested. It checks the page's sideways place with a
+      page wider than its view.
   - Only `split.test.ts` tests that a scroll of the source that the reader makes as the tab shows
     again, before the frame's observer reports, leads.
   - `move.e2e.ts` hides the tab by opening a new tab in its tab group through Obsidian's API. It
@@ -1236,9 +1329,25 @@ starts left neither test a step after it, and the screenshot was taken.
     WebDriver click on a tab header in that session did nothing, as did a click on the **Split**
     button, while the header's own `click()` still worked. No test drags, so that is not shown to
     be the cause.
-  - A tab moved while hidden shows its page from its top
-    ([#186](https://github.com/viell-dev/slop-html-page-viewer/issues/186)). `move.e2e.ts` moves a
-    hidden tab to a new window, and tests only that the reader's later scroll of the source stays.
+  - **Unreleased (#186):** A frame that drops its document while its tab is hidden gives the next
+    document the element that was at its page's top while it showed, as for #182. Where the next
+    document has its text while its frame has no size, it shows that element once the frame has
+    a size, and hands it on if the frame drops it before then.
+    - `move.e2e.ts` moves a hidden tab to a new window with its tab header's menu, which it opens
+      with a `contextmenu` event and whose item it clicks with `click()`, and with
+      `moveLeafToPopout` for the reader's later scroll of the source; and to another tab group
+      with the calls of a drop. Dragging a hidden tab's header is not tested.
+    - The frame of a tab hidden behind the tab in front of it drops its document when Obsidian lays
+      the tab group out anew, as for **Split down** in that tab, and the next document has its text
+      with the frame 0 pixels high. `move.e2e.ts` runs `workspace:split-horizontal` there, and
+      also closes the new pane again before showing the tab, which drops the document once more on
+      both versions; it checks that the frame loaded a new document each time.
+    - Where the page was still scrolling when the tab hid, or stopped less than 100 ms before, the
+      next document gets the element measured where its scrolling last settled, as only
+      `move.test.ts` tests: the pixels it was last reported at belong to the old layout. After Split
+      down, the split view's source goes back to where it was scrolled, and its sides are apart
+      until the next scroll; the in-depth review of #190 measured that, with the tab hidden 22 to
+      35 ms after a scroll of the page to another paragraph, and no test covers it.
   - That a page with scripts on starts from its top was measured for #178 on both versions, not
     tested. That Chromium keeps the places of the frame's own scrolling elements, and of the
     **Source** view, `move.e2e.ts` tests.
