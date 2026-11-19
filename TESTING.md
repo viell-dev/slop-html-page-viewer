@@ -1282,9 +1282,11 @@ starts left neither test a step after it, and the screenshot was taken.
     that was at its page's top while it showed, as for #182. `move.e2e.ts` moves a hidden tab to a
     new window with its tab header's menu, which it opens with a `contextmenu` event and whose item
     it clicks with `click()`, and with `moveLeafToPopout` for the reader's later scroll of the
-    source. Dragging a hidden tab's header to another tab group is not tested. In every move
-    measured, the next document had its text while its frame had a size; one that had none then
-    would show from its top.
+    source. Dragging a hidden tab's header to another tab group is not tested. Where the page was
+    still scrolling when the tab hid, the next document gets the element measured where its
+    scrolling last settled, as only `move.test.ts` tests: the pixels it was last reported at belong
+    to the old layout. In every move measured, the next document had its text while its frame had
+    a size; one that had none then would show from its top.
   - That a page with scripts on starts from its top was measured for #178 on both versions, not
     tested. That Chromium keeps the places of the frame's own scrolling elements, and of the
     **Source** view, `move.e2e.ts` tests.

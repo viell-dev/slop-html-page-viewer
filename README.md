@@ -182,8 +182,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   tab of its tab group shows, as from its tab header's menu, shows its page from its top
   ([#186](https://github.com/viell-dev/slop-html-page-viewer/issues/186)).
 
-  **Unreleased (#186):** a tab that moves while hidden shows its page where it was too, and the
-  split view's two sides in step there.
+  **Unreleased (#186):** a tab that moves while hidden no longer shows its page from its top: it
+  shows it where it was, and the split view's two sides in step there. A page that was still
+  scrolling when the tab hid shows where its scrolling last came to rest.
 
   **Unreleased (#178):** a page that scrolls as a whole also keeps its place when Obsidian shows its
   tab again after hiding it, as after another tab of its tab group or a collapsed sidebar, instead
