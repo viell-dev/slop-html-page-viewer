@@ -499,6 +499,130 @@ describe("<style> and <link> elements that Chromium applies, by type and disable
   });
 });
 
+describe("attributes that HTML splits or strips on ASCII whitespace (#192)", () => {
+  // HTML splits a link's rel and a srcset, and strips a URL attribute, on
+  // ASCII whitespace only, as resources.e2e.ts checks against Chromium.
+  // JavaScript's \s also matches each of these.
+  const unicodeSpaces = [
+    ...[0x0b, 0xa0, 0x1680],
+    ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
+    ...[0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff],
+  ];
+  const named = (code: number) => `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
+  const nbsp = String.fromCodePoint(0xa0);
+  const emSpace = String.fromCodePoint(0x2003);
+
+  /** What preparing a page reads, and how many links the copy keeps. */
+  async function linkPage(html: string) {
+    const ctx = context({ "Saved/real.css": "REAL{}" });
+    const copy = parse(await prepare(html, ctx));
+    return { reads: ctx.reads, links: copy.querySelectorAll("link").length };
+  }
+
+  it("reads a link only when ASCII whitespace separates stylesheet from its other types", async () => {
+    for (const code of unicodeSpaces) {
+      const space = String.fromCodePoint(code);
+      for (const rel of [`stylesheet${space}x`, `x${space}stylesheet`, `${space}stylesheet`]) {
+        assert.deepEqual(
+          await linkPage(`<link rel="${rel}" href="real.css">`),
+          { reads: [], links: 1 },
+          `${named(code)} in ${JSON.stringify(rel)}`,
+        );
+      }
+    }
+    // A tab, a form feed, or a carriage return, which the parser keeps only
+    // from a character reference, splits it as in Chromium 150; Chromium 114
+    // takes them for part of a type (TESTING.md's limits).
+    for (const rel of [
+      "stylesheet x",
+      "x\tstylesheet",
+      "x\nstylesheet",
+      "x\fstylesheet",
+      "x&#13;stylesheet",
+    ]) {
+      assert.deepEqual(
+        await linkPage(`<link rel="${rel}" href="real.css">`),
+        { reads: ["Saved/real.css"], links: 0 },
+        JSON.stringify(rel),
+      );
+    }
+    // The parser reads a literal carriage return as a line feed.
+    for (const rel of ["STYLESHEET", " StyleSheet\r"]) {
+      assert.deepEqual(
+        await linkPage(`<link rel="${rel}" href="real.css">`),
+        { reads: ["Saved/real.css"], links: 0 },
+        JSON.stringify(rel),
+      );
+    }
+  });
+
+  it("names no stylesheet set, and applies no alternate one, with such a link", async () => {
+    const files = { "Saved/a.css": "A{}", "Saved/b.css": "B{}", "Saved/c.css": "C{}" };
+    const ctx = context(files);
+    await prepare(
+      [
+        `<link rel="stylesheet${nbsp}x" title="A" href="a.css">`,
+        `<link rel="stylesheet" title="B" href="b.css">`,
+        `<style title="A">@import "c.css";</style>`,
+        `<link rel="alternate${nbsp}stylesheet" title="B" href="c.css">`,
+      ].join(""),
+      ctx,
+    );
+    assert.deepEqual(ctx.reads, ["Saved/b.css"]);
+  });
+
+  it("copies the file of a URL attribute or a srcset candidate that holds such a space, and splits a srcset on ASCII whitespace", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    const copy = parse(
+      await prepare(
+        [
+          `<img src=" ${nbsp}nb.png "><img srcset="a${nbsp}b.png 2x, c.png 1x">`,
+          `<img srcset="ff.png\f1x, tab.png\t2x"><script src="${emSpace}s.js"></script>`,
+        ].join(""),
+        context({}),
+        { copyFiles },
+      ),
+    );
+    assert.deepEqual(
+      copies.sort(),
+      [
+        ...[`Saved/${nbsp}nb.png`, `Saved/a${nbsp}b.png`, "Saved/c.png"],
+        ...["Saved/ff.png", "Saved/tab.png", `Saved/${emSpace}s.js`],
+      ].sort(),
+    );
+    const data = (type: string) => `data:${type};base64,AQ==`;
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src") ?? image.getAttribute("srcset")),
+      [
+        data("image/png"),
+        `${data("image/png")} 2x, ${data("image/png")} 1x`,
+        `${data("image/png")}\f1x, ${data("image/png")}\t2x`,
+      ],
+    );
+  });
+
+  it("finds by name only the reference that such an attribute names, with its spaces", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: () => false,
+      locate: (linktext) => (linktext === "nb.png" ? "Found/nb.png" : null),
+    };
+    const html = `<img src="${nbsp}nb.png"><img srcset="${nbsp}nb.png 2x">`;
+    const copy = parse(await prepare(html, ctx));
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src") ?? image.getAttribute("srcset")),
+      [`${nbsp}nb.png`, `${nbsp}nb.png 2x`],
+    );
+  });
+});
+
 it("leaves a style element that needs no change as it is", async () => {
   // An SVG <style> can hold elements, which assigning its text would remove.
   const ctx = context({});
@@ -2413,6 +2537,258 @@ describe("a <base> after the page's stylesheets (#185)", () => {
       [...copy.querySelectorAll("p")].map((p) => p.getAttribute("style")),
       [`b: url("${page}img/1.png")`, "b: url(img/1.png)"],
     );
+  });
+});
+
+describe("a <base> after the page's resource attributes (#187)", () => {
+  // As Obsidian 1.5.3 and 1.15.1 resolve them, and resources.e2e.ts checks:
+  // Chromium resolves resource attributes as it parses their element, or
+  // soon after, so that those before a later <base> resolve against the
+  // page's address, also in a declarative shadow root (TESTING.md's limits
+  // say when the ones that it resolves later do not).
+  const page = `${VAULT}Saved/`;
+  /** An element of each kind that names a resource, with files of its own. */
+  const tree = (id: string) =>
+    [
+      `<img src="r/${id}-img.png" srcset="r/${id}-a.png 1x, r/${id}-b.png 2x">`,
+      `<picture><source srcset="r/${id}-source.png"><img></picture>`,
+      `<video src="r/${id}-video.webm" poster="r/${id}-poster.png">`,
+      `<source src="r/${id}-vsource.webm"><track src="r/${id}-track.vtt"></video>`,
+      `<audio src="r/${id}-audio.wav"></audio><input type="image" src="r/${id}-input.png">`,
+      `<iframe src="r/${id}-frame.html"></iframe><script src="r/${id}-script.js"></script>`,
+      `<svg><use href="r/${id}-use.svg#s"/><use xlink:href="r/${id}-xuse.svg#s"/>`,
+      `<image href="r/${id}-image.png"/><image xlink:href="r/${id}-ximage.png"/></svg>`,
+      `<embed src="r/${id}-embed.svg"><object data="r/${id}-object.svg"></object>`,
+    ].join("");
+  const html = [
+    tree("doc"),
+    `<div><template shadowrootmode="open">${tree("shadow")}</template></div>`,
+    `<template id="later">${tree("later")}</template>`,
+    `<base href="sub/">`,
+    tree("after"),
+    `<div><template shadowrootmode="open">${tree("shadowafter")}</template></div>`,
+  ].join("");
+
+  /** The attributes of a root that name a `tree`'s files, by element and attribute. */
+  function references(root: ParentNode, id: string): Record<string, string> {
+    const found: Record<string, string> = {};
+    for (const element of root.querySelectorAll("*"))
+      for (const { name, value } of element.attributes)
+        if (value.includes(`r/${id}-`)) found[`${element.localName} ${name}`] = value;
+    return found;
+  }
+
+  /** What the copy makes of a `tree`'s attributes: made absolute against the page, or as written. */
+  function expected(id: string, absolute: boolean): Record<string, string> {
+    const url = (name: string) => `${absolute ? page : ""}r/${id}-${name}`;
+    return {
+      "img src": url("img.png"),
+      "img srcset": `${url("a.png")} 1x, ${url("b.png")} 2x`,
+      "source srcset": url("source.png"),
+      "video src": url("video.webm"),
+      "video poster": url("poster.png"),
+      "source src": url("vsource.webm"),
+      "track src": url("track.vtt"),
+      "audio src": url("audio.wav"),
+      "input src": url("input.png"),
+      "iframe src": url("frame.html"),
+      "script src": url("script.js"),
+      "use href": url("use.svg#s"),
+      "use xlink:href": url("xuse.svg#s"),
+      "image href": url("image.png"),
+      "image xlink:href": url("ximage.png"),
+      "embed src": url("embed.svg"),
+      "object data": url("object.svg"),
+    };
+  }
+
+  it("makes absolute against the page those that Chromium resolves before it", async () => {
+    const copy = parse(await prepare(html, context({})));
+    const [shadow, later, shadowAfter] = [...copy.querySelectorAll("template")].map(
+      (template) => template.content,
+    );
+    assert.deepEqual(
+      {
+        doc: references(copy, "doc"),
+        shadow: references(shadow, "shadow"),
+        later: references(later, "later"),
+        after: references(copy, "after"),
+        shadowafter: references(shadowAfter, "shadowafter"),
+      },
+      {
+        doc: expected("doc", true),
+        shadow: expected("shadow", true),
+        later: expected("later", false),
+        after: expected("after", false),
+        shadowafter: expected("shadowafter", false),
+      },
+    );
+  });
+
+  it("copies the files that each resolves to into a page with scripts on", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    await prepare(html, context({}), { copyFiles });
+    const names = [
+      ...["img.png", "a.png", "b.png", "source.png", "video.webm", "poster.png"],
+      ...["vsource.webm", "track.vtt", "audio.wav", "input.png", "script.js"],
+      ...["image.png", "ximage.png"],
+    ];
+    const files = (id: string, folder: string) =>
+      names.map((name) => `Saved/${folder}r/${id}-${name}`);
+    assert.deepEqual(
+      [...new Set(copies)].sort(),
+      [
+        ...["doc", "shadow"].flatMap((id) => files(id, "")),
+        ...["later", "after", "shadowafter"].flatMap((id) => files(id, "sub/")),
+      ].sort(),
+    );
+  });
+
+  it("finds by name a reference before it that does not resolve as a path against the page", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: (path) => path === "Saved/r/here.png" || path === "Saved/sub/r/there.png",
+      locate: (linktext) => (linktext.endsWith(".png") ? `Found/${linktext}` : null),
+    };
+    const copy = parse(
+      await prepare(
+        `<img src="r/here.png"><img srcset="r/there.png 2x"><base href="sub/"><img src="r/there.png">`,
+        ctx,
+      ),
+    );
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src") ?? image.getAttribute("srcset")),
+      [`${page}r/here.png`, `${VAULT}Found/r/there.png 2x`, "r/there.png"],
+    );
+  });
+
+  it("keeps as written a reference that the page and the <base> resolve alike, or names no file", async () => {
+    const kept = [
+      "/root.png",
+      "https://example.com/web.png",
+      "data:image/png;base64,AQ==",
+      "#fragment",
+      "",
+      "  ",
+    ];
+    const images = kept.map((src) => `<img src="${src}">`).join("");
+    const copy = parse(
+      await prepare(
+        `${images}<svg><use href="#s"/></svg><img src="?query"><base href="sub/">`,
+        context({}),
+      ),
+    );
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src")),
+      [...kept, `${page}Example%20article.html?query`],
+    );
+    assert.equal(copy.querySelector("use")!.getAttribute("href"), "#s");
+    // A <base> of another origin resolves a path from its root elsewhere.
+    const other = parse(
+      await prepare(`<img src="/root.png"><base href="https://example.com/">`, context({})),
+    );
+    assert.equal(other.images[0].getAttribute("src"), "app://vault-id/root.png");
+  });
+
+  it("resolves an element after it against it, also one that repeats an element before it", async () => {
+    // Chromium resolves a resource attribute anew for each element, unlike
+    // the style attribute that it can reuse (#191).
+    const copy = parse(
+      await prepare(`<img src="r/1.png"><base href="sub/"><img src="r/1.png">`, context({})),
+    );
+    assert.deepEqual(
+      [...copy.images].map((image) => image.getAttribute("src")),
+      [`${page}r/1.png`, "r/1.png"],
+    );
+  });
+});
+
+describe("a string or url( left open at the end of a style attribute (#194)", () => {
+  // CSS closes what the end of a style attribute leaves open, as headless
+  // Chrome 158 and Obsidian 1.5.3 and 1.15.1 load the file of such a string
+  // or url(, and resources.e2e.ts checks.
+  const page = `${VAULT}Saved/`;
+  const open = (id: string) => [
+    `b: image-set("img/${id}a.png`,
+    `b: url("img/${id}b.png`,
+    `b: url(img/${id}c.png`,
+    `b: url('img/${id}d.png`,
+  ];
+  /** Elements whose style attributes are these, as the page writes them. */
+  const styled = (styles: string[]) =>
+    styles.map((style) => `<p style='${style.replaceAll("'", "&#39;")}'>x</p>`).join("");
+  const styles = (root: ParentNode) =>
+    [...root.querySelectorAll("p")].map((p) => p.getAttribute("style"));
+
+  it("makes such a reference absolute before a later <base>, keeping the rest as written", async () => {
+    const copy = parse(
+      await prepare(
+        `${styled([...open("x"), "color: red /* x"])}<base href="sub/">${styled(open("y"))}`,
+        context({}),
+      ),
+    );
+    assert.deepEqual(styles(copy), [
+      `b: image-set("${page}img/xa.png"`,
+      `b: url("${page}img/xb.png")`,
+      `b: url("${page}img/xc.png")`,
+      `b: url("${page}img/xd.png")`,
+      "color: red /* x",
+      ...open("y"),
+    ]);
+  });
+
+  it("copies the file of such a reference into a page with scripts on, in every place", async () => {
+    const copies: string[] = [];
+    const copyFiles: LocalFiles = {
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+    const html = [
+      styled(open("doc")),
+      `<div><template shadowrootmode="open">${styled(open("shadow"))}</template></div>`,
+      `<base href="sub/">`,
+      styled(open("after")),
+    ].join("");
+    const copy = parse(await prepare(html, context({}), { copyFiles }));
+    const files = (id: string, folder: string) =>
+      ["a", "b", "c", "d"].map((name) => `Saved/${folder}img/${id}${name}.png`);
+    assert.deepEqual(
+      [...new Set(copies)].sort(),
+      [...files("doc", ""), ...files("shadow", ""), ...files("after", "sub/")].sort(),
+    );
+    const data = "data:image/png;base64,AQ==";
+    assert.deepEqual(styles(copy).slice(0, 4), [
+      `b: image-set("${data}"`,
+      `b: url("${data}")`,
+      `b: url("${data}")`,
+      `b: url("${data}")`,
+    ]);
+  });
+
+  it("finds the file of such a reference by name", async () => {
+    const ctx: PageContext = {
+      ...context({}),
+      exists: () => false,
+      locate: (linktext) => `Found/${linktext}`,
+    };
+    const copy = parse(await prepare(styled(open("n")), ctx));
+    const found = (name: string) => `${VAULT}Found/img/n${name}.png`;
+    assert.deepEqual(styles(copy), [
+      `b: image-set("${found("a")}"`,
+      `b: url("${found("b")}")`,
+      `b: url("${found("c")}")`,
+      `b: url("${found("d")}")`,
+    ]);
   });
 });
 

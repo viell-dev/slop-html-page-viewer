@@ -121,6 +121,13 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   applies, and each read and copy passes the same vault-path, `.css`, file-type, and limit checks
   ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
 
+  **Unreleased (#194):** a `style` attribute is read closed at its end, as CSS reads it, so that a
+  `url(`, or a string in `image-set()` or `-webkit-image-set()`, that its end leaves open names a
+  file, which **Local files with scripts on** copies, by the same file types, limits, and
+  vault-only paths as any `url()`'s. Another string left open there still names nothing. Version
+  0.6.0 copies nothing for such a reference, which browsers load
+  ([#194](https://github.com/viell-dev/slop-html-page-viewer/issues/194)).
+
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
   files, that only CSS strings or comments named, or that imports named which never apply: one
   after a style rule, and one into a cascade layer written with a comment or an escape before
@@ -178,6 +185,22 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   0.6.0 reads and copies for every titled stylesheet, and none for an `alternate stylesheet` link,
   also one in the preferred set, which Chromium applies
   ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
+
+  **Unreleased (#192):** a link is a stylesheet link only when ASCII whitespace separates
+  `stylesheet` from the other words of its `rel`, as HTML splits it. Version 0.6.0 also splits it
+  at U+00A0 and the other spaces of JavaScript's `\s`, and so reads, applies, and copies for links
+  that browsers do not load. With **Local files with scripts on**, the viewer copies the file that
+  a URL attribute names with such a space at its start or end, or a `srcset` inside a URL, where
+  0.6.0 copies the file of the name without it, or none. Each read and copy passes the same checks
+  ([#192](https://github.com/viell-dev/slop-html-page-viewer/issues/192)).
+
+  **Unreleased (#187):** with **Local files with scripts on**, it copies the files that the page's
+  images, media, text tracks, and scripts before its `<base>` name from the page's folder, instead
+  of from the `<base>`'s, as it copies the files of stylesheets there since #185. That is the
+  viewer's choice: Chromium resolves images and scripts there in every page, but image inputs,
+  posters, media, their sources, text tracks, and SVG `<image>` against the `<base>` in a short page
+  that it reads in one go. The same file types, limits, and vault-only paths apply
+  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
 
 A rendered page can still request the images, fonts, scripts, or media on the web that it refers to,
 as any browser would. That is the page's request, not the plugin's. Open untrusted pages with

@@ -1576,6 +1576,485 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with a <base> after the page's images, media, frames, and scripts (#187)", function () {
+    // Each element names a file of its own in "Late res/": green, or the
+    // word "page", beside the page, and blue, or "base", in the folder of the
+    // page's <base>, which comes after them, also after a declarative shadow
+    // root. After it come a repeat of the first image, which Chromium
+    // resolves anew against the <base>, an SVG <image>, and a template's
+    // image, which the page's script adds. Chromium resolves image inputs,
+    // posters, media, their sources, text tracks, and SVG <image> when it
+    // lays them out or starts to load them, soon after it parses them: the
+    // served page's script, just before the <base>, arrives late, so that
+    // Chromium has resolved them before it parses the <base>, as in a longer
+    // page or one with such a script. In a short page that the parser reads
+    // in one go, it resolves them against the <base> (TESTING.md's limits).
+    const res = "Late res";
+    const image = (name: string) => `<img src="${res}/${name}.png" width="64" height="64">`;
+    const svgImages = (first: string, second: string) =>
+      `<svg width="128" height="64"><image href="${res}/${first}.png" width="64" height="64"/>` +
+      `<image xlink:href="${res}/${second}.png" x="64" width="64" height="64"/></svg>`;
+    const elements = [
+      `<style>body { margin: 0 } img, input, video { vertical-align: top; margin: 0; border: 0 }</style>`,
+      image("repeat"),
+      // Unescaped, a srcset's space would end its URL.
+      `<img srcset="Late%20res/srcset.png 1x" width="64" height="64">`,
+      `<picture><source srcset="Late%20res/source.png"><img width="64" height="64"></picture>`,
+      `<input type="image" src="${res}/input.png" width="64" height="64">`,
+      `<video id="poster" poster="${res}/poster.png" width="64" height="64"></video>`,
+      `<video id="video" src="${res}/video.webm" width="1" height="1"></video>`,
+      `<video id="vsource" width="1" height="1"><source src="${res}/vsource.webm">`,
+      `<track id="track" default kind="subtitles" src="${res}/track.vtt"></video>`,
+      `<audio id="audio" src="${res}/audio.wav"></audio>`,
+      `<iframe id="frame" src="${res}/frame.html" width="1" height="1"></iframe>`,
+      `<svg width="0" height="0" style="position: absolute"><use id="use" href="${res}/use.svg#s"/>`,
+      `<use id="xuse" xlink:href="${res}/xuse.svg#s"/></svg>`,
+      svgImages("image", "ximage"),
+      `<div id="host"><template shadowrootmode="open">${image("shadow")}`,
+      `<video src="${res}/shadow.webm" width="1" height="1"></video></template></div>`,
+      `<template id="later">${image("later")}</template>`,
+      `<script src="${res}/script.js"></script>`,
+      `<base href="Late attributes/">`,
+      image("repeat"),
+      svgImages("afterimage", "afterximage"),
+      `<script>document.body.append(document.getElementById("later").content.cloneNode(true));</script>`,
+    ];
+    /** The files that the elements before the <base> name, which Chromium resolves against the page. */
+    const BEFORE = [
+      ...["srcset.png", "source.png", "input.png", "poster.png", "video.webm", "vsource.webm"],
+      ...["track.vtt", "audio.wav", "frame.html", "use.svg", "xuse.svg", "image.png"],
+      ...["ximage.png", "shadow.png", "shadow.webm", "script.js"],
+    ];
+    const files: Record<string, string | Buffer> = {
+      "Saved/Late attributes.html": elements.join("\n"),
+    };
+    for (const [folder, color, word] of [
+      [`Saved/${res}`, GREEN, "page"],
+      [`Saved/Late attributes/${res}`, BLUE, "base"],
+    ] as const) {
+      const hex = `#${color.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+      for (const name of [
+        ...["repeat", "srcset", "source", "input", "poster", "shadow", "later"],
+        ...["image", "ximage", "afterimage", "afterximage"],
+      ])
+        files[`${folder}/${name}.png`] = solidPng(64, color);
+      for (const name of ["use", "xuse"])
+        files[`${folder}/${name}.svg`] =
+          `<svg xmlns="http://www.w3.org/2000/svg"><symbol id="s"><rect width="8" height="8" fill="${hex}"/></symbol></svg>`;
+      for (const name of ["video.webm", "vsource.webm", "shadow.webm", "audio.wav"])
+        files[`${folder}/${name}`] = word;
+      files[`${folder}/track.vtt`] = `WEBVTT\n\n00:00.000 --> 01:00.000\n${word}\n`;
+      files[`${folder}/frame.html`] = `<p>${word}</p>`;
+      files[`${folder}/script.js`] = `window.lateScript = "${word}";`;
+    }
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths([
+        "Saved/Late attributes.html",
+        `Saved/${res}`,
+        "Saved/Late attributes",
+      ]);
+    });
+
+    /** "page" or "base" for a URL of a file in either folder, or the URL. */
+    function folderOf(url: string): string {
+      const path = decodeURIComponent(url);
+      return path.includes("/Late attributes/Late res/")
+        ? "base"
+        : path.includes("/Late res/")
+          ? "page"
+          : url;
+    }
+
+    /** Waits in the current frame until its text track has loaded, or failed to. */
+    async function trackLoaded(): Promise<void> {
+      await browser.waitUntil(
+        () =>
+          browser.execute(
+            () => (document.getElementById("track") as HTMLTrackElement).readyState >= 2,
+          ),
+        { timeout: 10_000, timeoutMsg: "the text track did not load" },
+      );
+    }
+
+    it("is measured against what Chromium resolves in the same page outside Obsidian", async function () {
+      const requests: string[] = [];
+      const shown = await inServedPage(
+        files,
+        "Saved/Late attributes.html",
+        async () => {
+          await trackLoaded();
+          return browser.execute(() => {
+            const repeats = document.querySelectorAll<HTMLImageElement>('img[src$="repeat.png"]');
+            const track = document.getElementById("track") as HTMLTrackElement;
+            const frame = document.getElementById("frame") as HTMLIFrameElement;
+            return {
+              repeat: [...repeats].map((repeat) => repeat.currentSrc),
+              track: (track.track.cues?.[0] as VTTCue | undefined)?.text ?? null,
+              frame: frame.contentDocument?.body.textContent ?? null,
+              script: (window as { lateScript?: string }).lateScript ?? null,
+            };
+          });
+        },
+        { requests, delayed: [`Saved/${res}/script.js`] },
+      );
+      // The folders that the requests for each file name.
+      const requested: Record<string, string[]> = {};
+      for (const request of requests) {
+        if (!request.includes(`/${res}/`)) continue;
+        const name = request.split("/").at(-1)!;
+        requested[name] = [...new Set([...(requested[name] ?? []), folderOf(request)])].sort();
+      }
+      expect({
+        before: Object.fromEntries(BEFORE.map((name) => [name, requested[name]])),
+        after: ["later.png", "afterimage.png", "afterximage.png"].map((name) => requested[name]),
+        repeat: shown.repeat.map(folderOf),
+        track: shown.track,
+        frame: shown.frame,
+        script: shown.script,
+      }).toEqual({
+        before: Object.fromEntries(BEFORE.map((name) => [name, ["page"]])),
+        after: [["base"], ["base"], ["base"]],
+        repeat: ["page", "base"],
+        track: "page",
+        frame: "page",
+        script: "page",
+      });
+    });
+
+    /**
+     * Where each element's URL leads in the viewer's copy, whose own <base>
+     * comes first. Run inside the frame.
+     */
+    function resolved() {
+      const at = (selector: string) =>
+        document.querySelector(selector) as HTMLElement & Record<string, string>;
+      const url = (value: string | null) => new URL(value ?? "", document.baseURI).href;
+      const xlink = "http://www.w3.org/1999/xlink";
+      const shadow = document.getElementById("host")!.shadowRoot!;
+      const repeats = document.querySelectorAll<HTMLImageElement>('img[src$="repeat.png"]');
+      return {
+        repeat: [...repeats].map((repeat) => repeat.currentSrc),
+        srcset: at("img[srcset]").currentSrc,
+        source: at("picture img").currentSrc,
+        input: at("input").src,
+        poster: at("#poster").poster,
+        video: at("#video").currentSrc,
+        vsource: at("#vsource").currentSrc,
+        track: at("#track").src,
+        audio: at("#audio").currentSrc,
+        frame: at("#frame").src,
+        script: at("script[src]").src,
+        use: url(at("#use").getAttribute("href")),
+        xuse: url(at("#xuse").getAttributeNS(xlink, "href")),
+        images: [...document.querySelectorAll("svg image")].map((image) =>
+          url(image.getAttribute("href") ?? image.getAttributeNS(xlink, "href")),
+        ),
+        shadow: (shadow.querySelector("img") as HTMLImageElement).currentSrc,
+        shadowvideo: (shadow.querySelector("video") as HTMLVideoElement).currentSrc,
+      };
+    }
+
+    it("resolves the ones before it against the page, and the others against it", async function () {
+      await openInActiveTab("Saved/Late attributes.html");
+      await waitForPage();
+      await saveScreenshot("late-attributes");
+      const shown = await inViewerFrame(() => browser.execute(resolved));
+      const folders = Object.fromEntries(
+        Object.entries(shown).map(([name, value]) => [
+          name,
+          Array.isArray(value) ? value.map(folderOf) : folderOf(value),
+        ]),
+      );
+      expect(folders).toEqual({
+        repeat: ["page", "base"],
+        ...Object.fromEntries(
+          [
+            ...["srcset", "source", "input", "poster", "video", "vsource", "track", "audio"],
+            ...["frame", "script", "use", "xuse", "shadow", "shadowvideo"],
+          ].map((name) => [name, "page"]),
+        ),
+        images: ["page", "page", "base", "base"],
+      });
+      // The images that load with scripts off: the first, the srcset's, the
+      // picture's, the input's, the SVG ones, and the shadow root's from
+      // beside the page; the repeat and the SVG ones after the <base> from
+      // its folder.
+      expect({
+        green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
+        blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+      }).toEqual({ green: 7, blue: 3 });
+    });
+
+    it("copies the files that each resolves to into a page with scripts on, also in a template's content", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Late attributes.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("late-attributes-scripts-on");
+        const copied = await inViewerFrame(async () => {
+          await trackLoaded();
+          return browser.execute(() => {
+            const word = (url: string) => (url.startsWith("data:") ? atob(url.split(",")[1]) : url);
+            const shadow = document.getElementById("host")!.shadowRoot!;
+            const media = [
+              ...document.querySelectorAll("video[src], video source, audio"),
+              ...shadow.querySelectorAll("video"),
+            ].map((element) => word((element as HTMLMediaElement | HTMLSourceElement).src));
+            const track = document.getElementById("track") as HTMLTrackElement;
+            return {
+              media,
+              track: (track.track.cues?.[0] as VTTCue | undefined)?.text ?? null,
+              script: (window as { lateScript?: string }).lateScript ?? null,
+            };
+          });
+        });
+        expect({
+          ...copied,
+          // The repeat, the SVG images after the <base>, and the template's
+          // image, which the script adds, come from the <base>'s folder.
+          green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
+          blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+        }).toEqual({
+          media: ["page", "page", "page", "page"],
+          track: "page",
+          script: "page",
+          green: 8,
+          blue: 4,
+        });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
+  describe("with links and URL attributes that hold other spaces than HTML's (#192)", function () {
+    // HTML splits a link's rel and a srcset, and strips a URL attribute, on
+    // ASCII whitespace only. Each square has a stylesheet of its own, linked
+    // with `stylesheet`, a space, and `x`: each of the other spaces that
+    // JavaScript's \s matches, and five of ASCII's, among them a carriage
+    // return as a character reference, which the parser keeps. An image
+    // names a file with U+00A0 before its name, which is blue, as is one with
+    // U+00A0 in a srcset's URL; the file of the name without it is green.
+    const UNICODE_SPACES = [
+      ...[0x0b, 0xa0, 0x1680],
+      ...Array.from({ length: 11 }, (_, i) => 0x2000 + i),
+      ...[0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff],
+    ];
+    const ASCII_SPACES: Record<string, string> = {
+      space: " ",
+      lf: "\n",
+      tab: "\t",
+      ff: "\f",
+      cr: "&#13;",
+    };
+    const spaces: Record<string, string> = {
+      ...Object.fromEntries(
+        UNICODE_SPACES.map((code) => [`u${code.toString(16)}`, String.fromCodePoint(code)]),
+      ),
+      ...ASCII_SPACES,
+    };
+    const nbsp = String.fromCodePoint(0xa0);
+    const files: Record<string, string | Buffer> = {
+      "Saved/Rel spaces.html": [
+        `<style>.sq { display: inline-block; width: 16px; height: 16px }</style>`,
+        ...Object.entries(spaces).map(
+          ([id, space]) =>
+            `<link rel="stylesheet${space}x" href="Rel spaces/${id}.css"><div id="${id}" class="sq"></div>`,
+        ),
+        `<img id="nbsp" src="${nbsp}Rel nb.png" width="64" height="64">`,
+        `<img id="srcset" srcset="Rel${nbsp}set.png 1x" width="64" height="64">`,
+      ].join("\n"),
+      ...Object.fromEntries(
+        Object.keys(spaces).map((id) => [
+          `Saved/Rel spaces/${id}.css`,
+          `#${id} { background: rgb(0, 128, 0) }`,
+        ]),
+      ),
+      [`Saved/${nbsp}Rel nb.png`]: solidPng(64, BLUE),
+      "Saved/Rel nb.png": solidPng(64, GREEN),
+      [`Saved/Rel${nbsp}set.png`]: solidPng(64, BLUE),
+    };
+
+    before(async function () {
+      // Obsidian's API names a file that it creates with a space for U+00A0,
+      // so the files of such names are written as a sync tool would.
+      const entries = Object.entries(files);
+      await createVaultFiles(Object.fromEntries(entries.filter(([path]) => !path.includes(nbsp))));
+      await writeFilesAsNamed(
+        Object.fromEntries(
+          entries.filter((entry): entry is [string, Buffer] => entry[0].includes(nbsp)),
+        ),
+      );
+    });
+
+    after(async function () {
+      await deleteVaultPaths(Object.keys(files).filter((path) => !path.includes("/Rel spaces/")));
+      await deleteVaultPaths(["Saved/Rel spaces"]);
+    });
+
+    afterEach(async function () {
+      await restoreHost();
+    });
+
+    /** Which squares a stylesheet colors, and the file that each image shows. Run inside the frame. */
+    function read() {
+      const applied: Record<string, boolean> = {};
+      for (const square of document.querySelectorAll(".sq"))
+        applied[square.id] = getComputedStyle(square).backgroundColor === "rgb(0, 128, 0)";
+      const file = (id: string) => {
+        const source = document.querySelector<HTMLImageElement>(`#${id}`)!.currentSrc;
+        return decodeURIComponent(new URL(source).pathname.split("/").at(-1)!);
+      };
+      return {
+        applied,
+        images: { nbsp: file("nbsp"), srcset: file("srcset") },
+        chromium: Number(/Chrome\/(\d+)/.exec(navigator.userAgent)?.[1]),
+      };
+    }
+
+    /** The squares that ASCII whitespace splits from `stylesheet`, on Chromium of this major version. */
+    function applied(chromium: number) {
+      // Chromium 114, in Obsidian 1.5.3, splits rel only on spaces and line
+      // feeds, not on tabs, form feeds, or carriage returns; 1.15.1 on ASCII
+      // whitespace, as the viewer does.
+      const split = chromium === 114 ? ["space", "lf"] : Object.keys(ASCII_SPACES);
+      return Object.fromEntries(Object.keys(spaces).map((id) => [id, split.includes(id)]));
+    }
+
+    it("is measured against what Chromium applies to the same page outside Obsidian", async function () {
+      const served = await inServedPage(files, "Saved/Rel spaces.html", () =>
+        browser.execute(read),
+      );
+      expect(served).toEqual({
+        applied: applied(served.chromium),
+        images: { nbsp: `${nbsp}Rel nb.png`, srcset: `Rel${nbsp}set.png` },
+        chromium: served.chromium,
+      });
+    });
+
+    it("reads and applies only the links whose stylesheet type ASCII whitespace splits off", async function () {
+      await recordReads("Saved/Rel spaces/");
+      await openInActiveTab("Saved/Rel spaces.html");
+      await waitForPage();
+      const shown = await inViewerFrame(() => browser.execute(read));
+      expect({ ...shown, reads: await recordedReads() }).toEqual({
+        applied: applied(0),
+        images: { nbsp: `${nbsp}Rel nb.png`, srcset: `Rel${nbsp}set.png` },
+        chromium: shown.chromium,
+        reads: Object.keys(ASCII_SPACES)
+          .map((id) => `Saved/Rel spaces/${id}.css`)
+          .sort(),
+      });
+    });
+
+    it("copies the files that such URLs name into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Rel spaces.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("rel-spaces-scripts-on");
+        expect({
+          blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+          green: await framePixels(GREEN),
+        }).toEqual({ blue: 2, green: 0 });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
+  describe("with style attributes that end inside a string or a url( (#194)", function () {
+    // Each square's style attribute ends inside the string or url( that names
+    // its image, which CSS closes there: green beside the page, and blue in
+    // the folder of the page's <base>, which comes after all but the last.
+    const square = (id: string, style: string) =>
+      `<div id="${id}" class="sq" style='${style.replaceAll("'", "&#39;")}'></div>`;
+    const OPEN = {
+      a: `background-image: image-set("Open img/a.png`,
+      b: `background-image: url("Open img/b.png`,
+      c: `background-image: url(Open%20img/c.png`,
+      d: `background-image: url('Open img/d.png`,
+    };
+    const files: Record<string, string | Buffer> = {
+      "Saved/Open styles.html": [
+        `<style>.sq { display: inline-block; width: 64px; height: 64px }</style>`,
+        ...Object.entries(OPEN).map(([id, style]) => square(id, style)),
+        `<base href="Open base/">`,
+        square("after", `background-image: url("Open img/after.png`),
+      ].join("\n"),
+    };
+    for (const name of [...Object.keys(OPEN), "after"]) {
+      files[`Saved/Open img/${name}.png`] = solidPng(64, GREEN);
+      files[`Saved/Open base/Open img/${name}.png`] = solidPng(64, BLUE);
+    }
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths(["Saved/Open styles.html", "Saved/Open img", "Saved/Open base"]);
+    });
+
+    /** Which folder each square's image comes from. Run inside the frame. */
+    function read() {
+      const squares: Record<string, string> = {};
+      for (const square of document.querySelectorAll(".sq")) {
+        const value = decodeURIComponent(getComputedStyle(square).backgroundImage);
+        squares[square.id] = value.includes("/Open base/Open img/")
+          ? "the <base>'s folder"
+          : value.includes("/Open img/")
+            ? "the page's folder"
+            : value;
+      }
+      return squares;
+    }
+
+    const EXPECTED = {
+      ...Object.fromEntries(Object.keys(OPEN).map((id) => [id, "the page's folder"])),
+      after: "the <base>'s folder",
+    };
+
+    it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
+      expect(
+        await inServedPage(files, "Saved/Open styles.html", () => browser.execute(read)),
+      ).toEqual(EXPECTED);
+    });
+
+    it("resolves such a reference before the <base> against the page", async function () {
+      await openInActiveTab("Saved/Open styles.html");
+      await waitForPage();
+      await saveScreenshot("open-styles");
+      expect(await inViewerFrame(() => browser.execute(read))).toEqual(EXPECTED);
+    });
+
+    it("copies the file of such a reference into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Open styles.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("open-styles-scripts-on");
+        expect({
+          green: Math.round((await framePixels(GREEN)) / IMAGE_PIXELS),
+          blue: Math.round((await framePixels(BLUE)) / IMAGE_PIXELS),
+        }).toEqual({ green: Object.keys(OPEN).length, blue: 1 });
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   it("shows nothing from outside the vault", async function () {
     await openInActiveTab("Saved/Outside reference.html");
     await waitForPage();
@@ -1710,6 +2189,73 @@ describe("A page's local files in Obsidian", function () {
   });
 });
 
+/** Creates vault files, text or binary, and the folders that they need. */
+async function createVaultFiles(files: Record<string, string | Buffer>): Promise<void> {
+  const entries = Object.entries(files).map(([path, body]) =>
+    typeof body === "string"
+      ? { path, text: body, base64: null }
+      : { path, text: null, base64: body.toString("base64") },
+  );
+  await browser.executeObsidian(async ({ app }, entries) => {
+    const folders = new Set<string>();
+    for (const { path } of entries) {
+      const parts = path.split("/");
+      for (let i = 1; i < parts.length; i++) folders.add(parts.slice(0, i).join("/"));
+    }
+    for (const folder of [...folders].sort())
+      if (!app.vault.getAbstractFileByPath(folder)) await app.vault.createFolder(folder);
+    for (const { path, text, base64 } of entries) {
+      if (text !== null) await app.vault.create(path, text);
+      else
+        await app.vault.createBinary(
+          path,
+          Uint8Array.from(atob(base64!), (char) => char.charCodeAt(0)).buffer,
+        );
+    }
+  }, entries);
+}
+
+/**
+ * Writes binary files into the vault's folder by their exact paths, as a tool
+ * outside Obsidian would, and waits until the vault lists them. Obsidian's
+ * own API would change some characters of a name, such as U+00A0, which it
+ * names a file with a space for.
+ */
+async function writeFilesAsNamed(files: Record<string, Buffer>): Promise<void> {
+  const entries = Object.entries(files).map(([path, body]) => ({
+    path,
+    base64: body.toString("base64"),
+  }));
+  await browser.executeObsidian(async ({ app }, entries) => {
+    const adapter = app.vault.adapter as unknown as {
+      writeBinary(path: string, data: ArrayBuffer): Promise<void>;
+    };
+    for (const { path, base64 } of entries)
+      await adapter.writeBinary(
+        path,
+        Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)).buffer,
+      );
+  }, entries);
+  await browser.waitUntil(
+    () =>
+      browser.executeObsidian(
+        ({ app }, paths) => paths.every((path) => app.vault.getAbstractFileByPath(path) !== null),
+        Object.keys(files),
+      ),
+    { timeout: 10_000, timeoutMsg: "the vault did not list the files written by their names" },
+  );
+}
+
+/** Deletes vault files and folders, with what the folders hold. */
+async function deleteVaultPaths(paths: string[]): Promise<void> {
+  await browser.executeObsidian(async ({ app }, paths) => {
+    for (const path of paths) {
+      const file = app.vault.getAbstractFileByPath(path);
+      if (file) await app.vault.delete(file, true);
+    }
+  }, paths);
+}
+
 /** Creates or replaces a vault file, as a fixture that needs the vault's address. */
 async function writeVaultFile(filePath: string, text: string): Promise<void> {
   await browser.executeObsidian(
@@ -1812,6 +2358,15 @@ async function recordedReads(): Promise<string[]> {
   return [...new Set(reads)].sort();
 }
 
+/** The content types that {@link inServedPage} serves files with, by extension; HTML otherwise. */
+const SERVED_TYPES: Readonly<Record<string, string>> = {
+  css: "text/css",
+  js: "text/javascript",
+  png: "image/png",
+  svg: "image/svg+xml",
+  vtt: "text/vtt",
+};
+
 /**
  * Serves `files`, by their vault paths, over HTTP from this process, loads
  * `page` from there in a frame of Obsidian's window without a sandbox, and
@@ -1819,12 +2374,16 @@ async function recordedReads(): Promise<string[]> {
  * Chromium then shows the page as a browser does, with neither the plugin nor
  * the policy of Obsidian's that a `srcdoc` frame inherits between them, which
  * allows only inline styles. A vault page cannot show this: Obsidian serves
- * vault files only to its own origin (#147).
+ * vault files only to its own origin (#147). `requests` gets the vault path
+ * that each request names, in order. The files that `delayed` names are
+ * served 0.3 s late, as over a slow network: the parser waits for a script
+ * among them.
  */
 async function inServedPage<T>(
-  files: Record<string, string>,
+  files: Record<string, string | Buffer>,
   page: string,
   read: () => Promise<T>,
+  { requests = [], delayed = [] }: { requests?: string[]; delayed?: readonly string[] } = {},
 ): Promise<T> {
   const server = http.createServer((request, response) => {
     let name = "";
@@ -1833,12 +2392,17 @@ async function inServedPage<T>(
     } catch {
       // A malformed request names no file.
     }
-    const text = Object.hasOwn(files, name) ? files[name] : undefined;
-    response.writeHead(text === undefined ? 404 : 200, {
-      "Content-Type": name.endsWith(".css") ? "text/css" : "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-    });
-    response.end(text ?? "");
+    requests.push(name);
+    const body = Object.hasOwn(files, name) ? files[name] : undefined;
+    const send = () => {
+      response.writeHead(body === undefined ? 404 : 200, {
+        "Content-Type": SERVED_TYPES[path.extname(name).slice(1)] ?? "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      response.end(body ?? "");
+    };
+    if (delayed.includes(name)) setTimeout(send, 300);
+    else send();
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
@@ -1867,6 +2431,19 @@ async function inServedPage<T>(
     await browser.execute(() => document.getElementById("e2e-served")?.remove());
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+/**
+ * Runs `read` inside the active tab's frame, which a page with scripts on
+ * keeps from the window, but not from WebDriver.
+ */
+async function inViewerFrame<T>(read: () => Promise<T>): Promise<T> {
+  await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+  try {
+    return await read();
+  } finally {
+    await browser.switchFrame(null);
   }
 }
 

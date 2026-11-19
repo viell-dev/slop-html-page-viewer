@@ -105,10 +105,28 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   stylesheets, and its `<style>` elements without their imports
   ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
 
+  **Unreleased (#192):** a link is a stylesheet link only when a space, tab, line feed, or form feed
+  separates `stylesheet` from the other words of its `rel`, as HTML splits it. With a no-break space
+  or another space between them, the words are one, browsers load nothing, and the viewer reads
+  nothing for it; version 0.6.0 reads and applies such a link. A URL attribute keeps such a space at
+  its start or end, and a `srcset` one inside a URL, as browsers read them, so that with **Local
+  files with scripts on** the file of that name is copied, not one without the space. Obsidian 1.5.3
+  splits `rel` only at spaces and line feeds, so there a link with a tab, a form feed, or a carriage
+  return written as `&#13;` in its `rel` applies in the viewer but not in a browser
+  ([#192](https://github.com/viell-dev/slop-html-page-viewer/issues/192)).
+
   **Unreleased (#155):** each of the page's own stylesheets ends where CSS ends it, as an imported
   one does: an import without its `;` at the end of a `<style>` or a linked stylesheet counts, and
   an unquoted URL at the end of a linked stylesheet is that stylesheet's, resolved from its folder
   ([#155](https://github.com/viell-dev/slop-html-page-viewer/issues/155)).
+
+  **Unreleased (#194):** so does a `style` attribute: a `url(`, or a string in `image-set()` or
+  `-webkit-image-set()`, that its end leaves open, as in `style='background-image: url("icon.png'`,
+  names its file, which browsers load; another string left open there names nothing. Before a
+  later `<base>`, such a reference resolves from the page's folder, a name that does not resolve as
+  a path is found by name, and with **Local files with scripts on** its file is copied. The
+  attribute keeps its text, apart from such a reference
+  ([#194](https://github.com/viell-dev/slop-html-page-viewer/issues/194)).
 
   **Unreleased (#179):** a string in `image-set()` or `-webkit-image-set()`, as in
   `image-set("icon.png" 1x, "icon@2x.png" 2x)`, names a file as a `url()` does: in a linked or
@@ -127,8 +145,23 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   past them, such a stylesheet keeps its URLs as written, which then resolve against the `<base>`,
   though with **Local files with scripts on** their files are still copied from the page's folder. A
   `<base>` that Chromium ignores, one inside SVG and one with a `data:` or `javascript:` URL, no
-  longer moves the page's files. Images, media, and the page's other references before a `<base>`
-  still resolve against it ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+  longer moves the page's files
+  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
+
+  **Unreleased (#187):** so do the page's other references before its `<base>`: images, also those
+  of a `srcset` and a `<picture>`, image inputs, video posters, video and audio and their sources,
+  text tracks, frames, scripts, and SVG `<use>` and `<image>`, also in shadow DOM. The viewer makes
+  their URLs absolute against the page's own address, and with **Local files with scripts on**
+  copies their files from the page's folder. Chromium resolves image inputs, posters, media, their
+  sources, text tracks, and SVG `<image>` a moment after it reads them, so in a browser they come
+  from the page's folder in a longer page or one with a script before the `<base>`, but from the
+  `<base>`'s folder in a short page; see [Limits](#limits). The `background` attributes of tables
+  and the `<body>`, and SVG `<feImage>`, still resolve against the `<base>`, and are not copied
+  ([#198](https://github.com/viell-dev/slop-html-page-viewer/issues/198)). What making these URLs
+  absolute adds to the copy does not count toward the page's limits on stylesheets: each grows by
+  about the length of the page folder's address, so the copy grows with the page's own markup, as
+  with references found by name
+  ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
 
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
@@ -327,6 +360,21 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   for a `<style>` with the same text and no imports. The viewer resolves every element after the
   `<base>` against it, and does not imitate this caching, which Chromium versions do differently
   ([#191](https://github.com/viell-dev/slop-html-page-viewer/issues/191)).
+
+- **Unreleased (#187):** image inputs, video posters, media, their sources, text tracks, and SVG
+  `<image>` before a page's late `<base>` come from the page's folder in the viewer. Chromium
+  resolves their URLs when it lays them out or starts to load them, a moment after it reads them:
+  against the page's address when it has not read the `<base>` by then, as in a longer page or one
+  with a script before the `<base>`, but against the `<base>` in a short page that it reads at
+  once. For such a short page, version 0.6.0 shows them as browsers do, from the `<base>`'s folder,
+  and the viewer no longer does
+  ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
+
+- **With scripts on, a `<base>` that a page's script adds** does not apply in the viewer, where a
+  browser resolves the URLs that the page names after it against it: the viewer's copy has a
+  `<base>` of its own first, which applies instead. If the script puts its `<base>` before that
+  one, a relative address in it resolves against Obsidian's own address instead of the page's
+  ([#193](https://github.com/viell-dev/slop-html-page-viewer/issues/193)).
 
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cssEnd, cssImports, cssReferences, cssTokens, importStop } from "../src/css";
+import {
+  cssDeclarationsEnd,
+  cssEnd,
+  cssImports,
+  cssReferences,
+  cssTokens,
+  importStop,
+} from "../src/css";
 
 it("keeps malformed quoted functions and subsequent literal strings separate", () => {
   for (const css of [
@@ -377,6 +384,48 @@ describe("the end of a stylesheet (#139)", () => {
       '"<!--"',
     ])
       assert.deepEqual(markers(css), [], JSON.stringify(css));
+  });
+});
+
+describe("the end of a style attribute (#194)", () => {
+  it("closes what a list of declarations leaves open, with no rule to end", () => {
+    for (const [css, closers] of [
+      ["color: red", ""],
+      ["color: red;", ""],
+      ["", ""],
+      ['b: image-set("a.png', '")'],
+      ['b: image-set("a.png" 1x', ")"],
+      ['b: url("a.png', '")'],
+      ["b: url('a.png", "')"],
+      ["b: url(a.png", ")"],
+      ["b: url(a.png\\", "\ufffd)"],
+      // In a string, a "\" at the end stands for nothing, as before a newline.
+      ['b: "a\\', '\n"'],
+      ["b: c\\", "\ufffd"],
+      ["b: c /* d", "*/"],
+      ["b: f(g [h", "])"],
+      ["--x: { a: (b", ")}"],
+      // A closer that matches no open block closes nothing.
+      ["b: c }", ""],
+    ])
+      assert.equal(cssDeclarationsEnd(css, cssTokens(css)), closers, JSON.stringify(css));
+  });
+
+  it("makes whole the references that the end leaves open", () => {
+    for (const [css, open, closed] of [
+      ['b: image-set("a.png', [], ["a.png"]],
+      ['b: url("a.png', [], ["a.png"]],
+      ["b: url(a.png", [], ["a.png"]],
+      [`b: image-set('a.png' 1x, "b.png`, ["a.png"], ["a.png", "b.png"]],
+      ["b: url(a.png) /* url(c.png)", ["a.png"], ["a.png"]],
+    ] as const) {
+      const values = (text: string) => cssReferences(cssTokens(text)).map(({ value }) => value);
+      assert.deepEqual(
+        { open: values(css), closed: values(css + cssDeclarationsEnd(css, cssTokens(css))) },
+        { open, closed },
+        css,
+      );
+    }
   });
 });
 

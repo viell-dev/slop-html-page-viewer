@@ -259,6 +259,25 @@ describe("preparing a page whose stylesheets name many URLs (#177)", () => {
     assert.equal(output.split(`<style>${"url(c)".repeat(count)}{}</style>`).length - 1, 20);
   });
 
+  it("makes resource attributes before a later <base> absolute in time that grows with the page (#187)", async () => {
+    // 50,000 images, each with a srcset of another URL, before the page's
+    // <base>, in a folder of 1,000 characters: each URL made absolute grows
+    // by the length of the folder's address, which the text limit does not
+    // count (TESTING.md's limits), so the copy grows with the page's markup,
+    // here to about 60 times its length. Each is looked up once. On Windows 11,
+    // in jsdom, this page took 4.3 to 4.9 s, and 3.7 s without the URLs made
+    // absolute.
+    const count = 50_000;
+    const folder = `${"a".repeat(1_000)}/`;
+    const html = `${'<img src="c.png" srcset="d.png 2x">'.repeat(count)}<base href="sub/">`;
+    const { output, looked, ms } = await prepareWith(html, {}, folder);
+    const page = `${vault}${folder}`;
+    const image = `<img src="${page}c.png" srcset="${page}d.png 2x">`;
+    assert.equal(output.split(image).length - 1, count, `${ms} ms`);
+    assert.deepEqual([looked("c.png"), looked("d.png")], [count, count]);
+    assert.ok(ms < 30_000, `${ms} ms`);
+  });
+
   it("keeps what making style attributes before a later <base> absolute adds within the text limit (#185)", async () => {
     // 2,500 style attributes of 100 URLs each, before the page's <base>: made
     // absolute, each URL adds 78 characters, 19.5 million in all, so the
