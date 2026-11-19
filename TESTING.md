@@ -184,12 +184,19 @@ stays a link takes nothing from the text limit, and what its rewriting reached f
 limit, so that a stylesheet after it of what remains of that, one character less than the whole
 text limit, is copied, and one a character longer is not. Its repeats, by link or by import, are
 refused without rewriting it again, while a stylesheet that imports it is prepared again for each
-of its links, the refusal having touched it. Other URLs of its file, with queries, are prepared
-within the discard limit: two, and then nothing more. A page's own `<style>` keeps its URLs as
-written, so that 10,000 URLs that would take 20 million characters made absolute take nothing, and
-counts only what its imports that stay imports add: past the limit, it keeps its text as CSS
-closes it, its imports as written and its references found by name changed. A `<style>` with or
-without imports and a `style` attribute, whose references found by name change, count nothing.
+of its three links, the refusal having touched it each time; each link of it counts toward the
+links and imports followed, so that a small stylesheet after the count's worth of them stays a
+link. Other URLs of its file, with queries, are prepared within the discard limit: two, and then
+nothing more. A stylesheet that fits in the text limit but is longer than what remains of the
+discard limit is refused before it is scanned, under each of three URLs. A scan would find that it
+does not fit and take its length from the discard limit, so the test counts scans by what remains
+of that limit: a stylesheet of all of it is still copied after them. A page's own `<style>` keeps
+its URLs as written, so that 10,000 URLs that would take 20 million characters made absolute take
+nothing, and counts only what its imports that stay imports add: past the limit, it keeps its text
+as CSS closes it, its imports as written and its references found by name changed. Two such
+`<style>` elements spend the discard limit, after which a later `<style>`'s import stays an import.
+A `<style>` with or without imports and a `style` attribute, whose references found by name
+change, count nothing.
 `inlineStylesheet` past the limit keeps its closed text, with references found by name changed. In
 the fan-out stress test, each import counts as long as the copy writes a kept import.
 
@@ -750,6 +757,20 @@ breakages failed the check named:
   scripts off, where the images of the `<style>` URLs kept as written did not show, and six other
   tests of the spec. With scripts on and files copied, preparing resolves the URLs itself, and that
   test passed.
+
+**Unreleased (#177):** On 2026-11-19, the follow-up review of #180 found four changes to
+`src/document.ts` at `dfc59b1` that passed every test. One was comparing a stylesheet's length
+with the text limit's room, not `rewriteRoom`, before scanning it, which took 1,000 links of #177's
+stylesheet, each with a query of its own, from 2.3 s to 121 s. Each of them failed the check named,
+within a second:
+
+- That comparison: the test of a stylesheet too long for what remains of the discard limit.
+- Not counting a repeat of a remembered refusal as a refusal: the test of repeats and importers,
+  with a third link of the importer, and the test of the count, where each repeat after the first
+  was answered as kept.
+- Not counting such a repeat toward the count: the test of the count.
+- Taking nothing from the discard limit for a page's `<style>` whose imports would not fit: the test
+  of two such `<style>` elements.
 
 The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
 keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that

@@ -1143,24 +1143,61 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
     }
   });
 
+  it("refuses one too long for what remains of the discard limit without scanning it", async () => {
+    // After a stylesheet that reached one more than the text limit, a
+    // stylesheet of the whole text limit fits in that limit but not in what
+    // remains of the discard limit. A scan of it, which would find that it
+    // does not fit, would take its length from the discard limit: scanning
+    // each of its URLs again took 121 s for 1,000 links of #177's stylesheet.
+    // Refused before it is scanned, under each of three URLs, it takes
+    // nothing, so a stylesheet of all that remains is still copied after them.
+    const over = sheetOf(rule, copied, LIMIT + 1);
+    const remains = DISCARD_LIMIT - (LIMIT + 1);
+    const ctx = context({
+      [`Saved/${file}`]: over,
+      "Saved/whole.css": comment(LIMIT),
+      "Saved/after.css": comment(remains),
+    });
+    const wholes = ["whole.css", "whole.css?1", "whole.css?2"].map(link).join("");
+    const copy = await prepare(link(file) + wholes + link("after.css"), ctx);
+    assert.equal(copy.split("<link").length - 1, 4);
+    assert.equal(onlyStyle(copy)?.length, remains);
+  });
+
   it("refuses a repeat of one that stays a link without preparing it again, and prepares its importer again", async () => {
-    // Its importer's first link finds that it does not fit, which touches
-    // the importer's result: each of its two links prepares it, and rewrites
-    // its URL. The stylesheet's own URLs are rewritten once, for all five.
+    // Its importer's first link finds that it does not fit, and each later
+    // one is refused it as remembered, which touches the importer's result
+    // too: each of its three links prepares it, and rewrites its URL. The
+    // stylesheet's own URLs are rewritten once, for all six.
     const over = sheetOf(rule, copied, LIMIT + 1);
     const { ctx, looked } = counting({
       [`Saved/${file}`]: over,
       "Saved/wrap.css": `@import "${file}"; w { b: url(w.png) }`,
     });
-    const copy = await prepare(link("wrap.css").repeat(2) + link(file).repeat(3), ctx);
+    const copy = await prepare(link("wrap.css").repeat(3) + link(file).repeat(3), ctx);
     // At most once: after what the importer takes, it passes the room a URL
     // or so before its end.
     const rewritten = looked(`Saved/${folder}/c`);
     assert.ok(rewritten > 0 && rewritten <= over.split("url(c)").length - 1, `${rewritten}`);
-    assert.equal(looked("Saved/w.png"), 2);
+    assert.equal(looked("Saved/w.png"), 3);
     assert.equal(copy.split(link(file)).length - 1, 3);
     const wrap = `<style>@import url("${VAULT}Saved/${file}"); w { b: url("${VAULT}Saved/w.png") }</style>`;
-    assert.equal(copy.split(wrap).length - 1, 2);
+    assert.equal(copy.split(wrap).length - 1, 3);
+  });
+
+  it("counts each link of one that stays a link toward the links and imports followed", async () => {
+    // Its repeats are refused without preparing it, but each is followed, as
+    // a repeat of one too large is: after the count's worth of links of it, a
+    // small stylesheet stays a link, and after one fewer, it is copied.
+    const over = sheetOf(rule, copied, LIMIT + 1);
+    for (const [links, fits] of [
+      [STYLESHEET_COUNT_LIMIT - 1, true],
+      [STYLESHEET_COUNT_LIMIT, false],
+    ] as const) {
+      const ctx = context({ [`Saved/${file}`]: over, "Saved/small.css": "p{}" });
+      const copy = await prepare(link(file).repeat(links) + link("small.css"), ctx);
+      assert.equal(copy.includes("<style>p{}</style>"), fits, `${links} links`);
+    }
   });
 
   it("prepares another URL of its file only within the discard limit", async () => {
@@ -1212,6 +1249,26 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
     const imports = unit.repeat(Math.floor(LIMIT / each) + 1);
     const text = onlyStyle(await prepare(`<style>${imports} p { b: url(f.png) }</style>`, ctx));
     assert.equal(text, `${imports} p { b: url("${VAULT}Found/f.png") }`);
+  });
+
+  it("takes from the discard limit for a <style> whose imports would not fit", async () => {
+    // Such a <style> reaches the room before preparing it stops, as a
+    // stylesheet that stays a link does. Two of them spend the discard limit,
+    // after which the import of a small stylesheet in the next <style> stays
+    // an import; after one, it is copied. (A page's links come before its
+    // <style> elements.)
+    const page = `Saved/${folder}/page.html`;
+    const unit = '@import "c";';
+    const each = `@import url("${VAULT}Saved/${folder}/c");`.length - unit.length;
+    const style = `<style>${unit.repeat(Math.floor(LIMIT / each) + 1)}</style>`;
+    for (const [styles, fits] of [
+      [1, true],
+      [2, false],
+    ] as const) {
+      const ctx = context({ [`Saved/${folder}/small.css`]: "p{}" }, page);
+      const copy = await prepare(`${style.repeat(styles)}<style>@import "small.css";</style>`, ctx);
+      assert.equal(copy.includes("<style>p{}</style>"), fits, `${styles} <style> elements`);
+    }
   });
 
   it("keeps the closed text of a stylesheet given alone whose URLs would not fit made absolute", async () => {

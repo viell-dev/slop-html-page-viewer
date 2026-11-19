@@ -245,19 +245,24 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   the copy that the view then serializes from it, which character references and escapes can make
   several times longer ([#183](https://github.com/viell-dev/slop-html-page-viewer/issues/183)). A
   page's own `<style>` keeps its URLs as written, which the copy's `<base>` resolves as the page
-  does, apart from those found by name, and only what its imports that stay imports add counts.
+  does, unless the page's `<base>` comes after it
+  ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)), apart from those found
+  by name, and only what its imports that stay imports add counts.
   Its own text, `style` attributes, and the page's other references count nothing, and the
   references found by name there can make the copy far longer than the page
   ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)). A stylesheet whose text,
   so rewritten, would not fit stays a link or import, as one too large does, takes nothing from the
   limit, and its imports are not followed: with its URLs as written, they would resolve against the
   page, and its images and fonts would not load. A repeat of its link or import stays a link or
-  import without being prepared again. What preparing such stylesheets wrote before it stopped
-  counts toward a limit of its own, of 32 million characters for each page, and the viewer copies a
-  stylesheet only within what remains of both, so that it never rewrites more than that of
-  stylesheets that it then leaves out. A `<style>` whose imports that stay imports would not fit
+  import without being prepared again. A `<style>` whose imports that stay imports would not fit
   keeps its text as CSS closes it, apart from references found by name, and its imports stay
-  imports ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
+  imports. What preparing such stylesheets and `<style>` elements wrote before it stopped counts
+  toward a limit of its own, of 32 million characters for each page, and the viewer copies a
+  stylesheet only within what remains of both: once that limit is spent, it copies no further
+  stylesheet, also one that would fit. So what it rewrites of stylesheets that it then leaves out
+  stays within that limit, apart from the text that closes the last of them, which counts at once
+  and can be as long as that stylesheet
+  ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
 
 - **With scripts on, local files load only when they are copied into the page.** Scripts run without
   access to Obsidian, and Obsidian does not serve vault files to such a page. Copied stylesheets

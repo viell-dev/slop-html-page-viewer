@@ -89,17 +89,25 @@ export const STYLESHEET_COUNT_LIMIT = 1_000;
 export const STYLESHEET_TEXT_LIMIT = 16_000_000;
 
 /**
- * The most text, in UTF-16 code units, that a page's preparation scans and
+ * How much text, in UTF-16 code units, a page's preparation scans and
  * rewrites for stylesheets whose own text, rewritten, then does not fit in
- * the text limit, measured as the length that each one's text had reached
- * when preparing it stopped (`StylesheetBudget.refuse`). Rewriting stops once
- * it passes the room, so one such stylesheet can reach the whole limit;
- * twice the limit leaves the page's other stylesheets as much again, as one
- * too large to read leaves them the whole limit. In the unit tests' jsdom
- * stand-in on Windows 11, one stylesheet that reached the limit took 0.3 s
- * with 1,362 URLs and 2.3 to 2.6 s with 190,477, each looked up as a vault
- * path, against 5 to 12 s in Obsidian for 16 million characters of copied
- * stylesheet text (#154, #177).
+ * the text limit, a page's own `<style>` whose imports would not fit among
+ * them, measured as the length that each one's text had reached when
+ * preparing it stopped (`StylesheetBudget.refuse`). Each stylesheet's
+ * rewriting stops once it passes what remains of this limit and the text
+ * limit (`StylesheetBudget.rewriteRoom`), so that it reaches at most that and
+ * one rewrite more. The text that closes a stylesheet file is counted in one
+ * step, once the file has been scanned, which `take` allows when the file's
+ * own text fits. So the last such stylesheet can pass this limit by as much
+ * as its own length: a file of 16 million unclosed `{`, closed by as many
+ * `}`, spends it alone. Twice the text limit leaves the page's other
+ * stylesheets as much again after one that reaches the whole text limit, as
+ * one too large to read leaves them the whole limit. Once it is spent, no
+ * further stylesheet is copied, also one that would fit. In the unit tests'
+ * jsdom stand-in on Windows 11, one stylesheet that reached the limit took
+ * 0.3 s with 1,362 URLs and 2.3 to 2.6 s with 190,477, each looked up as a
+ * vault path, against 5 to 12 s in Obsidian for 16 million characters of
+ * copied stylesheet text (#154, #177).
  */
 export const DISCARD_LIMIT = 2 * STYLESHEET_TEXT_LIMIT;
 
@@ -471,13 +479,15 @@ class StylesheetBudget {
    * link or an import of it, or null to leave the link or import as it is:
    * when the page has followed as many links and imports as it may, or the
    * stylesheet's text, rewritten, did not fit before (`refuse`), or the file
-   * cannot be read, or its text alone does not fit in `rewriteRoom`. A smaller
-   * one after it can still fit, as with the copy limits. It takes nothing from
-   * the text limit: `ownRewrites` takes the text as preparing writes it, once that
-   * is known to fit. Every call counts, the ones that return null too, and so
-   * does a stylesheet whose text the caller then leaves out, so that the count
-   * bounds the work, not only the copy. A repeat that `sheet` answers without
-   * preparing makes no call.
+   * cannot be read, or its text alone does not fit in `rewriteRoom`, which
+   * keeps it from being scanned once `DISCARD_LIMIT` is spent. A smaller one
+   * after it can still fit, as with the copy limits, while that limit is not
+   * spent. It takes nothing from the text limit: `ownRewrites` takes the text
+   * as preparing writes it, once that is known to fit. Every call counts, the
+   * ones that return null too, a repeat of a remembered refusal among them,
+   * and so does a stylesheet whose text the caller then leaves out, so that
+   * the count bounds the work, not only the copy. A repeat that `sheet`
+   * answers without preparing makes no call.
    */
   async take(path: string, url: string): Promise<string | null> {
     if (this.taken >= STYLESHEET_COUNT_LIMIT) {

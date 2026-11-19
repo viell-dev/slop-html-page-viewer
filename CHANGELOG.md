@@ -19,8 +19,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   it, closed at its end and with its URLs and imports made absolute, so that a stylesheet of many
   short `url()`s no longer takes the copy to several times that. A stylesheet that would pass the
   limit so rewritten stays a link or import, which does not apply, and is not prepared again for a
-  repeat of its link or import; preparing such stylesheets stops after 32 million characters of
-  them. A page's own `<style>` keeps its `url()`s as written, which resolve as before (#177).
+  repeat of its link or import. Once preparing such stylesheets has reached 32 million characters
+  of them, the page gets no further stylesheet, also one that would fit. A page's own `<style>`
+  keeps its `url()`s as written, which resolve as before (#177).
 - In the split view, scrolling the source right after its tab moves to another tab group or window,
   before the page shows again or as it does, is no longer undone: the page follows the source,
   instead of sending it back to where the page was. On Obsidian 1.5.3, the source is back in its
