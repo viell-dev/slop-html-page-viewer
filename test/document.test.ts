@@ -12,6 +12,7 @@ import {
   pagePolicy,
   preparePage,
   SHADOW_ROOT_MARK,
+  STYLE_ELEMENT_LIMIT,
   STYLESHEET_COUNT_LIMIT,
   STYLESHEET_TEXT_LIMIT,
   vaultPath,
@@ -1110,8 +1111,21 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
         '@import "a.css"; @import "missing.css" layer(m);',
         ["A{} ", `@import url("${VAULT}missing.css") layer(m);`],
       ],
+      // And one with conditions that the viewer does not read, which may.
+      [
+        '@import "a.css"; @import "s.css" scope(.a); p {}',
+        ["A{} ", `@import url("${VAULT}s.css") scope(.a); p {}`],
+      ],
+      [
+        '@import "a.css"; @import "s.css" layer(a .b);',
+        ["A{} ", `@import url("${VAULT}s.css") layer(a .b);`],
+      ],
       // Any other does nothing, whether it counts or not: it stays where it is.
       [`@import "a.css"; @import url("${WEB}"); p {}`, [`A{} @import url("${WEB}"); p {}`]],
+      [
+        '@import "a.css"; @import url("https://fonts.googleapis.com.example.com/x.css");',
+        ['A{} @import url("https://fonts.googleapis.com.example.com/x.css");'],
+      ],
       ['@import "a.css"; @import "self.css";', [`A{} @import url("${VAULT}self.css"); S{}`]],
       ['@import "a.css"; @import "missing.css";', [`A{} @import url("${VAULT}missing.css");`]],
       // One in an inlined stylesheet, after another's rules.
@@ -1151,6 +1165,17 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
       ],
     ] as const)
       assert.deepEqual(await inline(css, files), sheets, css);
+  });
+
+  it("spends the limit of <style> elements only on imports that start one", async () => {
+    // More imports that stay where they are than the limit allows, then one
+    // that starts a stylesheet of its own.
+    const others = `@import url("${WEB}");`.repeat(STYLE_ELEMENT_LIMIT + 1);
+    const sheets = await inline(`@import "a.css"; ${others} @import url("${FONTS}");`, {
+      "a.css": "A{}",
+    });
+    assert.equal(sheets.length, 2);
+    assert.equal(sheets[1], `@import url("${FONTS}");`);
   });
 
   it("adds an import's conditions to the imports kept in its stylesheet", async () => {
@@ -1227,8 +1252,36 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
         "layer(ra) screen",
         "@media screen {\n@layer ra;\n} @layer rb {\nB{}\n} @layer ra { E{} }",
       ],
+      [
+        "",
+        "layer(ra) supports(x: y)",
+        "@supports (x: y) {\n@layer ra;\n} @layer rb {\nB{}\n} @layer ra { E{} }",
+      ],
       // An anonymous layer holds nothing that can be told apart.
       ["", "layer", " @layer rb {\nB{}\n} @layer ra { E{} }"],
+      // A kept import declares the layer only where its own conditions hold,
+      // which they may not: a media query list, or support conditions.
+      [
+        `@import url("${WEB}") print;`,
+        "layer(ra)",
+        `@layer ra;@import url("${WEB}") layer(ra) print; @layer rb {\nB{}\n} @layer ra { E{} }`,
+      ],
+      [
+        `/* fonts */\n@import url("${FONTS}") supports(not (display: block));`,
+        "layer(ra)",
+        `@layer ra;/* fonts */\n@import url("${FONTS}") layer(ra) supports(not (display: block)); @layer rb {\nB{}\n} @layer ra { E{} }`,
+      ],
+      // One without them declares it, as text in a block does.
+      [
+        `@import url("${WEB}");`,
+        "layer(ra)",
+        `@import url("${WEB}") layer(ra); @layer rb {\nB{}\n} @layer ra { E{} }`,
+      ],
+      [
+        `@import url("${WEB}") layer(z);`,
+        "layer(ra) screen",
+        `@import url("${WEB}") layer(ra.z) screen; @layer rb {\nB{}\n} @layer ra { E{} }`,
+      ],
     ] as const)
       assert.deepEqual(
         await inline(
@@ -1238,6 +1291,36 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
         [sheet],
         `${JSON.stringify(empty)} ${conditions}`,
       );
+    // Chromium 114 never applies an import with support conditions, whatever they say.
+    assert.deepEqual(
+      await inline(
+        '@import "x.css" layer(ra);',
+        { "x.css": `@import url("${WEB}") supports(display: block);` },
+        false,
+      ),
+      [`@layer ra;@import url("${WEB}") layer(ra) supports(display: block);`],
+    );
+  });
+
+  it("stops later imports with the @layer statement, as CSS does", async () => {
+    const files = { "empty.css": "" };
+    for (const [css, sheets] of [
+      // A statement after an import ends the imports, and one in a block ends them all.
+      [
+        `@import url("${WEB}"); @import "empty.css" layer(a); @import url("${FONTS}");`,
+        [`@import url("${WEB}"); @layer a; `, `@import url("${FONTS}");`],
+      ],
+      [
+        `@import "empty.css" layer(a) screen; @import url("${FONTS}");`,
+        ["@media screen {\n@layer a;\n} ", `@import url("${FONTS}");`],
+      ],
+      // Before any import, it ends none.
+      [
+        `@import "empty.css" layer(a); @import url("${FONTS}");`,
+        [`@layer a; @import url("${FONTS}");`],
+      ],
+    ] as const)
+      assert.deepEqual(await inline(css, files), sheets, css);
   });
 
   it("keeps what it adds for conditions within the text limit, and adds one block past it", async () => {
@@ -1255,6 +1338,16 @@ describe("what inlining keeps of each stylesheet's context (#152)", () => {
       "big.css": big,
     });
     assert.deepEqual(both, [`@media ${media} {\nX{}\n} @import url("${VAULT}big.css");`]);
+    // What other stylesheets took is no longer room for conditions: after
+    // one that leaves half a million characters, twenty imports that would
+    // each take a list of 100,000 take one block, which fits.
+    const short = `screen${", print".repeat(15_000)}`;
+    const [after, ...rest] = await inline(`@import "big.css"; @import "x.css" ${short};`, {
+      "x.css": `${imports}X{}`,
+      "big.css": big,
+    });
+    assert.deepEqual(rest, []);
+    assert.equal(after.slice(big.length), ` @media ${short} {\n${imports}X{}\n}`);
     // With no room even for that block, the import stays an import.
     const huge = `screen${", print".repeat(STYLESHEET_TEXT_LIMIT / 7)}`;
     assert.deepEqual(await inline(`@import "x.css" ${huge};`, { "x.css": "X{}" }), [

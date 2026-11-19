@@ -469,6 +469,11 @@ describe("A page's local files in Obsidian", function () {
       // a layer name with a comment beside its dot is still one.
       `<style>@import "Import rules/empty.css" layer(ea); @import "Import rules/empty b.css" layer(eb); @layer ea { #empty { color: ${red} } }</style>`,
       `<style>@import "Import rules/comment name.css" layer(cm/**/.x);</style>`,
+      // So does one that holds only a kept import whose own conditions do not
+      // hold: a media query that does not match, or, on Chromium 114, any
+      // support conditions.
+      `<style>@import "Import rules/print only.css" layer(pa); @import "Import rules/print only b.css" layer(pb); @layer pa { #printonly { color: ${red} } }</style>`,
+      `<style>@import "Import rules/supports only.css" layer(sa); @import "Import rules/supports only b.css" layer(sb); @layer sa { #supportsonly { color: ${red} } }</style>`,
       // #152: imports that stay imports count after an inlined stylesheet's
       // rules, and inside a stylesheet imported with a media query list, whose
       // "<!--" and "-->" between rules start none. The one into a layer
@@ -492,7 +497,7 @@ describe("A page's local files in Obsidian", function () {
         ...["string", "comment", "url", "block", "ghost", "placed", "bom", "layered"],
         ...["linktail", "styletail", "urltail", "ordered", "declared", "conditional"],
         ...["supported", "unsupported", "local", "webfonts", "markers", "empty"],
-        ...["commentname", "svgown", "svgimported"],
+        ...["commentname", "svgown", "svgimported", "printonly", "supportsonly"],
       ]
         .map((id) => `<p id="${id}">${id}</p>`)
         .join("") + `<div class="scope"><p id="scoped">scoped</p></div>`;
@@ -524,6 +529,10 @@ describe("A page's local files in Obsidian", function () {
       "Import rules/empty b.css": `#empty { color: ${green} }`,
       "Import rules/comment name.css": `#commentname { color: ${green} }`,
       "Import rules/svg a.css": `#svgimported { color: ${green} }`,
+      "Import rules/print only.css": `@import url("${web}/p.css") print;`,
+      "Import rules/print only b.css": `#printonly { color: ${green} }`,
+      "Import rules/supports only.css": `@import url("${web}/s.css") supports(display: block);`,
+      "Import rules/supports only b.css": `#supportsonly { color: ${green} }`,
       "Import rules.html":
         `${styles}<p id="plain">plain</p>${paragraphs}` +
         `<div id="host"><template shadowrootmode="open">${styles}${paragraphs}</template></div>`,
@@ -630,6 +639,8 @@ describe("A page's local files in Obsidian", function () {
         markers: root.markers.color,
         empty: root.empty.color,
         commentname: root.commentname.color,
+        printonly: root.printonly.color,
+        supportsonly: root.supportsonly.color,
         svgown: root.svgown.color === plain ? "not applied" : root.svgown.color,
         svgimported: root.svgimported.color === plain ? "not applied" : root.svgimported.color,
       }));
@@ -682,6 +693,8 @@ describe("A page's local files in Obsidian", function () {
         markers: green,
         empty: green,
         commentname: green,
+        printonly: green,
+        supportsonly: green,
         svgown: svgTypeAnyCase ? green : "not applied",
         svgimported: svgTypeAnyCase ? green : "not applied",
       };
@@ -701,6 +714,9 @@ describe("A page's local files in Obsidian", function () {
         "kept.css",
         "missing.css",
         "scoped.css scope(.scope)",
+        // The kept imports of the stylesheets imported into layers.
+        "p.css print",
+        importSupports ? "s.css" : "s.css supports(display: block)",
         // Only where the SVG <style> applies.
         ...(svgTypeAnyCase ? ["svg.css"] : []),
         ...(importSupports

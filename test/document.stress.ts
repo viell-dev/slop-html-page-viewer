@@ -228,6 +228,16 @@ describe("preparing a page whose imports have long conditions or many kept impor
         { "e.css": "a{}" },
       ],
       [
+        "a title on such a <style>",
+        `<style title="${"t".repeat(100_000)}">${pairs(2_000).replaceAll(WEB, FONTS)}</style>`,
+        { "e.css": "a{}" },
+      ],
+      [
+        "a title on a link of such a stylesheet",
+        `<link rel="stylesheet" href="main.css" title="${"t".repeat(100_000)}">`,
+        { "main.css": pairs(2_000).replaceAll(WEB, FONTS), "e.css": "a{}" },
+      ],
+      [
         "a media query list around 2,000 Google Fonts imports",
         `<style>@import "x.css" ${media(100_000)};</style>`,
         { "x.css": `@import "${FONTS}";\n`.repeat(2_000) },
@@ -271,6 +281,44 @@ describe("preparing a page whose imports have long conditions or many kept impor
       assert.equal(styles, 1, html);
       assert.ok(added <= STYLESHEET_TEXT_LIMIT, `${html}: ${added} characters added`);
       assert.ok(elapsed < 10_000, `${html}: ${Math.round(elapsed)} ms`);
+    }
+  });
+
+  it("gives back nothing to the text limit for what conditions leave out", async () => {
+    // Given the conditions of its import, a kept import is written anew,
+    // without the spaces and comments that it has as written. In the review
+    // of #174, giving that back let each of 999 imports of a 15 MB
+    // stylesheet in again: 216 s, where main took 0.29 s. Each preparation of
+    // big.css looks up the file that it imports, and past the first, the
+    // context fails the preparation.
+    const kept = '@import "kept.css"';
+    for (const big of [
+      `${kept} layer(a)${" ".repeat(15_000_000)};`,
+      `${kept} layer(a)${"/**/".repeat(3_750_000)};`,
+      `${kept} layer(/*${"x".repeat(15_000_000)}*/a);`,
+    ]) {
+      let looked = 0;
+      const ctx = {
+        ...context,
+        importSupports: true,
+        read: (path: string) =>
+          Promise.resolve(
+            { "Saved/main.css": '@import "big.css" screen;\n'.repeat(999), "Saved/big.css": big }[
+              path
+            ] ?? null,
+          ),
+        exists(path: string) {
+          if (path === "Saved/kept.css" && ++looked > 1)
+            throw new Error("big.css was prepared again");
+          return true;
+        },
+        locate: () => null,
+      };
+      const start = performance.now();
+      const { html } = await preparePage('<link rel="stylesheet" href="main.css">', ctx);
+      const elapsed = performance.now() - start;
+      assert.equal(html.split('/kept.css") layer(a) screen;').length - 1, 1);
+      assert.ok(elapsed < 20_000, `${Math.round(elapsed)} ms`);
     }
   });
 });

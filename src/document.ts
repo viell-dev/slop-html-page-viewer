@@ -244,7 +244,9 @@ function layerDeclaration(layer: string, { supports, media }: ImportConditions):
  * least: the kept imports are then where CSS ignores them, as in a block
  * that the stylesheet's own text has. The work stops once what it adds
  * passes `room`, so that a long condition, put around many parts, never
- * builds a copy past the limit.
+ * builds a copy past the limit. A named layer that no part declares under
+ * the import's conditions gets an `@layer` statement where the import was
+ * (`layerDeclaration`).
  */
 function placedParts(
   parts: readonly SheetPart[],
@@ -254,23 +256,34 @@ function placedParts(
 ): { parts: SheetPart[]; added: number } | null {
   const joined: SheetPart[] = [];
   let added = 0;
+  // Whether a part declares the import's layer under the import's own
+  // conditions: text in their blocks does, and so does a kept import that
+  // takes them and has no media or support conditions of its own, which
+  // would decide whether it declares anything (#151).
+  let declared = false;
   for (const part of parts) {
-    const kept = part.kind === "import" && !merged ? composedImport(part, conditions) : null;
-    if (kept !== null) {
-      added += kept.text.length - part.text.length;
-      if (added > room) return null;
+    if (part.kind === "text") {
+      addPart(joined, part);
+      continue;
     }
-    addPart(
-      joined,
-      kept ?? (part.kind === "import" ? { kind: "text", text: part.text, stop: "all" } : part),
-    );
+    const kept = merged ? null : composedImport(part, conditions);
+    if (kept === null) {
+      addPart(joined, { kind: "text", text: part.text, stop: "all" });
+      continue;
+    }
+    // Written anew, a kept import can be shorter than as the stylesheet has
+    // it, without its spaces and comments. What that leaves out is never
+    // given back: the stylesheet's own text took it already, and giving it
+    // back would let the same file in again (#154).
+    added += Math.max(0, kept.text.length - part.text.length);
+    if (added > room) return null;
+    declared ||= part.conditions?.media === null && part.conditions.supports === null;
+    addPart(joined, kept);
   }
   const wrapper = blockText("", conditions).length;
   const placed: SheetPart[] = [];
-  let declared = false;
   for (const part of joined) {
     if (part.kind === "import" || part.stop === "blank") {
-      declared ||= part.kind === "import";
       placed.push(part);
       continue;
     }
@@ -376,10 +389,12 @@ class StylesheetBudget {
   /**
    * Takes into the text limit what the copy adds around a stylesheet's own
    * text, which fits in `room`: the blocks of an import's conditions, and the
-   * conditions that it adds to kept imports (`placedParts`).
+   * conditions that it adds to kept imports (`placedParts`). It only ever
+   * adds: what the copy leaves out of a stylesheet's text stays counted, so
+   * that the room never grows back.
    */
   add(length: number): void {
-    this.text += length;
+    this.text += Math.max(0, length);
   }
 
   /** Counts something that the limits kept out of a stylesheet, as `take` counts one it refuses. */
@@ -871,7 +886,7 @@ function unconditional({ layer, supports, media }: ImportConditions): boolean {
 /**
  * A stylesheet's parts (`PreparedSheet`), with its imports of vault
  * stylesheets replaced by theirs, in the block forms of their conditions
- * (`blockParts`), and each of its URLs made absolute; `markers` (`CssEnd`)
+ * (`placedParts`), and each of its URLs made absolute; `markers` (`CssEnd`)
  * become spaces. Also whether it holds an imported stylesheet's `}` outside
  * any block, put in it without a block around it. `seen` holds the
  * stylesheet's own file and those that import it, and is empty for a page's
