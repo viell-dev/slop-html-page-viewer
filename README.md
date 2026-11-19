@@ -148,7 +148,18 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   shows and, for a page that scrolls as a whole, its place, and the split view's two sides stay in
   step there. The place is the part of the page at the window's top, so it holds where the page
   wraps differently in its new pane. The **Source** view stays scrolled as far as it was; where long
-  lines wrap differently in its new pane, that can show other lines.
+  lines wrap differently in its new pane, that can show other lines. A tab that moves while another
+  tab of its tab group shows, as from its tab header's menu, shows its page from its top
+  ([#186](https://github.com/viell-dev/slop-html-page-viewer/issues/186)).
+
+  **Unreleased (#178):** a page that scrolls as a whole also keeps its place when Obsidian shows its
+  tab again after hiding it, as after another tab of its tab group or a collapsed sidebar, instead
+  of showing from its top. In the split view, both sides go back where they were and stay in step,
+  also where the source's long lines wrap. They go back as far down as they were scrolled, so where
+  their pane changed width meanwhile and they wrap differently, they can show another part
+  ([#182](https://github.com/viell-dev/slop-html-page-viewer/issues/182)). The **Source** view, and
+  the parts of a page that scroll by themselves, keep their place there, as they did before.
+
 - Has settings for **Theme in new tabs**, on by default; **Scripts when a page opens**, off by
   default; **Local files with scripts on**, off by default; **Wrap long lines in the source view**,
   on by default; and **File extensions**, `html, htm` by default.
@@ -276,6 +287,10 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   the source view, and the split view's sides scroll apart.
 - **A page with scripts on starts again from its top** when its tab moves to another tab group or
   window, and its scripts run again: the viewer cannot reach the page to keep its place.
+
+  **Unreleased (#178):** it also starts again from its top, without running its scripts again,
+  when Obsidian shows its tab again after hiding it, as after another tab of its tab group.
+
 - **Parts of a page that scroll by themselves start again from their beginning** when its tab
   moves to another tab group or window, as does a page that scrolls only inside such a part, such as
   a main column beside a sidebar, or a wide table or code block in a box of its own. Only the place

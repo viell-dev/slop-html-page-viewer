@@ -23,7 +23,9 @@ import { type PaneChoice, watchLinks } from "./links";
 import { ExtensionRegistration, extensionRegistry } from "./extensions";
 import { READING_STYLE_ID, readingStylesheet, readTheme } from "./reading";
 import {
+  frameShows,
   isPinned,
+  keepPageScrolling,
   keepScrolling,
   type KeptScrolling,
   placeNextDocument,
@@ -32,6 +34,7 @@ import {
   type ScrollPlace,
   scrollInstantly,
   scrollPlace,
+  watchHiding,
   watchReader,
 } from "./scrolling";
 import {
@@ -64,6 +67,22 @@ type ViewMode = "rendered" | "source" | "split";
 interface TabChoices {
   readonly mode: ViewMode;
   readonly theme: boolean;
+}
+
+/** The split view's following of its two sides, from `syncScrolling`. */
+interface SplitScrolling {
+  readonly follower: ScrollFollower;
+  /**
+   * Obsidian hides the tab: the source's scrolling is not followed, nor the
+   * hidden page's, and the source keeps its place, until `shown` (#178).
+   */
+  hid(): void;
+  /**
+   * The tab shows again, and the page is back where it was: so is the source,
+   * unless the reader has scrolled it since `hid`, and then it leads. The
+   * sides' reports of their going back lead neither.
+   */
+  shown(): void;
 }
 
 /** What the view keeps of the frame's previous document for its next one. */
@@ -199,6 +218,11 @@ class HtmlPageViewerView extends TextFileView {
    * for after its tab moves (#135, #157).
    */
   private sourceScrolling: KeptScrolling | null = null;
+  /**
+   * Where the frame's page is scrolled to, for after Obsidian hid the tab and
+   * showed it again (#178), while the view can reach the page.
+   */
+  private pageScrolling: KeptScrolling | null = null;
   /**
    * What the reader does in the view while the frame has dropped its page's
    * document and the view does not show the next one yet, as after its tab
@@ -421,6 +445,7 @@ class HtmlPageViewerView extends TextFileView {
     // reader for the frame's next page; this view shows a new frame instead.
     this.stopReaderWatch();
     this.sourceScrolling = null;
+    this.pageScrolling = null;
     this.shownStyle = null;
     container.addClass("html-page-viewer");
 
@@ -746,9 +771,9 @@ class HtmlPageViewerView extends TextFileView {
     }
     if (current && reveal) {
       scrollToRange(current);
-      // Outside the rendered view the match is in the source, which keeps
-      // where the find bar put it as its place (#167).
-      this.sourceScrolling?.placed();
+      // What shows the match, the page in the rendered view and the source
+      // otherwise, keeps where the find bar put it as its place (#167, #178).
+      (this.mode === "rendered" ? this.pageScrolling : this.sourceScrolling)?.placed();
     }
   }
 
@@ -977,12 +1002,14 @@ class HtmlPageViewerView extends TextFileView {
     // the split view's source, which outlive it unless removed.
     const showing = new AbortController();
     let placed = false;
+    let kept: KeptScrolling | null = null;
     // While pagehide runs, the document still has its layout, so it can say
     // where it is scrolled to; one that has not been placed yet keeps the
     // place that it was to show.
     doc.defaultView?.addEventListener("pagehide", () => {
       showing.abort();
       if (placed) frame.place = scrollPlace(doc);
+      if (kept !== null && this.pageScrolling === kept) this.pageScrolling = null;
       if (this.iframe === iframe) this.startReaderWatch();
     });
     // Search the page, follow its scrolling in the split view, and show it
@@ -1002,10 +1029,29 @@ class HtmlPageViewerView extends TextFileView {
       const shownIn = this.contentEl.ownerDocument.defaultView;
       const newWindow = frame.shownIn !== null && frame.shownIn !== shownIn;
       frame.shownIn = shownIn;
-      const follower =
+      const split =
         this.mode === "split" ? this.syncScrolling(iframe, doc, showing.signal, newWindow) : null;
-      placeNextDocument(doc, frame.place, reader, follower, [this.contentEl], showing.signal);
+      placeNextDocument(
+        doc,
+        frame.place,
+        reader,
+        split?.follower ?? null,
+        [this.contentEl],
+        showing.signal,
+      );
       placed = true;
+      // When Obsidian hides the tab and shows it again, the page goes back to
+      // its place, and the split view's sides are put in step there (#178).
+      const pageScrolling = keepPageScrolling(iframe, doc, showing.signal);
+      kept = pageScrolling;
+      if (this.iframe === iframe) this.pageScrolling = kept;
+      watchHiding(iframe, doc, showing.signal, {
+        hid: () => split?.hid(),
+        shown: () => {
+          pageScrolling?.back();
+          split?.shown();
+        },
+      });
     };
     if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", parsed);
     else parsed();
@@ -1059,14 +1105,14 @@ class HtmlPageViewerView extends TextFileView {
    * can reach the page, from as soon as its text is there, until `signal`
    * says that the frame no longer shows `doc`, which the view shows in
    * another window than the frame's previous document if `newWindow`.
-   * Returns the follower, or null when the view cannot follow the page.
+   * Returns the following, or null when the view cannot follow the page.
    */
   private syncScrolling(
     iframe: HTMLIFrameElement,
     doc: Document,
     signal: AbortSignal,
     newWindow: boolean,
-  ): ScrollFollower | null {
+  ): SplitScrolling | null {
     const win = doc.defaultView;
     const source = this.contentEl.querySelector<HTMLElement>(
       ".html-page-viewer__split .html-page-viewer__source",
@@ -1134,8 +1180,45 @@ class HtmlPageViewerView extends TextFileView {
           if (this.iframe === iframe && !signal.aborted) run();
         }),
     );
-    source.addEventListener("scroll", () => follower.scrolled("source"), { signal });
-    win.addEventListener("scroll", () => follower.scrolled("page"), { signal });
+    /**
+     * While Obsidian hides the tab, and until the sides are back (#178): what
+     * the reader does in the view meanwhile. The source's scroll is not
+     * followed then: Chromium can lay the source out elsewhere when the tab
+     * shows, where its lines wrap, and report that before the frame's
+     * observer reports. Following it would also measure the sides before
+     * the view puts them back.
+     */
+    let hiding: ReaderWatch | null = null;
+    source.addEventListener(
+      "scroll",
+      () => {
+        if (hiding === null) follower.scrolled("source");
+      },
+      { signal },
+    );
+    // The hidden page reports its scroll before the frame's observer reports
+    // the frame hidden, and while its frame is not laid out.
+    win.addEventListener(
+      "scroll",
+      () => {
+        if (frameShows(iframe, doc)) follower.scrolled("page");
+      },
+      { signal },
+    );
+    // The frame drops the document while the tab is hidden, as when the tab
+    // moves then, and no `shown` comes for it: the source's place is no
+    // longer held. A source taken out of the page with its tab has no layout,
+    // so it keeps the place where it was held.
+    signal.addEventListener(
+      "abort",
+      () => {
+        if (hiding === null) return;
+        hiding.stop();
+        hiding = null;
+        this.sourceScrolling?.release();
+      },
+      { once: true },
+    );
     // Obsidian 1.5.3 lays a new window's elements out before its app.css has
     // arrived there, so the sides can be put in step for lines that then move
     // (#165). The first size change of the source's lines measures both sides
@@ -1168,7 +1251,37 @@ class HtmlPageViewerView extends TextFileView {
         signal,
         NEW_WINDOW_SETTLING,
       );
-    return follower;
+    return {
+      follower,
+      hid: () => {
+        if (hiding !== null) return;
+        this.sourceScrolling?.hold();
+        hiding = watchReader(this.contentEl, source);
+      },
+      shown: () => {
+        const reader = hiding?.stop();
+        hiding = null;
+        if (!reader) return;
+        // The page has gone back already. The sides' reports of their going
+        // back are not the reader's, and the sides are measured again, as
+        // their layout was dropped.
+        points.again();
+        lineTops.again();
+        follower.passOver("page");
+        if (reader.scrolled) {
+          // The reader scrolled the source as the tab showed again.
+          this.sourceScrolling?.release();
+          follower.placed("source");
+          return;
+        }
+        this.sourceScrolling?.back();
+        follower.passOver("source");
+        // Chromium can lay the source out other than it was, and a pane can
+        // change its width while the tab is hidden: the side that led last
+        // puts the sides in step once.
+        follower.again();
+      },
+    };
   }
 
   /**
