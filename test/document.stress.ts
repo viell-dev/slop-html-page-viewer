@@ -4,6 +4,7 @@ import "./support/dom";
 import {
   preparePage,
   SHADOW_ROOT_MARK,
+  STYLE_ELEMENT_LIMIT,
   STYLESHEET_COUNT_LIMIT,
   STYLESHEET_TEXT_LIMIT,
 } from "../src/document";
@@ -70,17 +71,22 @@ describe("preparing a page whose stylesheets import each other many times (#154)
     };
     const { html } = await preparePage('<link rel="stylesheet" href="0.css">', ctx);
     const doc = new DOMParser().parseFromString(html, "text/html");
-    const text = doc.querySelector("style")!.textContent;
-    return { reads, text, copies: text.split("{ color: red }\n").length - 1 };
+    // The imports past the limits stay imports, each with the stylesheets
+    // after it in a <style> of its own (#152).
+    const styles = [...doc.querySelectorAll("style")].map((style) => style.textContent);
+    const text = styles.join("");
+    return { reads, text, styles, copies: text.split("{ color: red }\n").length - 1 };
   }
 
   it("takes in as many small stylesheets as the limit allows, reading each file once", async () => {
-    const { reads, text, copies } = await prepareFanOut("");
+    const { reads, text, styles, copies } = await prepareFanOut("");
     assert.deepEqual(
       reads,
       Array.from({ length: 8 }, (_, i) => `Saved/${i}.css`),
     );
     assert.equal(copies, STYLESHEET_COUNT_LIMIT);
+    // A stylesheet's imports left as imports, one after another, share one.
+    assert.ok(styles.length <= STYLESHEET_COUNT_LIMIT, `${styles.length} <style> elements`);
     // The rest stay imports, which Obsidian's policy keeps from loading.
     assert.equal(
       text.split('@import url("').length - 1,
@@ -159,5 +165,160 @@ describe("preparing a page whose links have long types (#147)", () => {
     assert.equal(doc.querySelectorAll("link").length, 1);
     assert.equal(doc.querySelector("link")!.getAttribute("type"), `x${spaces}x`);
     assert.equal(doc.querySelector("style")!.textContent, ".a {}");
+  });
+});
+
+describe("preparing a page whose imports have long conditions or many kept imports (#151, #152)", () => {
+  const FONTS = "https://fonts.googleapis.com/css2?family=Roboto";
+  const WEB = "https://example.com/a.css";
+  /** A media query list of about `length` characters. */
+  const media = (length: number) => `screen${", print".repeat(Math.ceil(length / 7))}`;
+
+  /**
+   * Prepares a page with these files, which must not throw, and returns how
+   * long its copy is, how many `<style>` elements it has, and how much longer
+   * it is than the page and its files.
+   */
+  async function prepareWith(html: string, files: Record<string, string>) {
+    const ctx = {
+      ...context,
+      importSupports: true,
+      read: (path: string) => Promise.resolve(files[path.replace(/^Saved\//, "")] ?? null),
+    };
+    const { html: output } = await preparePage(html, ctx);
+    const input = html.length + Object.values(files).reduce((sum, text) => sum + text.length, 0);
+    return { output, styles: output.split("<style").length - 1, added: output.length - input };
+  }
+
+  it("keeps what conditions add to the copy within the text limit", async () => {
+    // In the review of #174, these took the copy to 200 to 400 MB, or past
+    // V8's longest string, where preparing failed: a long media query list or
+    // layer name, written into each kept import of the stylesheet that it
+    // imports or around each part of it, or copied onto each <style>.
+    const pairs = (count: number) => `@import "e.css";@import "${WEB}";\n`.repeat(count);
+    const cases: [string, string, Record<string, string>][] = [
+      [
+        "a media query list around 2,000 kept imports",
+        `<style>@import "x.css" ${media(100_000)};</style>`,
+        { "x.css": `@import "${WEB}";\n`.repeat(2_000) },
+      ],
+      [
+        "the same with 6,000 imports on one line",
+        `<style>@import "x.css" ${media(100_000)};</style>`,
+        { "x.css": `@import "${WEB}";`.repeat(6_000) },
+      ],
+      [
+        "a layer name around 10,000 kept imports",
+        `<style>@import "x.css" layer(${"a".repeat(10_000)});</style>`,
+        { "x.css": `@import "${WEB}";\n`.repeat(10_000) },
+      ],
+      [
+        "a media query list around 999 parts",
+        `<style>@import "x.css" ${media(100_000)};</style>`,
+        { "x.css": pairs(999), "e.css": "a{}" },
+      ],
+      [
+        "a media attribute on a <style> of 2,000 kept imports after rules",
+        `<style media="${media(100_000)}">${pairs(2_000)}</style>`,
+        { "e.css": "a{}" },
+      ],
+      [
+        "the same with Google Fonts, whose imports matter where they are",
+        `<style media="${media(100_000)}">${pairs(2_000).replaceAll(WEB, FONTS)}</style>`,
+        { "e.css": "a{}" },
+      ],
+      [
+        "a title on such a <style>",
+        `<style title="${"t".repeat(100_000)}">${pairs(2_000).replaceAll(WEB, FONTS)}</style>`,
+        { "e.css": "a{}" },
+      ],
+      [
+        "a title on a link of such a stylesheet",
+        `<link rel="stylesheet" href="main.css" title="${"t".repeat(100_000)}">`,
+        { "main.css": pairs(2_000).replaceAll(WEB, FONTS), "e.css": "a{}" },
+      ],
+      [
+        "a media query list around 2,000 Google Fonts imports",
+        `<style>@import "x.css" ${media(100_000)};</style>`,
+        { "x.css": `@import "${FONTS}";\n`.repeat(2_000) },
+      ],
+    ];
+    for (const [name, html, files] of cases) {
+      const { added } = await prepareWith(html, files);
+      assert.ok(added <= STYLESHEET_TEXT_LIMIT, `${name}: ${added} characters added`);
+    }
+  });
+
+  it("adds at most the limit's number of <style> elements", async () => {
+    // A kept import that a block of its stylesheet's conditions holds, then
+    // one that takes them: each of the second starts a stylesheet of its own.
+    const x = `@import "${FONTS}" print;\n@import "${FONTS}";\n`.repeat(3 * STYLE_ELEMENT_LIMIT);
+    const { output, styles } = await prepareWith('<style>@import "x.css" screen;</style>', {
+      "x.css": x,
+    });
+    assert.equal(styles, STYLE_ELEMENT_LIMIT + 1);
+    // The rest stay where they are.
+    assert.equal(
+      output.split(`@import url("${FONTS}") screen;`).length - 1,
+      3 * STYLE_ELEMENT_LIMIT,
+    );
+  });
+
+  it("prepares 130,000 kept imports through a link or an import", async () => {
+    // In the review of #174, the link failed after 7 s, past the arguments
+    // that a call takes, and the import gave 130,000 <style> elements.
+    const files = {
+      "main.css": '@import "x.css" screen;',
+      "x.css": `@import "${WEB}";\n`.repeat(130_000),
+    };
+    for (const html of [
+      '<link rel="stylesheet" href="main.css">',
+      '<style>@import "main.css";</style>',
+    ]) {
+      const start = performance.now();
+      const { styles, added } = await prepareWith(html, files);
+      const elapsed = performance.now() - start;
+      assert.equal(styles, 1, html);
+      assert.ok(added <= STYLESHEET_TEXT_LIMIT, `${html}: ${added} characters added`);
+      assert.ok(elapsed < 10_000, `${html}: ${Math.round(elapsed)} ms`);
+    }
+  });
+
+  it("gives back nothing to the text limit for what conditions leave out", async () => {
+    // Given the conditions of its import, a kept import is written anew,
+    // without the spaces and comments that it has as written. In the review
+    // of #174, giving that back let each of 999 imports of a 15 MB
+    // stylesheet in again: 216 s, where main took 0.29 s. Each preparation of
+    // big.css looks up the file that it imports, and past the first, the
+    // context fails the preparation.
+    const kept = '@import "kept.css"';
+    for (const big of [
+      `${kept} layer(a)${" ".repeat(15_000_000)};`,
+      `${kept} layer(a)${"/**/".repeat(3_750_000)};`,
+      `${kept} layer(/*${"x".repeat(15_000_000)}*/a);`,
+    ]) {
+      let looked = 0;
+      const ctx = {
+        ...context,
+        importSupports: true,
+        read: (path: string) =>
+          Promise.resolve(
+            { "Saved/main.css": '@import "big.css" screen;\n'.repeat(999), "Saved/big.css": big }[
+              path
+            ] ?? null,
+          ),
+        exists(path: string) {
+          if (path === "Saved/kept.css" && ++looked > 1)
+            throw new Error("big.css was prepared again");
+          return true;
+        },
+        locate: () => null,
+      };
+      const start = performance.now();
+      const { html } = await preparePage('<link rel="stylesheet" href="main.css">', ctx);
+      const elapsed = performance.now() - start;
+      assert.equal(html.split('/kept.css") layer(a) screen;').length - 1, 1);
+      assert.ok(elapsed < 20_000, `${Math.round(elapsed)} ms`);
+    }
   });
 });
