@@ -1,13 +1,14 @@
 // Scrolling the page in the view's frame: at once, past the page's own smooth
 // scrolling, and back to where the frame's previous document of the same copy
 // was when its tab moved to another tab group or window (#126), also while
-// hidden (#186), unless the reader has scrolled since (#157). The source of
-// the source view and of the split view goes back to its place after such a
-// move too (#135, #157), and the page and the split view's source after
-// Obsidian hid the tab and showed it again (#178), to what they showed, also
-// at another width (#182).
+// hidden (#186), unless the reader has scrolled since (#157), with the split
+// view's side that led last leading again (#195). The source of the source
+// view and of the split view goes back to its place after such a move too
+// (#135, #157), and the page and the source after Obsidian hid the tab and
+// showed it again (#178), to what they showed, also at another width (#182,
+// #189).
 
-import type { ScrollFollower } from "./split";
+import type { ScrollFollower, SideName } from "./split";
 
 /**
  * Scrolls a window or an element at once, also in a page whose own style
@@ -210,18 +211,51 @@ function onReaderInput(target: EventTarget, listener: () => void, signal?: Abort
 }
 
 /**
- * Scrolls a document to a place, as soon as its text is there. Until the page
- * has loaded, its images can still move its content, or leave it too short to
- * reach the place, so it is placed again when it loads, unless the reader has
- * acted first, in the page or on one of `others`, such as the split view's
- * source, or had already acted, as `acted` says. The page's images, media,
- * and fonts can come from any web address, and `load` waits until each has
- * arrived or failed, which for a host that does not answer can take minutes:
- * placing the page then would undo the reader's scrolling. Scroll events
- * cannot tell the reader's scrolling apart, since Chromium's scroll anchoring
- * also scrolls the page when content above its top loads, so the reader's
- * input counts instead. Nothing waits after `signal`, which says that the
- * frame no longer shows the document. `moved` is called each time that
+ * Shows a document where it is to be, as `show` puts it, as soon as its text
+ * is there. Until the page has loaded, its images can still move its content,
+ * or leave it too short to reach its place, so it is shown there again when it
+ * loads, unless the reader has acted first, in the page or on one of
+ * `others`, such as the split view's source, or had already acted, as `acted`
+ * says. The page's images, media, and fonts can come from any web address,
+ * and `load` waits until each has arrived or failed, which for a host that
+ * does not answer can take minutes: showing the page again then would undo
+ * the reader's scrolling. Scroll events cannot tell the reader's scrolling
+ * apart, since Chromium's scroll anchoring also scrolls the page when content
+ * above its top loads, so the reader's input counts instead. Nothing waits
+ * after `signal`, which says that the frame no longer shows the document.
+ * `show` gets a signal that aborts once nothing shows the page again: at its
+ * load, before `show` runs then, at the reader's input, or at `signal`.
+ */
+function showUntilLoaded(
+  doc: Document,
+  others: readonly EventTarget[],
+  signal: AbortSignal,
+  acted: boolean,
+  show: (pending: AbortSignal) => void,
+): void {
+  const win = doc.defaultView;
+  if (!win) return;
+  // AbortSignal.any is newer than Obsidian 1.5.3's Chromium 114.
+  const pending = new AbortController();
+  const stop = (): void => pending.abort();
+  if (acted || doc.readyState === "complete" || signal.aborted) stop();
+  show(pending.signal);
+  if (pending.signal.aborted) return;
+  signal.addEventListener("abort", stop, { signal: pending.signal });
+  win.addEventListener(
+    "load",
+    () => {
+      stop();
+      show(pending.signal);
+    },
+    { signal: pending.signal },
+  );
+  for (const target of [doc, ...others]) onReaderInput(target, stop, pending.signal);
+}
+
+/**
+ * Scrolls a document to a place, as soon as its text is there, and again when
+ * it loads, as `showUntilLoaded` says. `moved` is called each time that
  * placing the page scrolls it.
  */
 export function showPlace(
@@ -233,28 +267,13 @@ export function showPlace(
 ): void {
   const win = doc.defaultView;
   if (!win) return;
-  const show = (): void => {
+  showUntilLoaded(doc, others, signal, acted, () => {
     const top = placeTop(doc, place);
     if (top === null) return;
     const { scrollX, scrollY } = win;
     scrollInstantly(win, doc.documentElement, { top, left: place.left });
     if (win.scrollX !== scrollX || win.scrollY !== scrollY) moved?.();
-  };
-  show();
-  if (acted || doc.readyState === "complete" || signal.aborted) return;
-  // AbortSignal.any is newer than Obsidian 1.5.3's Chromium 114.
-  const pending = new AbortController();
-  const stop = (): void => pending.abort();
-  signal.addEventListener("abort", stop, { signal: pending.signal });
-  win.addEventListener(
-    "load",
-    () => {
-      stop();
-      show();
-    },
-    { signal: pending.signal },
-  );
-  for (const target of [doc, ...others]) onReaderInput(target, stop, pending.signal);
+  });
 }
 
 /** What the reader did while `watchReader` watched. */
@@ -309,21 +328,43 @@ export function watchReader(view: HTMLElement, scrolling: HTMLElement | null): R
   };
 }
 
+/** What the view keeps of a frame's previous document of the same copy for the next one. */
+export interface PreviousDocument {
+  /** Where the previous document was scrolled to when the frame dropped it (#126). */
+  readonly place: ScrollPlace | null;
+  /** The side of the split view that led last then, or null where none had led (#195). */
+  readonly led: SideName | null;
+}
+
+/** The split view's following of its sides, for the frame's next document. */
+export interface NextDocumentFollowing {
+  readonly follower: Pick<ScrollFollower, "passOver" | "placed" | "scrolled">;
+  /**
+   * Measures the page again, as its images can have moved its content, and
+   * has the source lead from where it is: the page follows it, and its own
+   * scrolling, as Chromium's scroll anchoring makes it while its images load,
+   * leads nothing until `until` aborts.
+   */
+  sourceLeads(until: AbortSignal): void;
+}
+
 /**
- * Shows a frame's document, which has its text, where the frame's previous
- * document of the same copy was, `place`, as after its tab moved (#126), and
- * keeps the split view's sides in step there with `follower`, if the view
+ * Shows a frame's document, which has its text, as the frame's previous
+ * document of the same copy was, `previous`, as after its tab moved (#126),
+ * and keeps the split view's sides in step there with `split`, if the view
  * shows the split view and can follow the page. `reader` says what the
  * reader did while the frame showed no page (#157), and is null when it
  * showed one, as for its first document.
  *
  * - If they scrolled the source, the page follows it, and is not placed.
- * - Otherwise the page is placed, and leads. A scroll of the source that the
- *   source reports later, in the frame of the placement or after it, leads
- *   instead, unless the reader has not acted: then the source's scrolling so
- *   far was not theirs, but Obsidian's, which scrolls a moved tab's elements
- *   back (#135), and it is passed over.
- * - After their input, the page is not placed again when it loads.
+ * - Otherwise, where the source led last, it leads again from its line, where
+ *   its kept place has put it back, and the page follows it (#195).
+ * - Otherwise the page is placed where the previous document was, and leads.
+ *   A scroll of the source that the source reports later, in the frame of the
+ *   placement or after it, leads instead, unless the reader has not acted:
+ *   then the source's scrolling so far was not theirs, but Obsidian's, which
+ *   scrolls a moved tab's elements back (#135), and it is passed over.
+ * - Either side leads again when the page loads, unless the reader acted.
  *
  * Returns the place that the page is to show, or undefined where there is
  * none, or the page follows the source instead: a frame that has no size yet
@@ -331,20 +372,25 @@ export function watchReader(view: HTMLElement, scrolling: HTMLElement | null): R
  */
 export function placeNextDocument(
   doc: Document,
-  place: ScrollPlace | null,
+  previous: PreviousDocument,
   reader: ReaderActivity | null,
-  follower: Pick<ScrollFollower, "passOver" | "placed" | "scrolled"> | null,
+  split: NextDocumentFollowing | null,
   others: readonly EventTarget[],
   signal: AbortSignal,
 ): ScrollPlace | undefined {
-  if (follower && reader?.scrolled) {
-    follower.scrolled("source");
+  if (split && reader?.scrolled) {
+    split.follower.scrolled("source");
     return undefined;
   }
-  if (!place) return undefined;
   const acted = reader?.acted ?? false;
-  if (!acted) follower?.passOver("source");
-  showPlace(doc, place, others, signal, { acted, moved: () => follower?.placed("page") });
+  if (split && previous.led === "source") {
+    showUntilLoaded(doc, others, signal, acted, (pending) => split.sourceLeads(pending));
+    return undefined;
+  }
+  const { place } = previous;
+  if (!place) return undefined;
+  if (!acted) split?.follower.passOver("source");
+  showPlace(doc, place, others, signal, { acted, moved: () => split?.follower.placed("page") });
   return place;
 }
 
@@ -352,7 +398,9 @@ export function placeNextDocument(
 export interface KeptScrolling {
   /**
    * Scrolls back to where it was last scrolled to, if it has lost that place,
-   * as after Obsidian took it out of the page and inserted it again.
+   * as after Obsidian took it out of the page and inserted it again. Where it
+   * keeps what it showed there, it scrolls to show that, as laid out now
+   * (#189).
    */
   restore(): void;
   /**
@@ -365,7 +413,8 @@ export interface KeptScrolling {
   /**
    * Keeps the place as it is until `back` or `release`, whatever scroll is
    * reported meanwhile, as while Obsidian hides the tab and shows it again
-   * (#178).
+   * (#178), or moves it (#189), apart from the reader's own: a scroll that it
+   * reports after the reader's input in it ends the hold, and is kept.
    */
   hold(): void;
   /**
@@ -377,6 +426,13 @@ export interface KeptScrolling {
   back(): void;
   /** Ends `hold`, and keeps where it is now, as where the reader scrolled it. */
   release(): void;
+  /**
+   * Shows what it showed, as laid out now, where its content was laid out
+   * anew with no scroll that says so, as when a new window's styles arrive
+   * after the tab moved there (#165, #189). Where the reader has scrolled it
+   * since, that is where they scrolled it. Nothing happens while it is held.
+   */
+  again(): void;
 }
 
 /** How far something is scrolled, in pixels. */
@@ -392,10 +448,15 @@ export interface Position {
  * pixels.
  */
 export interface Placing<P> {
-  /** What it shows now; it is laid out. */
-  measure(): P;
+  /** What it shows now, where it is laid out, or undefined if it cannot tell. */
+  measure(): P | undefined;
   /** How far down it scrolls to show `place`, as it is laid out now, or null if it cannot tell. */
   topFor(place: P): number | null;
+  /**
+   * Whether measuring it costs so little that it is measured at each report
+   * of a scroll, rather than once its scrolling has settled.
+   */
+  readonly atOnce?: boolean;
 }
 
 /**
@@ -418,6 +479,11 @@ interface Scroller {
   window(): Window | null;
   /** Where it is scrolled to. */
   position(): Position;
+  /**
+   * How far down it can be scrolled, where Obsidian can put it back in
+   * pixels, as it does the elements of a tab that it moves; not a page.
+   */
+  furthest?(): number;
   /** Whether it is laid out, and so shows where it is scrolled to. */
   laidOut(): boolean;
   /** Scrolls it at once. */
@@ -442,7 +508,8 @@ interface KeptPlace<P> extends KeptScrolling {
  * elsewhere. What is not laid out has nothing to scroll, and is left alone
  * until a later `restore`; a scroll that it reports then is Chromium's, as
  * when it scrolls a hidden frame's page to its start (#178), and is not kept.
- * Neither is a scroll that it reports while held.
+ * Neither is a scroll that it reports while held, unless it comes after the
+ * reader's input in it.
  *
  * The reader's scrolling to the start looks the same until Chromium reports
  * it, in the next animation frame, while a layout change or a resize can
@@ -452,22 +519,30 @@ interface KeptPlace<P> extends KeptScrolling {
  * move that a hotkey makes in the same frame (#167). A window without
  * animation frames renders nothing, and its input does not count.
  *
- * With `placing`, it also keeps what it shows, for `back` (#182): `shown` to
- * start with, as the place that the view shows it at, and then what it
- * measures once it has reported no scroll for SETTLING milliseconds of its
- * window's animation frames, also after `placed`, `release`, and
- * `relaidOut`. Where `back` shows what it showed, that is up to date where
- * `back` put it, and the change of layout that the showing reports in that
- * animation frame does not make it out of date. Measuring a page's place reads the boxes of its elements,
- * which on a long page takes a share of a frame that would show in every
- * frame of a scroll, or at each step of the find bar. Nothing is measured
- * while it is not laid out.
+ * With `placing`, it also keeps what it shows, for `back` and `restore`
+ * (#182, #189): `shown` to start with, as the place that the view shows it
+ * at, and then what it measures once it has reported no scroll for SETTLING
+ * milliseconds of its window's animation frames, also after `placed`,
+ * `release`, and `relaidOut`, or at once where `placing` says so. Where it
+ * goes back to what it showed, that is up to date where it put it, and the
+ * change of layout that `back`'s showing reports in that animation frame
+ * does not make it out of date. Measuring a page's place reads the boxes of
+ * its elements, which on a long page takes a share of a frame that would show
+ * in every frame of a scroll, or at each step of the find bar. Nothing is
+ * measured while it is not laid out.
  *
  * What it measured is out of date where it was measured elsewhere than it
  * was last reported, as when the reader scrolled it and Obsidian hid the tab
  * before the scrolling settled, and after `relaidOut` until it is measured
- * again: `back` then scrolls to where it was last reported, and `place`
- * still says what it measured last.
+ * again: it then goes back to where it was last reported, and `place` still
+ * says what it measured last.
+ *
+ * A scroll that an element of the view reports as far down and as far
+ * sideways as it was last reported, or at its end short of that, says that it
+ * lost its place and was put back in pixels within one frame: Obsidian does
+ * that with the elements of a tab that it moves, also where they wrap
+ * otherwise in the tab's new pane (#135, #189). It then shows what it showed,
+ * as laid out now, if it has that up to date.
  */
 function keepPlace<P>(
   scroller: Scroller,
@@ -497,7 +572,9 @@ function keepPlace<P>(
   let shownAgain = false;
   const measure = (): void => {
     if (!placing || !scroller.laidOut()) return;
-    content = { place: placing.measure(), at: scroller.position().top };
+    const place = placing.measure();
+    if (place === undefined) return;
+    content = { place, at: scroller.position().top };
     outdated = false;
   };
   /** The window whose animation frames say whether its scrolling has settled. */
@@ -531,25 +608,22 @@ function keepPlace<P>(
       }
     });
   };
-  /** It is at `kept` now: what it shows there is measured once its scrolling settles. */
+  /**
+   * It is at `kept` now: what it shows there is measured once its scrolling
+   * settles, or at once where `placing` says so.
+   */
   const measureWhenSettled = (): void => {
     if (!placing) return;
+    if (placing.atOnce) {
+      measure();
+      return;
+    }
     moving = true;
     const win = scroller.window();
     if (settling !== win) settle(win);
   };
-  scroller.events.addEventListener(
-    "scroll",
-    () => {
-      if (held || !scroller.laidOut()) return;
-      kept = scroller.position();
-      unreported = false;
-      measureWhenSettled();
-    },
-    { passive: true, signal },
-  );
   /**
-   * Where `back` scrolls to: where it shows what it showed, while that is up
+   * Where it goes back to: where it shows what it showed, while that is up
    * to date, and where it was otherwise. Within a pixel of where it was, as
    * where nothing has changed, it goes back to that exactly, so that rounding
    * cannot move it at each switch.
@@ -560,6 +634,43 @@ function keepPlace<P>(
     if (top === null || Math.abs(top - kept.top) < 1) return kept;
     return { top: Math.round(top), left: kept.left };
   };
+  /** Scrolls to `to`, where it shows what it showed, which is up to date there. */
+  const showAt = (to: Position): void => {
+    scroller.scrollTo(to);
+    kept = scroller.position();
+    if (content) content = { place: content.place, at: kept.top };
+  };
+  /** Goes back to `target`, if it is elsewhere. */
+  const goBack = (): void => {
+    const to = target();
+    const { top, left } = scroller.position();
+    if (top === to.top && left === to.left) return;
+    if (to === kept) scroller.scrollTo(to);
+    else showAt(to);
+  };
+  scroller.events.addEventListener(
+    "scroll",
+    () => {
+      if (!scroller.laidOut()) return;
+      // A scroll that it reports after the reader's input in it is theirs.
+      if (held && !unreported) return;
+      held = false;
+      unreported = false;
+      const now = scroller.position();
+      const putBack =
+        scroller.furthest !== undefined &&
+        now.left === kept.left &&
+        (now.top === kept.top || (now.top < kept.top && now.top >= scroller.furthest() - 1));
+      const to = putBack ? target() : kept;
+      if (to !== kept) {
+        showAt(to);
+        return;
+      }
+      kept = now;
+      measureWhenSettled();
+    },
+    { passive: true, signal },
+  );
   onReaderInput(
     scroller.events,
     () => {
@@ -578,7 +689,7 @@ function keepPlace<P>(
       if (unreported || !scroller.laidOut()) return;
       const { top, left } = scroller.position();
       if (top !== 0 || left !== 0 || (kept.top === 0 && kept.left === 0)) return;
-      scroller.scrollTo(kept);
+      goBack();
     },
     placed: () => {
       if (!scroller.laidOut()) return;
@@ -600,20 +711,17 @@ function keepPlace<P>(
           shownAgain = false;
         });
       }
-      const to = target();
-      const { top, left } = scroller.position();
-      if (top === to.top && left === to.left) return;
-      scroller.scrollTo(to);
-      // Where it shows what it showed, that is up to date where it is now.
-      if (to === kept) return;
-      kept = scroller.position();
-      if (content) content = { place: content.place, at: kept.top };
+      goBack();
     },
     release: () => {
       held = false;
       if (!scroller.laidOut()) return;
       kept = scroller.position();
       measureWhenSettled();
+    },
+    again: () => {
+      if (held || unreported || !scroller.laidOut()) return;
+      goBack();
     },
     place: () => content?.place,
     relaidOut: () => {
@@ -629,16 +737,18 @@ function keepPlace<P>(
  * the tab's elements out of the page and inserts them again, as when the tab
  * moves to another tab group or window (#135). Chromium then shows the
  * element from its start, without a scroll event. Obsidian 1.15.1 scrolls it
- * back itself, and 1.5.3 does not. An element that is not laid out, as in a
- * hidden tab or a window that has yet to lay it out, is left alone.
+ * back itself, as far down as it was, and 1.5.3 does so in some moves, as
+ * where the tab was hidden once before. An element that is not laid out, as
+ * in a hidden tab or a window that has yet to lay it out, is left alone.
  *
  * Where the find bar scrolls the element, `placed` tells it so. The split
  * view's follower, and its putting the sides in step again in a new window
  * (#165), do not: their lowest target is the first line, below the source's
  * top padding, so they never leave the element at its start.
  *
- * With `placing`, `back` shows what the element showed, as the split view's
- * source does with its lines (#182).
+ * With `placing`, it goes back to what the element showed, as the source does
+ * with its lines (#182, #189): when the tab shows again, after a move, and
+ * where Obsidian has put the element back in pixels.
  */
 export function keepScrolling<P>(element: HTMLElement, placing?: Placing<P>): KeptScrolling {
   return keepPlace(
@@ -646,6 +756,7 @@ export function keepScrolling<P>(element: HTMLElement, placing?: Placing<P>): Ke
       events: element,
       window: () => element.ownerDocument.defaultView,
       position: () => ({ top: element.scrollTop, left: element.scrollLeft }),
+      furthest: () => element.scrollHeight - element.clientHeight,
       laidOut: () => element.isConnected && element.clientHeight !== 0,
       scrollTo: (to) => scrollInstantly(element, element, to),
     },
@@ -779,4 +890,62 @@ export function watchHiding(
   });
   observer.observe(frame);
   signal.addEventListener("abort", () => observer.disconnect(), { once: true });
+}
+
+/** A watch of whether an element of the view shows, from `watchElementHiding`. */
+export interface ElementHiding {
+  /**
+   * Watches the element in the window that it is in now, after its tab moved
+   * to another window, and tells `hiding` whether it shows now, if that
+   * changed since the watch last told it.
+   */
+  moved(): void;
+}
+
+/**
+ * Tells `hiding` when `element` is laid out with no size and when with a size
+ * again, until `signal`, as watchHiding does for a frame: the **Source** view's
+ * source, which Chromium lays out again as far down as it was when its tab
+ * shows again, also where its lines wrap otherwise now, and which reports no
+ * scroll for that (#189). An element that has no size when watched counts as
+ * hidden. The observer is made in the element's own window, whose rendering
+ * reports the sizes of its elements; after the tab moves to another window,
+ * `moved` watches it there. A window without ResizeObserver, as jsdom is,
+ * tells nothing.
+ */
+export function watchElementHiding(
+  element: HTMLElement,
+  signal: AbortSignal,
+  hiding: Hiding,
+): ElementHiding {
+  // In a new window, Obsidian 1.5.3 first lays the view out with no width,
+  // and then at the window's width.
+  const shows = (): boolean =>
+    element.isConnected && element.clientHeight !== 0 && element.clientWidth !== 0;
+  let shown = shows();
+  const check = (): void => {
+    if (signal.aborted || shows() === shown) return;
+    shown = !shown;
+    if (shown) hiding.shown();
+    else hiding.hid();
+  };
+  let observing: { readonly win: Window; readonly observer: ResizeObserver } | null = null;
+  /** Observes the element in its window, and says whether that window can tell. */
+  const watch = (): boolean => {
+    const win = element.ownerDocument.defaultView;
+    if (signal.aborted || !win?.ResizeObserver) return false;
+    if (win !== observing?.win) {
+      observing?.observer.disconnect();
+      observing = { win, observer: new win.ResizeObserver(check) };
+      observing.observer.observe(element);
+    }
+    return true;
+  };
+  if (watch() && !shown) hiding.hid();
+  signal.addEventListener("abort", () => observing?.observer.disconnect(), { once: true });
+  return {
+    moved: () => {
+      if (watch()) check();
+    },
+  };
 }

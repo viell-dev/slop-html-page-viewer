@@ -103,6 +103,8 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | **Unreleased (#178):** A tab that Obsidian shows again after hiding it keeps the place of a page that scrolls as a whole, and the split view's sides where they were, in step      | `move.test.ts`: the frame's own observer; held while hidden, back when shown; `split.test.ts`: either order of reports, the side that led last, the reader, the find bar  | `move.e2e.ts`: rendered, split, wrapped lines, a long head, the reader, the find bar, a sidebar; the Source view and a column          |
 | **Unreleased (#182):** Shown again after its pane changed width while hidden, a page shows the element at its top, and the split view's source the line at its top                 | `move.test.ts`: measured once scrolling settles for 100 ms, out of date after a scroll or a layout change, not hidden, sideways; `split.test.ts`: the source's line       | `move.e2e.ts`: narrowed while hidden, rendered, split, sideways; Readable line length and narrowing while shown; hidden mid-scroll     |
 | **Unreleased (#186):** A tab moved while hidden shows its page where it was, and the split view's sides in step; also one whose hidden frame reloads                               | `split.test.ts`: the hidden page's element for the next document, also one with no size yet, twice; a page moved while it shows                                           | `move.e2e.ts`: rendered and split, by the tab header's menu, a drop's calls, and Split down in the tab in front                        |
+| **Unreleased (#189):** The **Source** view shows the line at its top after a move, and when its tab shows again at another width                                                   | `source.test.ts`: lines that wrap otherwise, put back in pixels or at its end, its own observer, a new window; `split.test.ts`: measured at once, not without a width     | `move.e2e.ts`: narrowed while hidden; a narrower and a wider tab group; a new window; a hidden tab moved by its menu                   |
+| **Unreleased (#195):** After a move, the split view's side that led last leads: a source keeps its line, and the page follows it until it loads                                    | `move.test.ts`: the source leads, again at load, the page's scrolling passed over; `split.test.ts`: a long head, moved shown or hidden; the source held meanwhile         | `move.e2e.ts`: a long head in another tab group, a new window, and a hidden tab moved by its menu; wrapped rules, a narrower tab group |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                        |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                              |
 | A release holds exactly the verified build: its commit's CI passed, its files match their checksums, the zip, and each other, and a stopped run resumes without replacing anything | `release.test.ts`, against a stand-in for GitHub                                                                                                                          | The Release workflow's `verify-published` step, against the published release                                                          |
@@ -841,6 +843,45 @@ Measuring after one quiet frame, in place of 100 ms, passed every test in Obsidi
 One changed nothing: taking the place of a page at its top for one that cannot tell, since both
 go back to the page's top.
 
+**Unreleased (#189, #195):** On 2026-11-19, with the view as `main` at `eb926d3` has it, the ten
+new tests of `move.e2e.ts` failed in Obsidian 1.5.3, and nine of them in 1.15.1:
+
+- The **Source** view at line 37 showed line 19 in a narrower tab group, line 58 in a wider one,
+  line 19 narrowed while hidden, line 49 in a new window on 1.5.3, and after a hidden tab's move to
+  a new window by its menu line 24 on 1.15.1 and 49 on 1.5.3. In a new window it never showed line
+  37 while the window's app.css was held back. In a new window on 1.15.1, Chromium's scroll
+  anchoring kept line 37, and that test passed.
+- The split view's source at line 150 of a long head showed line 155 in another tab group, and
+  line 194 on 1.15.1 and 174 on 1.5.3 in a new window, also after a hidden tab's move by its menu.
+  Where the head's rules wrap in a narrower tab group, it showed line 58 on 1.15.1 and line 20 on
+  1.5.3.
+
+Each of these deliberate breakages failed the host tests named, in both versions unless said:
+
+- The **Source** view without its line: its five tests of a tab group, a new window, a narrowed
+  view, and a hidden tab's move.
+- No watch of the **Source** view's own size: the narrowed view, and on 1.15.1 the hidden tab's
+  move.
+- No going back to the line at a scroll that leaves the source where it was last reported: both
+  tab groups; and not at its end short of that: the wider one.
+- No watch of its lines in a new window: the held-back app.css, in 1.5.3.
+- The split view's page leading after every move: the four tests of #195.
+- The split view's source not going back to its line when the next document shows: the wrapping
+  rules in a narrower tab group, and in 1.5.3 both tests of #165.
+- The hold until the next document not ended by the reader's input: four tests of #157 in 1.5.3,
+  and three in 1.15.1.
+
+Five breakages failed no host test, and each failed a unit test: no hold of the source while the
+frame shows no page; no going back to the line where Chromium leaves the source at its end at
+#165's resize; measuring the source's line only once its scrolling settles, which a host test of
+#165 showed only where the tab moved within 100 ms of the scroll; and the line place, or the
+watch of the **Source** view, taking a source with no width for one that can tell. Each of 28
+one-edit mutations of this change failed a unit test in `move.test.ts`, `split.test.ts`,
+`source.test.ts`, or `find.test.ts`. Three earlier forms of the change that a mutation showed to
+change nothing were simplified: `back` in place of `release` where the reader scrolled the source
+while no page showed, whose own scroll ends the hold; no leader carried past a document that
+none led; and no guard on measuring while held.
+
 On 2026-11-17, each of these deliberate breakages failed the check named (#91):
 
 - The regular expressions used before #91, which read URLs and imports inside CSS strings and
@@ -1511,6 +1552,9 @@ starts left neither test a step after it, and the screenshot was taken.
   the source's lines within 2 seconds of showing the page there. The page leads again, or, where
   the reader scrolled the source last, the source keeps their line and the page follows it; a
   source that Chromium has scrolled since, as scroll anchoring would, leads from where it is.
+  **Unreleased (#195):** so does a source that led before the move, from the line that its kept
+  place put it back at, and one that Chromium has left at its end, short of where it led from,
+  keeps its line; only `split.test.ts` tests the end.
   Styles that arrive later, and later changes of the layout, leave the sides as they are until the
   next scroll. `move.e2e.ts` holds the new window's app.css back until the view has followed the
   page, and then the reader's scroll of the source, in every run. On 1.15.1 the source's lines
@@ -1559,10 +1603,13 @@ starts left neither test a step after it, and the screenshot was taken.
       further apart are each searched, as mouse-wheel notches more than 100 ms apart are: every
       eighth frame, 15 searches for 15 steps, at a median of 28 ms on 1.15.1 and 56 ms on 1.5.3
       while a second container ran beside them.
-    - A page or a source that was still scrolling when the tab hid, or that stopped less than
-      100 ms before, goes back as far down as it was. `move.e2e.ts` hides the tab two frames after
-      a scroll, at the same width, and checks that the page goes back to the pixel and not to the
-      element measured before; `move.test.ts` and `split.test.ts` test it too.
+    - A page that was still scrolling when the tab hid, or that stopped less than 100 ms before,
+      goes back as far down as it was. `move.e2e.ts` hides the tab two frames after a scroll, at
+      the same width, and checks that the page goes back to the pixel and not to the element
+      measured before; `move.test.ts` tests it too. **Unreleased (#189):** a source's line is
+      measured at each scroll that it reports, as finding it reads the tops of the few lines of a
+      binary search, so a source keeps its line also where it hid or moved right after a scroll;
+      `split.test.ts` tests that.
     - A change of the page's layout while it shows, without a scroll, makes the element measured
       out of date until it is measured again, once 100 ms pass: the page's own window's
       `ResizeObserver` reports the sizes of its root and its body. Until then, the page goes back
@@ -1617,6 +1664,39 @@ starts left neither test a step after it, and the screenshot was taken.
   - That a page with scripts on starts from its top was measured for #178 on both versions, not
     tested. That Chromium keeps the places of the frame's own scrolling elements, and of the
     **Source** view, `move.e2e.ts` tests.
+  - **Unreleased (#189):** The **Source** view's source goes back to its line when the
+    ResizeObserver of its own window reports that it has a size again, before that window paints,
+    as for the frame. Chromium lays it out again as far down as it was, and reports no scroll for
+    that, nor for its scroll to its start while hidden. In a new window, Obsidian 1.5.3 first lays
+    the view out with no width, where each of the source's lines is as high as its characters are
+    many, so a source counts as shown, and its line as known, only once it has a width. After a
+    move to another window, the view observes the source in that window at Obsidian's next layout
+    change or resize, which also tells a showing that the first window's observer missed; on both
+    versions, the main window's observer still reported the moved source's sizes. There, the source
+    also goes back to its line at each size change of its lines within 2 seconds, as Obsidian 1.5.3
+    lays a new window out before its styles arrive (#165), or to the line where the reader scrolled
+    it since; later changes of its layout leave it where it is. `move.e2e.ts` holds the new window's app.css
+    back until the view has put the source at its line without it, as for the split view.
+  - **Unreleased (#189):** After a move, Obsidian puts a source back as far down as it was, which
+    Chromium reports as a scroll to where the source was last reported, or to its end where its
+    lines now take less room: 1.15.1 in every move measured, and 1.5.3 in some, as in a move after
+    the tab had been hidden once. The view takes such a scroll for a lost place, and shows the source's line there; the
+    reader's scrolling never reports where its last report left it. Obsidian 1.5.3 shows a source
+    moved without that from its start, and the view puts it back at its line at the layout change.
+    `move.e2e.ts` moves the **Source** view into a narrower and a wider tab group, made beside the
+    first with a `max-width` on one of them, and to a new window, with and without hiding it first;
+    a drag of a tab header is not tested.
+  - **Unreleased (#195):** The view records which side of the split view led last when the frame
+    drops its page, and has that side lead the next document. From then until the next document
+    shows, the source's place is held, apart from a scroll that it reports after the reader's
+    input in it, and the source then goes back to its line, or stays where the reader scrolled it.
+    Where the source leads, the page follows it, and the page's own scrolling leads nothing until
+    the page has loaded or the reader acts, as Chromium's scroll anchoring scrolls the page while
+    its images load; the source then leads again. Only `split.test.ts` tests the page's scrolling
+    before it loads. A page whose images never arrive follows the source until the reader acts.
+    Where the page led last, it is placed and leads, as before. `move.e2e.ts` tests the long head
+    of #195 in another tab group, a new window, and a hidden tab moved by its menu, and a head whose
+    rules wrap in a narrower tab group.
 - With scripts off, a link inside what SVG `<use>` copies does nothing when clicked. The copy is in
   the browser's own shadow tree, which hides from the view which link was clicked, and the view
   cancels the navigation that the click starts, as `links.e2e.ts` checks. Pages mostly use `<use>`

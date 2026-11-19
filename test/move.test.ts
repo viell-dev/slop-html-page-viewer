@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { JSDOM } from "jsdom";
 import {
   keepPageScrolling,
+  type NextDocumentFollowing,
   placeNextDocument,
   placeTop,
   type ReaderActivity,
@@ -12,7 +13,7 @@ import {
   watchHiding,
   watchReader,
 } from "../src/scrolling";
-import { ScrollFollower } from "../src/split";
+import { ScrollFollower, type SideName } from "../src/split";
 import { resizeObservers } from "./support/observers";
 
 /**
@@ -422,7 +423,9 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
    * laid out as `laidOut` does at the height that its window is scrolled to,
    * and a split view's follower of it and of a source half its height, whose
    * frames run when `frame` says. The reader or Obsidian scrolls the source
-   * with `scrollSource`, which Chromium reports only with `report`.
+   * with `scrollSource`, which Chromium reports only with `report`, and the
+   * page with `scrollPage`. As the view's split view does, `split` passes
+   * over the page's reports while the page follows the source (#195).
    */
   async function nextDocument() {
     const doc = laidOut(PAGE, 0);
@@ -467,15 +470,30 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
       { source: (top) => top * 2, page: (top) => top / 2 },
       (run) => frames.push(run),
     );
+    let pageFollows: AbortSignal | null = null;
+    const split: NextDocumentFollowing = {
+      follower,
+      sourceLeads: (until) => {
+        pageFollows = until;
+        follower.placed("source");
+      },
+    };
     return {
       doc,
       follower,
+      split,
       /** Where the follower and the view scrolled the page and the source to. */
       scrolls: { page, source },
       scrollSource: (to: number) => {
         sourceTop = to;
       },
-      report: (side: "source" | "page") => follower.scrolled(side),
+      scrollPage: (to: number) => {
+        scrollY = to;
+      },
+      report: (side: SideName) => {
+        if (side === "source" || pageFollows === null || pageFollows.aborted)
+          follower.scrolled(side);
+      },
       frame: () => {
         for (const run of frames.splice(0)) run();
       },
@@ -487,13 +505,15 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
     next: Awaited<ReturnType<typeof nextDocument>>,
     reader: ReaderActivity | null,
     place: ScrollPlace | null = PLACE,
+    led: SideName | null = null,
+    others: readonly EventTarget[] = [viewElement()],
   ): ScrollPlace | undefined =>
     placeNextDocument(
       next.doc,
-      place,
+      { place, led },
       reader,
-      next.follower,
-      [viewElement()],
+      next.split,
+      others,
       new AbortController().signal,
     );
 
@@ -554,7 +574,7 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
     const next = await nextDocument();
     placeNextDocument(
       next.doc,
-      PLACE,
+      { place: PLACE, led: "source" },
       { acted: true, scrolled: true },
       null,
       [viewElement()],
@@ -564,15 +584,86 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
     assert.deepEqual(next.scrolls.page, [1100]);
   });
 
+  // Where the source led last, it keeps its line, where its kept place has
+  // put it back, and the page follows it there: were the placed page to lead,
+  // the lines that share its first pixels, as a long head's, would map to
+  // another one (#195).
+  it("has the source that led last lead from where it is, and the page follow it, also when the page loads (#195)", async () => {
+    const next = await nextDocument();
+    next.scrollSource(300);
+    assert.equal(show(next, { acted: false, scrolled: false }, PLACE, "source"), undefined);
+    assert.deepEqual(next.scrolls.page, [], "the page is not placed");
+    next.frame();
+    assert.deepEqual(next.scrolls.page, [600], "it follows the source");
+    // Chromium's scroll anchoring moves the page as its images load, which
+    // leads nothing.
+    next.report("page");
+    next.scrollPage(650);
+    next.report("page");
+    next.frame();
+    assert.deepEqual(next.scrolls, { page: [600], source: [] });
+    next.load();
+    next.frame();
+    assert.deepEqual(next.scrolls.page, [600, 600], "and follows it again when it loads");
+    // The page's own scrolling leads again after that.
+    next.scrollPage(800);
+    next.report("page");
+    next.frame();
+    assert.deepEqual(next.scrolls.source, [400]);
+  });
+
+  it("lets the page lead that the reader scrolls before it loads, where the source led last (#195)", async () => {
+    const next = await nextDocument();
+    const view = viewElement();
+    next.scrollSource(300);
+    show(next, { acted: false, scrolled: false }, PLACE, "source", [view]);
+    next.frame();
+    const viewWindow = view.ownerDocument.defaultView!;
+    view.dispatchEvent(new viewWindow.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+    next.scrollPage(800);
+    next.report("page");
+    next.frame();
+    assert.deepEqual(next.scrolls.source, [400], "the source follows the reader's page");
+    next.load();
+    next.frame();
+    assert.deepEqual(next.scrolls.page, [600], "and the page is not sent back when it loads");
+  });
+
+  it("has the source lead once where it led last and the reader acted while no page showed (#195)", async () => {
+    const next = await nextDocument();
+    next.scrollSource(300);
+    show(next, { acted: true, scrolled: false }, PLACE, "source");
+    next.frame();
+    next.scrollPage(650);
+    next.report("page");
+    next.frame();
+    assert.deepEqual(next.scrolls.source, [325], "the page's scroll is theirs");
+    next.load();
+    next.frame();
+    assert.deepEqual(next.scrolls.page, [600]);
+  });
+
+  it("places the page that led last where the previous document was, as before any side led (#195)", async () => {
+    for (const led of ["page", null] as const) {
+      const next = await nextDocument();
+      next.scrollSource(300);
+      show(next, { acted: false, scrolled: false }, PLACE, led);
+      next.report("source");
+      next.frame();
+      assert.deepEqual(next.scrolls, { page: [1100], source: [550] }, String(led));
+    }
+  });
+
   it("says which place it shows the page at: the previous one's, or none where there is none or the page follows the source (#186)", async () => {
     const next = await nextDocument();
     assert.equal(show(next, { acted: false, scrolled: false }), PLACE);
     assert.equal(show(next, { acted: true, scrolled: true }), undefined);
     assert.equal(show(next, null, null), undefined);
+    assert.equal(show(next, { acted: false, scrolled: false }, PLACE, "source"), undefined);
     assert.equal(
       placeNextDocument(
         next.doc,
-        PLACE,
+        { place: PLACE, led: null },
         { acted: true, scrolled: true },
         null,
         [viewElement()],
@@ -601,7 +692,7 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
  * frame 400 pixels high, and the page's window scrolled down by `scrollY`
  * and sideways by `scrollX`. The page's two paragraphs, `One` and `Two`, are
  * each `layout.height` pixels high, 1000 to start with: a narrower frame lays
- * them out higher. The page's own window has ResizeObservers too, which
+ * them out higher. The page's root is as high as both. The page's own window has ResizeObservers too, which
  * `reportPage` runs, as for the sizes of its root and body; Chromium runs the
  * frame's window's first.
  *
@@ -631,6 +722,10 @@ function framedPage() {
   const layout = { height: 1000 };
   Object.defineProperty(frame, "contentDocument", { configurable: true, get: () => doc });
   Object.defineProperty(frame, "clientHeight", { configurable: true, get: () => height });
+  Object.defineProperties(doc.documentElement, {
+    scrollHeight: { configurable: true, get: () => 2 * layout.height },
+    clientHeight: { configurable: true, get: () => height },
+  });
   Object.defineProperty(win, "scrollY", { configurable: true, get: () => scrollY });
   Object.defineProperty(win, "scrollX", { configurable: true, get: () => scrollX });
   Object.defineProperty(win.Element.prototype, "getBoundingClientRect", {
@@ -834,6 +929,24 @@ describe("a page's place when Obsidian hides its tab and shows it again (#178)",
     assert.deepEqual(page.scrolledTo, [900]);
   });
 
+  // As where the reader scrolls a moved split view's source before the frame
+  // shows its next document (#157, #189).
+  it("keeps a scroll that it reports while held after the reader's input in it, which ends the hold", () => {
+    const page = framedPage();
+    const place = keepPageScrolling(page.frame, page.doc, page.signal())!;
+    page.scroll(900);
+    place.hold();
+    page.scroll(600);
+    page.doc.body.dispatchEvent(new page.doc.defaultView!.WheelEvent("wheel", { bubbles: true }));
+    page.scroll(300);
+    page.scroll(200);
+    page.hide();
+    place.hold();
+    page.show();
+    place.back();
+    assert.deepEqual(page.scrolledTo, [200]);
+  });
+
   it("is not sent back where the reader's input in the page scrolled it before Chromium reported it", () => {
     const page = framedPage();
     kept(page);
@@ -961,6 +1074,20 @@ describe("what a page shows when Obsidian shows its tab again at another width (
     page.show();
     assert.deepEqual(page.scrolledTo, [1800]);
     assert.deepEqual(page.scrolledSideways, [300]);
+  });
+
+  // Obsidian puts the elements of a tab that it moves back as far down as
+  // they were, not its frame's page, which the frame loads anew (#189).
+  it("takes a scroll that leaves it as far down as it was last reported for its own", () => {
+    const page = framedPage();
+    const place = kept(page);
+    page.scroll(900);
+    page.settle();
+    page.layout.height = 2000;
+    page.scroll(900);
+    assert.deepEqual(page.scrolledTo, []);
+    page.settle();
+    assert.deepEqual(place.place(), { path: [0], into: 0.45, left: 0 });
   });
 
   it("shows what the view scrolled it to itself, as the find bar does, and what the reader scrolled it to while held", () => {

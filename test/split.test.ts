@@ -643,9 +643,10 @@ describe("following a scrolled side", () => {
 
 /**
  * A source in `doc`'s window, laid out as jsdom does not: 12 lines from 10
- * pixels down, each `lines.height` pixels high, in a source 200 pixels high.
- * `scrolledTo` collects where its scrollTo sends it, which reports nothing;
- * `scroll` scrolls it and reports that.
+ * pixels down, each `lines.height` pixels high, in a source 200 pixels high
+ * and 300 wide that can scroll 12 lines' heights down. `scrolledTo` collects where its
+ * scrollTo sends it, which reports nothing; `scroll` scrolls it and reports
+ * that.
  */
 function placedSource(doc: Document = new JSDOM("<!doctype html><body></body>").window.document) {
   const source = doc.createElement("div");
@@ -665,7 +666,9 @@ function placedSource(doc: Document = new JSDOM("<!doctype html><body></body>").
   Object.defineProperties(source, {
     scrollTop: { configurable: true, get: () => top },
     scrollLeft: { configurable: true, get: () => left },
+    scrollHeight: { configurable: true, get: () => 200 + 12 * lines.height },
     clientHeight: { configurable: true, value: 200 },
+    clientWidth: { configurable: true, value: 300 },
     scrollTo: {
       configurable: true,
       value: (options: ScrollToOptions) => {
@@ -716,10 +719,78 @@ describe("the split view's source's line at its top (#182)", () => {
 
   it("is the source's top without lines", () => {
     const doc = new JSDOM("<!doctype html><body><div></div></body>").window.document;
-    const placing = linePlacing(doc.querySelector("div")!);
+    const source = doc.querySelector("div")!;
+    // As wide as Chromium lays it out.
+    Object.defineProperty(source, "clientWidth", { configurable: true, value: 300 });
+    const placing = linePlacing(source);
     assert.deepEqual(placing.measure(), { index: -1, into: 0 });
     assert.equal(placing.topFor({ index: -1, into: 0 }), 0);
     assert.equal(placing.topFor({ index: 0, into: 0 }), null);
+  });
+
+  // After a move, Obsidian 1.5.3 can show the source from its start, and
+  // Obsidian puts it back as far down as it was, which wraps otherwise in
+  // the new pane: neither is the reader's place (#189).
+  it("is shown again as laid out now, where the source lost its place or was put back in pixels (#189)", () => {
+    const { source, lines, scrolledTo, scroll, jump } = placedSource();
+    const kept = keepScrolling(source, linePlacing(source));
+    // Line 8, a quarter into it; without animation frames, it is measured at once.
+    scroll(155);
+    jump(0);
+    lines.height = 40;
+    kept.restore();
+    assert.deepEqual(scrolledTo, [300], "from its start");
+    lines.height = 20;
+    scroll(300);
+    assert.deepEqual(scrolledTo, [300, 155], "as far down as it was");
+    // Line 12, half-way into it, where its end is then 120 pixels down.
+    scroll(240);
+    lines.height = 10;
+    scroll(120);
+    assert.deepEqual(scrolledTo, [300, 155, 125], "at its end short of that");
+    scroll(60);
+    assert.deepEqual(scrolledTo, [300, 155, 125], "but not elsewhere");
+    lines.height = 20;
+    scroll(60, 30);
+    assert.deepEqual(scrolledTo, [300, 155, 125], "nor sideways only");
+  });
+
+  // A move or a hide right after the reader's scroll keeps the line that
+  // they scrolled to: measuring it reads a few lines' tops (#189).
+  it("is measured at each scroll that the source reports, before its scrolling settles (#189)", () => {
+    const doc = new JSDOM("<!doctype html><body></body>").window.document;
+    // Frames that never run.
+    animationFrames(doc.defaultView!);
+    const { source, lines, scrolledTo, scroll, jump } = placedSource(doc);
+    const kept = keepScrolling(source, linePlacing(source));
+    scroll(155);
+    kept.hold();
+    jump(0);
+    lines.height = 40;
+    kept.back();
+    assert.deepEqual(scrolledTo, [300]);
+  });
+
+  // In a new window, Obsidian 1.5.3 first lays the source out with no width,
+  // where each line is as high as its characters are many.
+  it("is neither shown again nor measured while the source has no width (#189)", () => {
+    const { source, lines, scrolledTo, scroll, jump } = placedSource();
+    let width = 300;
+    Object.defineProperty(source, "clientWidth", { configurable: true, get: () => width });
+    const kept = keepScrolling(source, linePlacing(source));
+    scroll(155);
+    jump(0);
+    width = 0;
+    lines.height = 900;
+    kept.restore();
+    assert.deepEqual(scrolledTo, [155], "as far down as it was");
+    scroll(155);
+    // Once it has its width, as when the frame shows its next document.
+    width = 300;
+    lines.height = 40;
+    kept.hold();
+    kept.back();
+    assert.deepEqual(scrolledTo, [155, 300], "line 8, as laid out now");
   });
 
   it("is measured in the frames of the window that the source is in, also after it moves to another", () => {
@@ -1156,14 +1227,16 @@ describe("the find bar in a page shown again (#157)", () => {
 
 /**
  * How a frame's page is laid out, as jsdom does not: its paragraphs, which
- * are on the source's lines 3 to 12, in a column, each `height` pixels
- * high, in a window 200 pixels high, scrolled down by `scrollY`.
+ * are on the source's lines 3 to 12, in a column from `top` pixels down,
+ * each `height` pixels high, in a window 200 pixels high, scrolled down by
+ * `scrollY`.
  * `scrolledTo` collects where the window's scrollTo sends it, which
  * reports no scroll; `win` is the window of the page laid out last. Without
  * `boxes`, as in a frame that Obsidian hides with `display: none`, its
  * elements have no boxes, and it has nothing to scroll.
  */
 interface PageLayout {
+  top: number;
   height: number;
   scrollY: number;
   boxes: boolean;
@@ -1172,7 +1245,7 @@ interface PageLayout {
 }
 
 function pageLayout(): PageLayout {
-  return { height: 100, scrollY: 0, boxes: true, scrolledTo: [], win: null };
+  return { top: 0, height: 100, scrollY: 0, boxes: true, scrolledTo: [], win: null };
 }
 
 /** Lays a frame's page out as `layout` says, from its top. */
@@ -1195,9 +1268,10 @@ function laidOutPage(layout: PageLayout): (page: Document) => void {
       configurable: true,
       value(this: Element) {
         if (!layout.boxes) return { top: 0, bottom: 0, height: 0, width: 0, left: 0, right: 0 };
-        const index = this.localName === "p" ? [...this.parentElement!.children].indexOf(this) : 0;
+        const paragraph = this.localName === "p";
+        const index = paragraph ? [...this.parentElement!.children].indexOf(this) : 0;
         const { height } = layout;
-        const top = index * height - layout.scrollY;
+        const top = (paragraph ? layout.top : 0) + index * height - layout.scrollY;
         return { top, bottom: top + height, height, width: 100, left: 0, right: 100 };
       },
     });
@@ -1218,9 +1292,10 @@ function readerScrollsPage(layout: PageLayout, to: number): void {
 }
 
 /**
- * Lays the split view's source out as jsdom does not: its 12 lines from 10
- * pixels down, each `lines.height` pixels high, with its `<pre>` as high as
- * they are, in a source 200 pixels high. `scrolledTo` collects where its
+ * Lays the split view's source out as jsdom does not: its lines, 12 of LONG's,
+ * from 10 pixels down, each `lines.height` pixels high, with its `<pre>` as
+ * high as 12 of them are, in a source 200 pixels high and 300 wide that
+ * scrolls 800 pixels down, or further for a longer page. `scrolledTo` collects where its
  * scrollTo sends it, which reports no scroll. The reader's scroll reports
  * one; `jump` scrolls it without a report, as Chromium's scroll anchoring
  * does when its content moves.
@@ -1230,17 +1305,20 @@ function laidOutSource(view: { readonly contentEl: HTMLElement }) {
   const lines = { height: 20 };
   const scrolledTo: number[] = [];
   let top = 0;
-  for (const [index, line] of source
-    .querySelectorAll<HTMLElement>(".html-page-viewer__source-line")
-    .entries())
+  const lineElements = source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line");
+  for (const [index, line] of lineElements.entries())
     Object.defineProperties(line, {
       offsetTop: { configurable: true, get: () => 10 + index * lines.height },
       offsetHeight: { configurable: true, get: () => lines.height },
     });
   Object.defineProperties(source, {
     scrollTop: { configurable: true, get: () => top },
-    scrollHeight: { configurable: true, value: 1000 },
+    scrollHeight: {
+      configurable: true,
+      get: () => Math.max(1000, 20 + lineElements.length * lines.height),
+    },
     clientHeight: { configurable: true, value: 200 },
+    clientWidth: { configurable: true, value: 300 },
     scrollTo: {
       configurable: true,
       value: (options: ScrollToOptions) => {
@@ -1340,6 +1418,36 @@ describe("the split view after its tab moves to a new window (#165)", () => {
       frames.run();
       assert.deepEqual(page.scrolledTo, [500, 400], "the page follows to paragraph 6");
       assert.equal(lines[0].connected, false);
+    } finally {
+      moved.close();
+    }
+  });
+
+  // Its lines take less room, and Chromium leaves the source at its new end,
+  // above where it led from (#195).
+  it("keeps the line that the source led from at the first resize of its lines, where its end is short of that now", async () => {
+    const moved = await movedToNewWindow();
+    const { view, page, source, report, frames } = moved;
+    try {
+      report();
+      source.readerScrolls(150);
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [500]);
+      // Line 8 is at 136 pixels then, and the source can scroll 140 down.
+      source.lines.height = 18;
+      Object.defineProperty(
+        view.contentEl.querySelector(".html-page-viewer__source"),
+        "scrollHeight",
+        {
+          configurable: true,
+          value: 340,
+        },
+      );
+      source.jump(140);
+      report();
+      assert.deepEqual(source.scrolledTo, [136], "back at line 8");
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [500], "and the page stays at paragraph 6");
     } finally {
       moved.close();
     }
@@ -1703,11 +1811,11 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
     }
   });
 
-  // The source's line is measured only once its scrolling settles; before
-  // that, the source goes back as far down as it was, and the side that led
-  // last puts the sides in step once.
+  // The source's line is measured at each of its reports, also of the
+  // follower's scrolling of it, which costs little (#189): it goes back to
+  // its line, and the side that led last puts the sides in step once.
   for (const reportsFirst of [true, false]) {
-    it(`has the page that led last lead the sides in step once, where the source's line was not measured before the tab hid, ${reportsFirst ? "with the source's report first" : "with the frame's observer first"}`, async () => {
+    it(`has the page that led last lead the sides in step once, where the source followed it right before the tab hid, ${reportsFirst ? "with the source's report first" : "with the frame's observer first"}`, async () => {
       const shown = await hiddenView("Split");
       try {
         const { page, source, frames, reportSource, hide, show } = shown;
@@ -1719,12 +1827,11 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
         source!.lines.height = 40;
         show({ sourceAt: 190, reportsFirst });
         assert.deepEqual(page.scrolledTo, [400], "the page at paragraph 6");
-        assert.deepEqual(source!.scrolledTo, [150, 150], "the source as far down as it was");
+        assert.deepEqual(source!.scrolledTo, [150, 290], "the source at line 8");
         frames.run();
-        assert.deepEqual(source!.scrolledTo, [150, 150, 290], "and then at line 8");
         reportSource();
         frames.run();
-        assert.deepEqual(source!.scrolledTo, [150, 150, 290], "once");
+        assert.deepEqual(source!.scrolledTo, [150, 290], "in step, once");
         assert.deepEqual(page.scrolledTo, [400]);
       } finally {
         shown.end();
@@ -1732,7 +1839,7 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
     });
   }
 
-  it("goes back as far down as the reader last scrolled the source, where they did so after its line was measured", async () => {
+  it("goes back to the line that the reader last scrolled the source to, also right before the tab hid (#189)", async () => {
     const shown = await hiddenView("Split");
     try {
       const { page, source, frames, hide, show } = shown;
@@ -1740,12 +1847,12 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
       frames.run();
       page.win!.dispatchEvent(new page.win!.Event("scroll"));
       frames.settle();
-      // Line 10, and the tab hides before its scrolling settles.
+      // Line 10, and the tab hides within a frame.
       source!.readerScrolls(190);
       hide();
       source!.lines.height = 40;
       show({ sourceAt: 190 });
-      assert.deepEqual(source!.scrolledTo, [], "not to line 8");
+      assert.deepEqual(source!.scrolledTo, [370], "line 10, as laid out now");
     } finally {
       shown.end();
     }
@@ -1931,6 +2038,253 @@ describe("the view's page in a tab that Obsidian hides and shows again (#178)", 
       assert.deepEqual(source!.scrolledTo, [150], "the source is not sent back");
     } finally {
       shown.end();
+    }
+  });
+});
+
+describe("the split view's side that led last, after a move (#195)", () => {
+  /**
+   * A page whose head holds 40 one-line rules, on the source's lines 4 to 43,
+   * before its 20 paragraphs, on lines 45 to 64, which start 8 pixels down,
+   * past the body's margin: the head's lines share the page's first pixels.
+   */
+  const LONG_HEAD = [
+    "<!doctype html>",
+    "<title>Long head</title>",
+    "<style>",
+    ...Array.from({ length: 40 }, (_, index) => `.rule-${index + 1} { color: #123456; }`),
+    "</style>",
+    ...Array.from({ length: 20 }, (_, index) => `<p>Paragraph ${index + 1}</p>`),
+  ].join("\n");
+
+  /**
+   * The split view of LONG_HEAD in Obsidian's main window, as hiddenView in
+   * the tests of #178 lays it out, with the source scrolled to line 22 of the
+   * head, which the page follows to 4 pixels down, between its top and its
+   * first paragraph.
+   */
+  async function sourceInHead() {
+    const { report } = resizeObservers(window);
+    const frames = animationFrames(window);
+    const harness = await Harness.load();
+    const view = harness.newView();
+    document.body.append(view.contentEl);
+    harness.open(view, "Long head.html", LONG_HEAD);
+    button(view, "Split").click();
+    const source = laidOutSource(view);
+    // A hidden tab's source has no size, as in Chromium.
+    const sourceEl = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+    let sourceHeight = 200;
+    Object.defineProperties(sourceEl, {
+      clientHeight: { configurable: true, get: () => sourceHeight },
+      clientWidth: { configurable: true, get: () => (sourceHeight === 0 ? 0 : 300) },
+    });
+    const page = pageLayout();
+    page.top = 8;
+    await loadFrame(view, laidOutPage(page));
+    const iframe = view.contentEl.querySelector("iframe")!;
+    layOutFrame(iframe, 200);
+    report();
+    source.readerScrolls(430);
+    frames.run();
+    readerScrollsPage(page, page.scrollY);
+    assert.deepEqual(page.scrolledTo, [4], "the page follows line 22");
+    frames.settle();
+    page.scrolledTo.length = 0;
+    return {
+      harness,
+      view,
+      page,
+      source,
+      frames,
+      report,
+      hide: (): void => {
+        layOutFrame(iframe, 0);
+        sourceHeight = 0;
+        page.boxes = false;
+        page.scrollY = 0;
+        page.win!.dispatchEvent(new page.win!.Event("scroll"));
+        source.jump(0);
+        report();
+      },
+      /** Lays the hidden tab out again, without the observers' reports. */
+      layOut: (): void => {
+        layOutFrame(iframe, 200);
+        sourceHeight = 200;
+        page.boxes = true;
+      },
+      show: (): void => {
+        layOutFrame(iframe, 200);
+        sourceHeight = 200;
+        page.boxes = true;
+        report();
+      },
+      end: (): void => {
+        view.contentEl.remove();
+        delete (window as { ResizeObserver?: unknown }).ResizeObserver;
+        delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+      },
+    };
+  }
+
+  // Were the placed page to lead, its 4 pixels would take the source to
+  // line 23.
+  it("has the source that led last lead after a move, from its line, and the page follow it", async () => {
+    const split = await sourceInHead();
+    try {
+      const { view, page, source, frames } = split;
+      await moveFrame(view, { prepare: laidOutPage(page) });
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [], "the source stays at line 22");
+      assert.deepEqual(page.scrolledTo, [4], "and the page follows it");
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [4]);
+    } finally {
+      split.end();
+    }
+  });
+
+  // Obsidian puts the source back as far down as it was, or Chromium lays it
+  // out anew in a new window, and reports that while the frame shows no page:
+  // where its lines wrap otherwise there, those pixels show other lines.
+  it("keeps the source's line while the frame shows no page, whatever the source reports then (#189)", async () => {
+    const split = await sourceInHead();
+    try {
+      const { view, page, source, frames } = split;
+      await moveFrame(view, {
+        away: () => source.readerScrolls(600),
+        prepare: laidOutPage(page),
+      });
+      assert.deepEqual(source.scrolledTo, [430], "back at line 22");
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [4], "and the page follows it");
+    } finally {
+      split.end();
+    }
+  });
+
+  it("keeps where the reader scrolled the source while the frame showed no page (#189)", async () => {
+    const split = await sourceInHead();
+    try {
+      const { view, page, source, frames } = split;
+      const sourceEl = view.contentEl.querySelector(".html-page-viewer__source")!;
+      await moveFrame(view, {
+        away: () => {
+          sourceEl.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+          source.readerScrolls(600);
+        },
+        prepare: laidOutPage(page),
+      });
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [], "not sent back to line 22");
+      assert.equal(page.scrolledTo.length, 1, "the page follows the reader's line");
+      // Its place is the reader's: the next switch keeps it.
+      split.hide();
+      split.show();
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [600]);
+    } finally {
+      split.end();
+    }
+  });
+
+  it("has the page follow the source that led last until the page loads, whatever the page reports", async () => {
+    const split = await sourceInHead();
+    try {
+      const { view, page, source, frames } = split;
+      // The view's listener of the next document's load waits for the test.
+      let held = true;
+      await moveFrame(view, {
+        prepare: (next) => {
+          laidOutPage(page)(next);
+          next.defaultView!.addEventListener("load", (event) => {
+            if (held) event.stopImmediatePropagation();
+          });
+        },
+      });
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [4]);
+      // As Chromium's scroll anchoring moves the page while an image above its
+      // first paragraph loads, which moves the paragraphs 12 pixels down.
+      page.top = 20;
+      page.scrollY = 40;
+      page.win!.dispatchEvent(new page.win!.Event("scroll"));
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [], "the source stays at line 22");
+      held = false;
+      page.win!.dispatchEvent(new page.win!.Event("load"));
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [4, 10], "the page follows it again when it loads");
+      // The page's scrolling leads after that.
+      readerScrollsPage(page, 120);
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [910]);
+    } finally {
+      split.end();
+    }
+  });
+
+  it("has the page that led last lead after a move, as the page that it shows", async () => {
+    const split = await sourceInHead();
+    try {
+      const { view, page, source, frames } = split;
+      // Paragraph 2, on line 46, at the page's top; the source follows.
+      readerScrollsPage(page, 108);
+      frames.run();
+      source.readerScrolls(source.scrolledTo.at(-1)!);
+      assert.deepEqual(source.scrolledTo, [910]);
+      await moveFrame(view, { prepare: laidOutPage(page) });
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [108, 108], "paragraph 2, placed");
+      assert.deepEqual(source.scrolledTo, [910], "and the source stays at its line");
+    } finally {
+      split.end();
+    }
+  });
+
+  it("has the source that led last lead after its hidden tab moved, from its line where it shows from its start", async () => {
+    const split = await sourceInHead();
+    try {
+      const { harness, view, page, source, frames, hide, layOut, report } = split;
+      hide();
+      // Obsidian takes the view out of the page, and the frame drops its
+      // document; Chromium shows the source from its start in its new place.
+      view.contentEl.remove();
+      await moveFrame(view, {
+        away: () => {
+          document.body.append(view.contentEl);
+          layOut();
+          harness.app.workspace.trigger("layout-change");
+        },
+        prepare: laidOutPage(page),
+      });
+      report();
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [430], "the source is back at line 22");
+      assert.deepEqual(page.scrolledTo, [4], "and the page follows it");
+    } finally {
+      split.end();
+    }
+  });
+
+  // As Split down in the tab in front, and then that pane closed again: the
+  // next documents have no size, and none of them leads until the tab shows.
+  it("has the source that led last lead once its tab shows, after its hidden frame dropped two documents", async () => {
+    const split = await sourceInHead();
+    try {
+      const { view, page, source, frames, hide, show } = split;
+      hide();
+      await moveFrame(view, { prepare: laidOutPage(page) });
+      frames.run();
+      await moveFrame(view, { prepare: laidOutPage(page) });
+      frames.run();
+      assert.deepEqual(page.scrolledTo, [], "a hidden page has nothing to scroll");
+      show();
+      frames.run();
+      assert.deepEqual(source.scrolledTo, [430], "the source at line 22");
+      assert.deepEqual(page.scrolledTo, [4], "and the page follows it");
+    } finally {
+      split.end();
     }
   });
 });
