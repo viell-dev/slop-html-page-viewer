@@ -100,6 +100,17 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   each read still passes the vault-path, `.css`, depth, cycle, and page-limit checks
   ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
 
+  **Unreleased (#179):** a string directly inside `image-set()` or `-webkit-image-set()` is a URL
+  argument too, as Chromium reads it. The copy makes it absolute or finds it by name, and with
+  **Local files with scripts on** copies its file into the page, by the same file types, limits,
+  and vault-only paths as a `url()`'s. Such strings cause no stylesheet reads. Other strings, such
+  as those of `type()`, `format()`, and `local()`, a font source that is a bare string, which
+  Chromium does not load, and the strings of `image()` and `src()`, which Obsidian's Chromium
+  does not support, still cause no reads or copying. Version 0.6.0 leaves these strings as
+  written, so that one in a linked stylesheet in another folder names a file beside the page, and
+  copies none of their files
+  ([#179](https://github.com/viell-dev/slop-html-page-viewer/issues/179)).
+
   Before 0.6.0, the viewer also read stylesheets, and with **Local files with scripts on** copied
   files, that only CSS strings or comments named, or that imports named which never apply: one
   after a style rule, and one into a cascade layer written with a comment or an escape before

@@ -14,6 +14,11 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   top, and where the source's long lines wrap, as they do by default, the source came back a few
   lines away and the page followed it there, further at each switch. A page with scripts on still
   shows from its top, since the viewer cannot reach it (#178).
+- A linked or imported stylesheet in another folder than the page shows the images that it names
+  with strings in `image-set()` or `-webkit-image-set()`, such as
+  `image-set("icon.png" 1x, "icon@2x.png" 2x)`, from its own folder, as browsers do, instead of
+  from the page's folder. With **Local files with scripts on**, the files of such strings are copied
+  into the page, also from the page's own `<style>` elements and `style` attributes (#179).
 - A page whose stylesheets import each other many times opens in moments instead of keeping
   Obsidian from responding for seconds to hours: for each page, the viewer follows at most 1,000
   links and imports of vault stylesheets and copies at most 16 million characters of their text,

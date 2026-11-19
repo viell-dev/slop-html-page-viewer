@@ -991,6 +991,160 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with strings that image-set() takes as URLs (#179)", function () {
+    // A stylesheet in another folder than the page names its square with
+    // strings, which resolve against the stylesheet, as url()s do: the green
+    // square beside it, not the red one of the same name beside the page.
+    const SHEET = "Set strings/theme/site.css";
+    const square = (id: string, css = "") =>
+      `<div id="${id}" class="square"${css === "" ? "" : ` style='${css}'`}></div>`;
+    const tree = [
+      `<link rel="stylesheet" href="../${SHEET}">`,
+      `<style>#own { background: image-set("../Set strings/theme/set-square.png" 1x) }</style>`,
+      ...["set", "webkit", "typed", "own"].map((id) => square(id)),
+      square("attribute", `background: image-set("../Set strings/theme/set-square.png" 1x)`),
+      `<p id="text"></p>`,
+    ].join("");
+    const files: Record<string, string> = {
+      [SHEET]: [
+        `.square { display: inline-block; width: 64px; height: 64px }`,
+        `#set { background: image-set("set-square.png" 1x) }`,
+        `#webkit { background: -webkit-image-set("set-square.png" 1x) }`,
+        `#typed { background: image-set("set-square.png" type("image/png") 1x) }`,
+        // A bare string names nothing, and neither does a font format.
+        `#text::after { content: "set-square.png" }`,
+        `@font-face { font-family: Set; src: url(set.woff2) format("set-square.png") }`,
+      ].join("\n"),
+      "Saved/Set strings.html": `${tree}<div id="host"><template shadowrootmode="open">${tree}</template></div>`,
+    };
+    const IDS = ["set", "webkit", "typed", "own", "attribute"];
+
+    before(async function () {
+      await browser.executeObsidian(
+        async ({ app }, files, green, red) => {
+          await app.vault.createFolder("Set strings/theme");
+          const binary = (base64: string) =>
+            Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)).buffer;
+          await app.vault.createBinary("Set strings/theme/set-square.png", binary(green));
+          await app.vault.createBinary("Saved/set-square.png", binary(red));
+          for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+        },
+        files,
+        solidPng(64, GREEN).toString("base64"),
+        solidPng(64, RED).toString("base64"),
+      );
+    });
+
+    after(async function () {
+      await browser.executeObsidian(async ({ app }) => {
+        for (const path of ["Saved/Set strings.html", "Saved/set-square.png", "Set strings"]) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file, true);
+        }
+      });
+    });
+
+    /**
+     * Where each square's image comes from, in the document and in its shadow
+     * root, and the text after the paragraph. Run inside the frame.
+     */
+    function read() {
+      const where = (value: string) =>
+        value.includes("/Set%20strings/theme/set-square.png")
+          ? "beside the stylesheet"
+          : value.includes("/Saved/set-square.png")
+            ? "beside the page"
+            : value;
+      const tree = (root: Document | ShadowRoot) => ({
+        squares: Object.fromEntries(
+          [...root.querySelectorAll(".square")].map((square) => [
+            square.id,
+            where(getComputedStyle(square).backgroundImage),
+          ]),
+        ),
+        text: getComputedStyle(root.querySelector("#text")!, "::after").content,
+      });
+      return { page: tree(document), shadow: tree(document.getElementById("host")!.shadowRoot!) };
+    }
+
+    function expected() {
+      const tree = {
+        squares: Object.fromEntries(IDS.map((id) => [id, "beside the stylesheet"])),
+        text: '"set-square.png"',
+      };
+      return { page: tree, shadow: tree };
+    }
+
+    /** What the viewer's frame shows, asked inside it. */
+    async function shown() {
+      await browser.switchFrame(browser.$(`${ACTIVE} iframe.html-page-viewer__frame`));
+      try {
+        return await browser.execute(read);
+      } finally {
+        await browser.switchFrame(null);
+      }
+    }
+
+    afterEach(async function () {
+      await restoreHost();
+    });
+
+    it("is measured against what Chromium shows of the same page outside Obsidian", async function () {
+      const served = await inServedPage(files, "Saved/Set strings.html", () =>
+        browser.execute(read),
+      );
+      // The functions that Chromium supports, and a bare string as a font's source.
+      const supported = await browser.execute(() => {
+        const style = document.createElement("style");
+        style.textContent = `@font-face { font-family: Bare; src: "set.woff2" }`;
+        document.head.append(style);
+        const bare = (style.sheet!.cssRules[0] as CSSFontFaceRule).style.getPropertyValue("src");
+        style.remove();
+        const image = (value: string) => CSS.supports("background-image", value);
+        return {
+          imageSet: image('image-set("a.png" 1x)'),
+          webkitImageSet: image('-webkit-image-set("a.png" 1x)'),
+          image: image('image("a.png")'),
+          src: image('src("a.png")'),
+          bare,
+        };
+      });
+      expect({ served, supported }).toEqual({
+        served: expected(),
+        supported: { imageSet: true, webkitImageSet: true, image: false, src: false, bare: "" },
+      });
+    });
+
+    it("resolves them against their stylesheet", async function () {
+      await recordReads("Set strings/");
+      await openInActiveTab("Saved/Set strings.html");
+      await waitForPage();
+      await saveScreenshot("image-set-strings");
+      expect(await shown()).toEqual(expected());
+      expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(2 * IDS.length * IMAGE_PIXELS * 0.9);
+      expect(await framePixels(RED)).toBe(0);
+      // Only the stylesheet is read as one.
+      expect(await recordedReads()).toEqual([SHEET]);
+    });
+
+    it("copies their files into a page with scripts on", async function () {
+      await copyLocalFiles(true);
+      try {
+        await openInActiveTab("Saved/Set strings.html");
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("image-set-strings-scripts-on");
+        expect(await framePixels(GREEN)).toBeGreaterThanOrEqual(
+          2 * IDS.length * IMAGE_PIXELS * 0.9,
+        );
+        expect(await framePixels(RED)).toBe(0);
+      } finally {
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   it("shows nothing from outside the vault", async function () {
     await openInActiveTab("Saved/Outside reference.html");
     await waitForPage();

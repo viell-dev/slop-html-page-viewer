@@ -16,6 +16,7 @@
 import {
   cssEnd,
   cssImports,
+  cssReferences,
   cssTokens,
   importStop,
   type CssImport,
@@ -648,44 +649,55 @@ function cssString(value: string): string {
   return `"${value.replace(/["\\\n\r\f]/g, (char) => `\\${char.charCodeAt(0).toString(16)} `)}"`;
 }
 
-/** Rewrites resource spans, preserving all other source text. */
+/**
+ * A reference to `url` in the form of `token`: a URL token as `url()`, and a
+ * string that names a resource (`cssReferences`) as a string, which keeps the
+ * function around it as the page has it.
+ */
+function referenceText(token: CssToken, url: string): string {
+  return token.kind === "url" ? `url(${cssString(url)})` : cssString(url);
+}
+
+/**
+ * Rewrites the spans of the tokens that name resources (`cssReferences`),
+ * preserving all other source text.
+ */
 function rewriteCssUrls(
   css: string,
-  replace: (token: string, reference: string) => string,
+  replace: (written: string, token: CssToken) => string,
   tokens: readonly CssToken[] = cssTokens(css),
 ): string {
   let result = "";
   let cursor = 0;
-  for (const token of tokens) {
-    if (token.kind !== "url") continue;
-    result +=
-      css.slice(cursor, token.start) + replace(css.slice(token.start, token.end), token.value);
+  for (const token of cssReferences(tokens)) {
+    result += css.slice(cursor, token.start) + replace(css.slice(token.start, token.end), token);
     cursor = token.end;
   }
   return result + css.slice(cursor);
 }
 
 /**
- * A `url()` token made absolute against its stylesheet's URL, or `token`
- * itself when its reference does not resolve.
+ * A reference (`cssReferences`) made absolute against its stylesheet's URL,
+ * or `written`, its text, when it does not resolve.
  */
 function absoluteUrl(
-  token: string,
-  reference: string,
+  written: string,
+  token: CssToken,
   sheetUrl: string,
   context?: PageContext,
 ): string {
+  const reference = token.value;
   // An empty reference or a fragment refers to the document, as in SVG filters.
-  if (reference === "" || reference.startsWith("#")) return token;
+  if (reference === "" || reference.startsWith("#")) return written;
   const absolute = resolve(reference, sheetUrl);
-  if (absolute === null) return token;
-  return `url(${cssString((context && locatedUrl(reference, absolute, context)) ?? absolute)})`;
+  if (absolute === null) return written;
+  return referenceText(token, (context && locatedUrl(reference, absolute, context)) ?? absolute);
 }
 
 /**
- * Makes every `url()` in a stylesheet absolute, against the stylesheet's own
- * URL, with a reference that does not resolve as a path located by name when
- * the context can (`locatedUrl`).
+ * Makes every reference in a stylesheet (`cssReferences`) absolute, against
+ * the stylesheet's own URL, with a reference that does not resolve as a path
+ * located by name when the context can (`locatedUrl`).
  */
 export function absoluteUrls(
   css: string,
@@ -695,29 +707,30 @@ export function absoluteUrls(
 ): string {
   return rewriteCssUrls(
     css,
-    (token, reference) => absoluteUrl(token, reference, sheetUrl, context),
+    (written, token) => absoluteUrl(written, token, sheetUrl, context),
     tokens,
   );
 }
 
 /**
- * A `url()` token pointed at the file that `locatedUrl` finds for it by name,
- * or `token` itself: a reference that resolves as a path, against `baseUrl`,
- * stays as written.
+ * A reference (`cssReferences`) pointed at the file that `locatedUrl` finds
+ * for it by name, or `written`, its text: a reference that resolves as a
+ * path, against `baseUrl`, stays as written.
  */
 function locatedToken(
-  token: string,
-  reference: string,
+  written: string,
+  token: CssToken,
   baseUrl: string,
   context: PageContext,
 ): string {
+  const reference = token.value;
   const absolute =
     reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
   const located = absolute === null ? null : locatedUrl(reference, absolute, context);
-  return located === null ? token : `url(${cssString(located)})`;
+  return located === null ? written : referenceText(token, located);
 }
 
-/** Replaces only the `url()`s in CSS that `locatedUrl` locates by name. */
+/** Replaces only the references in CSS (`cssReferences`) that `locatedUrl` locates by name. */
 function locateCssUrls(
   css: string,
   baseUrl: string,
@@ -726,7 +739,7 @@ function locateCssUrls(
 ): string {
   return rewriteCssUrls(
     css,
-    (token, reference) => locatedToken(token, reference, baseUrl, context),
+    (written, token) => locatedToken(written, token, baseUrl, context),
     tokens,
   );
 }
@@ -1087,19 +1100,18 @@ function ownRewrites(
   // Imports and URLs share the same scan; never rescan each intervening segment.
   const rewrites: Rewrite[] = [];
   let next = 0;
-  for (const token of tokens) {
-    if (token.kind !== "url") continue;
+  for (const token of cssReferences(tokens)) {
     // A URL inside an import rule, as in `@import url(...)`, is part of the
     // rule's replacement. Rules and tokens both come in order.
     while (next < imports.length && imports[next].match.end <= token.start) next++;
     if (next < imports.length && imports[next].match.start <= token.start) continue;
     const written = css.slice(token.start, token.end);
     if (!own.absolute) {
-      const text = locatedToken(written, token.value, sheetUrl, context);
+      const text = locatedToken(written, token, sheetUrl, context);
       if (text !== written) rewrites.push({ start: token.start, end: token.end, text });
       continue;
     }
-    const text = absoluteUrl(written, token.value, sheetUrl, context);
+    const text = absoluteUrl(written, token, sheetUrl, context);
     added += Math.max(0, text.length - written.length);
     if (added > room) return refuse();
     rewrites.push({ start: token.start, end: token.end, text });
@@ -1651,25 +1663,26 @@ class FileCopier {
 }
 
 /**
- * Visits the `url()`s in CSS, given its URL tokens, putting what `visit`
- * returns in their place.
+ * Visits the references in CSS, given the tokens that name resources
+ * (`cssReferences`), putting what `visit` returns in their place.
  */
 async function visitCssUrls(
   css: string,
   baseUrl: string,
   visit: Visit,
-  urls: readonly CssToken[],
+  references: readonly CssToken[],
 ): Promise<string> {
   let result = "";
   let cursor = 0;
-  for (const match of urls) {
-    const token = css.slice(match.start, match.end);
+  for (const match of references) {
+    const written = css.slice(match.start, match.end);
     const reference = match.value;
     const absolute =
       reference === "" || reference.startsWith("#") ? null : resolve(reference, baseUrl);
     const replaced = absolute === null ? null : await visit(absolute);
     result +=
-      css.slice(cursor, match.start) + (replaced === null ? token : `url(${cssString(replaced)})`);
+      css.slice(cursor, match.start) +
+      (replaced === null ? written : referenceText(match, replaced));
     cursor = match.end;
   }
   return result + css.slice(cursor);
@@ -1702,12 +1715,12 @@ async function visitFileReferences(
   visit: Visit,
   scans: Map<string, readonly CssToken[]>,
 ): Promise<void> {
-  // Both passes visit the same URL tokens, and only those are kept between
+  // Both passes visit the same references, and only those are kept between
   // them: a whole scan holds an object for every few bytes of CSS.
   const urls = (css: string): readonly CssToken[] => {
     let found = scans.get(css);
     if (!found) {
-      found = cssTokens(css).filter((token) => token.kind === "url");
+      found = cssReferences(cssTokens(css));
       scans.set(css, found);
     }
     return found;

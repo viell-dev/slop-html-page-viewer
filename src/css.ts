@@ -317,6 +317,54 @@ function nest(blocks: string[], token: CssToken): void {
   else if (token.value === blocks.at(-1)) blocks.pop();
 }
 
+/**
+ * The functions whose string arguments are URLs, as Chromium 114 and 150, in
+ * Obsidian 1.5.3 and 1.15.1, and headless Chrome 158 read them: `image-set()`
+ * and its alias `-webkit-image-set()` (CSS Images 4), in which `"icon.png" 1x`
+ * names an image as `url(icon.png) 1x` does. They do not support `image()` or
+ * `src()`, which CSS also gives strings that are URLs, and read none of the
+ * other strings in functions as URLs: those of `type()`, `format()`, and
+ * `local()` name a type, a font format, and a font.
+ */
+const URL_STRING_FUNCTIONS = ["image-set", "-webkit-image-set"];
+
+/**
+ * The tokens that name resources (#179): every URL token, and each string
+ * that is an argument of a function that takes URL strings
+ * (`URL_STRING_FUNCTIONS`), directly between its parentheses, and closed. A
+ * string inside another function or block there, such as the MIME type of
+ * `image-set("a.avif" type("image/avif"))`, is not one. A string that the
+ * end of the text left open is not one either, as a quoted `url(` left open
+ * there is not a URL token (`consumeUrl`); the end of a stylesheet closes
+ * both (`cssEnd`). Like URL tokens, these are found whether or not the
+ * declaration around them is valid: telling that would mean evaluating CSS.
+ */
+export function cssReferences(tokens: readonly CssToken[]): CssToken[] {
+  const references: CssToken[] = [];
+  // The closer of each open block, as `nest` follows them, and whether it
+  // is that of a function that takes URL strings.
+  const blocks: { closer: string; urls: boolean }[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.kind === "url") references.push(token);
+    else if (token.kind === "string") {
+      if (token.open !== true && blocks.at(-1)?.urls === true) references.push(token);
+    } else if (token.kind === "delim") {
+      const closer = CLOSERS.get(token.value);
+      if (closer !== undefined) {
+        // Tokens are contiguous, so a name just before `(` makes a function.
+        const name = tokens[i - 1];
+        const urls =
+          closer === ")" &&
+          name?.kind === "name" &&
+          URL_STRING_FUNCTIONS.some((function_) => isKeyword(name.value, function_));
+        blocks.push({ closer, urls });
+      } else if (token.value === blocks.at(-1)?.closer) blocks.pop();
+    }
+  }
+  return references;
+}
+
 /** Tokens that CSS discards between rules at a stylesheet's top level. */
 const betweenRules = (token: CssToken): boolean =>
   token.kind === "space" ||

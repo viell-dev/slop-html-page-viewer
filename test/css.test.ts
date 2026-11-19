@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cssEnd, cssImports, cssTokens, importStop } from "../src/css";
+import { cssEnd, cssImports, cssReferences, cssTokens, importStop } from "../src/css";
 
 it("keeps malformed quoted functions and subsequent literal strings separate", () => {
   for (const css of [
@@ -377,5 +377,73 @@ describe("the end of a stylesheet (#139)", () => {
       '"<!--"',
     ])
       assert.deepEqual(markers(css), [], JSON.stringify(css));
+  });
+});
+
+describe("the tokens that name resources (#179)", () => {
+  /** The text of each token that names a resource, and what it names. */
+  const references = (css: string) =>
+    cssReferences(cssTokens(css)).map((token) => [css.slice(token.start, token.end), token.value]);
+
+  it("finds URL tokens and the strings directly in image-set() and -webkit-image-set()", () => {
+    assert.deepEqual(
+      references(
+        'a { b: url(a.png); c: image-set("b.png" 1x, url(c.png) 2x, \'d.png\' 3x); d: -webkit-image-set("e.png" 1x) }',
+      ),
+      [
+        ["url(a.png)", "a.png"],
+        ['"b.png"', "b.png"],
+        ["url(c.png)", "c.png"],
+        ["'d.png'", "d.png"],
+        ['"e.png"', "e.png"],
+      ],
+    );
+    // CSS compares function names ASCII case-insensitively, after their escapes.
+    for (const name of ["IMAGE-SET", "Image-Set", "-WebKit-Image-Set", String.raw`im\61ge-set`]) {
+      assert.deepEqual(references(`a { b: ${name}("x.png" 1x) }`), [['"x.png"', "x.png"]], name);
+    }
+    assert.deepEqual(references(String.raw`a { b: image-set("a\22 b.png") }`), [
+      [String.raw`"a\22 b.png"`, 'a"b.png'],
+    ]);
+    // Wherever a value can have one, also in a fallback of var().
+    assert.deepEqual(references('a { --x: var(--y, image-set("v.png" 1x)) }'), [
+      ['"v.png"', "v.png"],
+    ]);
+  });
+
+  it("finds no other string", () => {
+    for (const css of [
+      // Bare strings, also those that look like files.
+      'a::after { content: "a.png" } @font-face { src: "b.woff" }',
+      // Strings in other functions: a type, a font format, a font's name.
+      'a { b: image-set(url(a.png) type("image/png") 1x) }',
+      '@font-face { src: url(a.woff2) format("woff2"), local("Font") }',
+      // Functions that Chromium does not support, or a block that a name before a space starts.
+      'a { b: image("a.png"); c: src("b.png"); d: cross-fade("c.png", "d.png"); e: image-set ("e.png") }',
+      // After the function's ")", and in a block inside it.
+      'a { b: image-set(url(a.png) 1x) "b.png"; c: image-set(("c.png") [ "d.png" ] {"e.png"}) }',
+      // An at-keyword or a hash of that name is no function.
+      '@image-set("a.png"); #image-set("b.png") {}',
+      // A string that the end of the text left open, as a quoted url( there.
+      'a { b: image-set("a.png',
+    ])
+      assert.deepEqual(
+        references(css).filter(([text]) => !text.startsWith("url(")),
+        [],
+        css,
+      );
+  });
+
+  it("follows the blocks as CSS nests them, with a closer that does not match left inside", () => {
+    // The "}" and "]" are part of the function, which only ")" ends.
+    assert.deepEqual(references('a { b: image-set(] "x.png" } "y.png") "z.png" }'), [
+      ['"x.png"', "x.png"],
+      ['"y.png"', "y.png"],
+    ]);
+    // A function inside a block inside image-set() takes its own strings.
+    assert.deepEqual(references('a { b: image-set(-webkit-image-set("x.png") "y.png") }'), [
+      ['"x.png"', "x.png"],
+      ['"y.png"', "y.png"],
+    ]);
   });
 });

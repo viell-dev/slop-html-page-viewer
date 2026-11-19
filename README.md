@@ -100,6 +100,14 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   an unquoted URL at the end of a linked stylesheet is that stylesheet's, resolved from its folder
   ([#155](https://github.com/viell-dev/slop-html-page-viewer/issues/155)).
 
+  **Unreleased (#179):** a string in `image-set()` or `-webkit-image-set()`, as in
+  `image-set("icon.png" 1x, "icon@2x.png" 2x)`, names a file as a `url()` does: in a linked or
+  imported stylesheet, it resolves from that stylesheet's folder, a name that does not resolve as a
+  path is found by name, and with **Local files with scripts on** its file is copied into the page.
+  What making it absolute adds counts toward the page's limits on stylesheets, as for a `url()`.
+  Other strings, such as those of `type()`, `format()`, and `local()`, still name nothing
+  ([#179](https://github.com/viell-dev/slop-html-page-viewer/issues/179)).
+
 - Shows pages without styles of their own in Obsidian's theme, light or dark: its colors and fonts,
   and its line width while **Readable line length** is on. The **Theme** button shows a page as a
   browser would instead.

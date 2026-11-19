@@ -1052,6 +1052,13 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
     assert.equal(await linked("", located(sheetOf(rule, copied, LIMIT + 1))), null);
   });
 
+  it("counts its strings that image-set() takes as URLs as made absolute (#179)", async () => {
+    const unit = 'a{b:image-set("c")}';
+    const copied = `a{b:image-set("${VAULT}Saved/${folder}/c")}`.length;
+    assert.equal(await linked(sheetOf(unit, copied, LIMIT)), LIMIT);
+    assert.equal(await linked(sheetOf(unit, copied, LIMIT + 1)), null);
+  });
+
   it("counts its imports that stay imports as the copy writes them", async () => {
     // Imports of a file that is not a stylesheet, which stay imports.
     const unit = '@import "c";';
@@ -1970,6 +1977,102 @@ describe("the end of a page's own stylesheet (#155)", () => {
       [...page.querySelectorAll("style")].map((style) => style.textContent),
       ["p { color: red}", "q { color: blue }"],
     );
+  });
+});
+
+describe("strings that image-set() takes as URLs (#179)", () => {
+  // A stylesheet in another folder than the page, whose strings resolve
+  // against it, as its url()s do.
+  const sheetUrl = `${VAULT}Theme/site.css`;
+  const css = [
+    `a { background: image-set("icon.png" 1x, "icon@2x.png" type("image/png") 2x) }`,
+    `b { background: -webkit-image-set('x.png' 1x), url(y.png) }`,
+  ].join("\n");
+  const absolute = [
+    `a { background: image-set("${VAULT}Theme/icon.png" 1x, "${VAULT}Theme/icon@2x.png" type("image/png") 2x) }`,
+    `b { background: -webkit-image-set("${VAULT}Theme/x.png" 1x), url("${VAULT}Theme/y.png") }`,
+  ].join("\n");
+
+  function copying(): LocalFiles & { copies: string[] } {
+    const copies: string[] = [];
+    return {
+      copies,
+      size: () => 1,
+      async readBinary(path) {
+        copies.push(path);
+        return new Uint8Array([1]).buffer;
+      },
+    };
+  }
+
+  it("makes them absolute against their stylesheet, keeping them strings", async () => {
+    assert.equal(absoluteUrls(css, sheetUrl), absolute);
+    assert.deepEqual(await inlineStylesheet(css, sheetUrl, context({})), [absolute]);
+  });
+
+  it("makes them absolute in every place that a page links or imports a stylesheet, and copies their files", async () => {
+    const shadow = (html: string) =>
+      `<div><template shadowrootmode="open">${html}</template></div>`;
+    const sheets = [
+      '<link rel="stylesheet" href="../Theme/site.css">',
+      '<style>@import "../Theme/site.css";</style>',
+      '<link rel="stylesheet" href="../Theme/main.css">',
+    ];
+    for (const html of [...sheets, ...sheets.map(shadow)]) {
+      for (const copy of [undefined, copying()]) {
+        const ctx = context({ "Theme/site.css": css, "Theme/main.css": '@import "site.css";' });
+        const page = parse(await prepare(html, ctx, { copyFiles: copy }));
+        const root = page.querySelector("template")?.content ?? page;
+        const text = root.querySelector("style")!.textContent;
+        const what = `${html}, copying: ${copy !== undefined}`;
+        if (copy === undefined) assert.equal(text, absolute, what);
+        else {
+          // The 2x image is copied too: Chromium loads the one for the screen's density.
+          assert.deepEqual(
+            copy.copies.sort(),
+            ["Theme/icon.png", "Theme/icon@2x.png", "Theme/x.png", "Theme/y.png"],
+            what,
+          );
+          assert.ok(text.includes(`image-set("data:image/png;base64,AQ==" 1x`), what);
+          assert.ok(text.includes(`-webkit-image-set("data:image/png;base64,AQ==" 1x)`), what);
+        }
+      }
+    }
+  });
+
+  it("copies the files of the page's own <style> and style attributes, and finds them by name", async () => {
+    const own = `background: image-set("icon.png" 1x, "found.png" 2x)`;
+    const html = `<style>a { ${own} }</style><p style='${own}'>x</p>`;
+    const ctx: PageContext = {
+      ...context({}),
+      exists: (path) => path !== "Saved/found.png",
+      locate: (linktext) => (linktext === "found.png" ? "Elsewhere/found.png" : null),
+    };
+    // Found by name, and otherwise as written, for the copy's <base>.
+    const located = `background: image-set("icon.png" 1x, "${VAULT}Elsewhere/found.png" 2x)`;
+    const page = parse(await prepare(html, ctx));
+    assert.equal(page.querySelector("style")!.textContent, `a { ${located} }`);
+    assert.equal(page.querySelector("p")!.getAttribute("style"), located);
+    const copy = copying();
+    await prepare(html, ctx, { copyFiles: copy });
+    assert.deepEqual(copy.copies.sort(), ["Elsewhere/found.png", "Saved/icon.png"]);
+  });
+
+  it("leaves the other strings as they are, and reads and copies nothing for them", async () => {
+    const strings = [
+      `a::after { content: "ghost.png" }`,
+      `@font-face { font-family: X; src: url(font.woff2) format("ghost.woff2"), local("ghost.ttf") }`,
+      `b { background: image("ghost.png"); c: src("ghost.png"); d: cross-fade("ghost.png", "ghost.png") }`,
+      `e { background: image-set(url(real.png) type("ghost.png") 1x) }`,
+    ].join("\n");
+    const ctx = context({ "Theme/site.css": strings });
+    const copy = copying();
+    const page = parse(
+      await prepare('<link rel="stylesheet" href="../Theme/site.css">', ctx, { copyFiles: copy }),
+    );
+    assert.deepEqual(copy.copies.sort(), ["Theme/font.woff2", "Theme/real.png"]);
+    const text = page.querySelector("style")!.textContent;
+    for (const kept of strings.match(/"ghost[^"]*"/g)!) assert.ok(text.includes(kept), kept);
   });
 });
 

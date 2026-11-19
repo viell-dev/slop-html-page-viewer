@@ -144,6 +144,25 @@ generated content beside an applied local stylesheet in real Obsidian, in the do
 shadow root. `scripts/css-benchmark.mjs` reports a revision's time and peak memory for synthetic 300
 KB and 4 MB stylesheets, as observations rather than a check.
 
+**Unreleased (#179):** `css.test.ts` checks which tokens name resources: URL tokens, and the
+closed strings directly between the parentheses of `image-set()` and `-webkit-image-set()`, whose
+names it compares as CSS does, in any case and with escapes, also in a fallback of `var()`. It finds
+no bare string, none in `type()`, `format()`, `local()`, `image()`, `src()`, or `cross-fade()`, none
+after the function or in a block inside it, none after a name with a space before its `(`, and none
+left open at the end of the text, and it follows mismatched closers as CSS nests them.
+`document.test.ts` checks that a linked stylesheet in another folder than the page, in the
+document and in a shadow root, linked, imported in a `<style>`, or imported in a linked
+stylesheet, gets such strings absolute and kept as strings, and with copying, their files, the
+`2x` image too. The page's own `<style>` and `style` attributes keep such strings as written,
+apart from those found by name, and copy their files. Other strings stay as written, and nothing
+is read or copied for them. Within #177's text limit, they count as made absolute, to the
+character. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest, in the document and in a
+shadow root, that the squares that such strings name in a stylesheet in another folder, in the
+page's `<style>`, and in a `style` attribute show the image beside the stylesheet, not the one of
+the same name beside the page, with scripts off and with them on and files copied. It checks that
+Chromium resolves the same page, served outside Obsidian, alike, that the host supports strings in
+both functions and not `image()` or `src()`, and that it drops a bare string as a font's source.
+
 **Unreleased (#154):** beside the eight-file depth limit, `document.test.ts` checks the page's
 stylesheet limits: at most 1,000 links and imports followed, and 16 million characters of the
 stylesheets' text, shared by the page's links and imports in the document and in shadow roots.
@@ -827,6 +846,23 @@ The test in `resources.e2e.ts` was not run against the preparation before the li
 keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
 preparation's measurements in Obsidian, with up to five imports a stylesheet.
 
+**Unreleased (#179):** On 2026-11-19, the preparation of `main` at `bcaaec5` failed four of the
+five new tests of `image-set()` strings in `document.test.ts`, all but the one of the strings that
+name nothing: a linked stylesheet in another folder kept `"icon.png"` as written, and nothing was
+copied for such strings. It also failed both viewer tests of such strings in `resources.e2e.ts` in
+Obsidian 1.5.3 and 1.15.1, where the squares of the stylesheet's three strings showed the red image
+beside the page, and with scripts on and files copied no square showed; the served page showed what
+the tests expect. Each of these breakages failed the check named:
+
+- Rewriting only the URL tokens of a copied stylesheet: the tests of strings made absolute, of
+  every place, and of the text limit.
+- Not counting what making such strings absolute adds: the test of the text limit.
+- Copying only the files of URL tokens: the tests of every place, and of the page's own `<style>`
+  and `style` attributes.
+- Finding only URL tokens by name: the test of the page's own `<style>` and `style` attributes.
+- Taking a string anywhere inside `image-set()`, as in its `type()`, or a string in any function:
+  `css.test.ts`, the test of other strings, and those of strings made absolute and of every place.
+
 **Unreleased (#147):** On 2026-11-18, the preparation of `<style>` and `<link>` elements as `main`
 had it at `eb92df5` failed both viewer tests of types in `resources.e2e.ts` in Obsidian 1.5.3 and
 1.15.1. There, the links of other types and the disabled links applied, as `<style>` elements put in
@@ -904,6 +940,12 @@ starts left neither test a step after it, and the screenshot was taken.
   headless Chrome 158 does not apply either, with or without a `title`. It reads a link whose
   `title` is not the page's first, which Chrome 158 does not apply
   ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
+- **Unreleased (#179):** a string that reaches `image-set()` only through `var()`, as in
+  `--icon: "icon.png"` and `image-set(var(--icon) 1x)`, is not between that function's
+  parentheses in the stylesheet's text, so the copy keeps it as written, and copies nothing for
+  it; no test measures how Chromium resolves it. Whether Obsidian's Chromium supports `image()` and
+  `src()`, whose strings are URLs too, is checked only in the two tested versions, which support
+  neither.
 - **Unreleased (#155):** closing a page's own stylesheet at its end can change what Chromium
   computes from a custom property whose value the stylesheet leaves open: Chromium keeps the value
   as text, with the closers, and puts it where the property is used. With
