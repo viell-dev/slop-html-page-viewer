@@ -581,7 +581,7 @@ both versions:
   the page went back to paragraph 12 instead of following the reader's scroll of the source to its
   start.
 
-Each of these 24 failed a unit test, in `move.test.ts` or `split.test.ts`:
+Each of these 22 failed a unit test, in `move.test.ts` or `split.test.ts`:
 
 - In the kept place: taking reports while held; not going back, or only from the start; going
   back where the reader's input can be unreported; keeping the old place when released; and the
