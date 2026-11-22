@@ -537,135 +537,104 @@ opens the file with U+00A0.
 
 ## Shown to fail
 
-On 2026-10-21, each of these deliberate breakages failed the check named:
+Each of these deliberate breakages fails the check named. Host tests fail in Obsidian 1.5.3 and 1.15.1,
+the versions they ran on, unless one is named. Each change's pull request holds the measurements of
+its breakages and of the behavior before it.
+
+### Sandbox, policy, and release
 
 - Granting scripts together with same-origin access: `rendered.test.ts`.
-- Reading any vault file as a stylesheet: `document.test.ts`.
-- Accepting `..` in a vault path: `document.test.ts`.
-- Allowing `<object>` content in the page's policy: `document.test.ts`.
-- Leaving out the copy's `<base>`: `document.test.ts`, and `resources.e2e.ts` in Obsidian.
+- Giving the frame its sandbox only after inserting it: `rendered.test.ts`, and
+  `resources.e2e.ts` (#83).
+- Reading any vault file as a stylesheet, accepting `..` in a vault path, or allowing `<object>`
+  content in the page's policy: `document.test.ts`.
+- Leaving out the copy's `<base>`: `document.test.ts`, and `resources.e2e.ts`, among them the test
+  of `<style>` URLs kept as written with scripts off. With scripts on and files copied, preparing
+  resolves the URLs itself, so that test passes.
+- Copying the text tracks of a page with scripts off: `rendered.test.ts`'s test of text tracks
+  (#196).
 - Lifting the copy limit for a file: `settings.test.ts`.
 - A `fetch` call in the plugin's code, even one that never runs: `policy.test.ts`.
+- Showing the file as it is when preparing its copy fails, or failing on CSS escapes and on
+  stylesheets that cannot be read: `document.test.ts`, `rendered.test.ts`, and `resources.e2e.ts`.
 - A wrong default in the README, a label missing from `.github/labels.json`, a renamed required CI
   job, a changelog without the manifest's version, a link to a missing heading, an unregistered
   end-to-end spec, and a skipped test: `consistency.test.ts`.
 - Missing prototype results in a full end-to-end run: `corpus/compare.mjs`.
 - Publishing a commit whose CI has not passed, moving a tag, changing a published release,
   publishing a draft whose upload arrived damaged, and a wrong latest-release mark:
-  `release.test.ts`. Against GitHub's real state, a dry run of 0.5.0 from a later commit refused
-  because the tag points elsewhere, and one with a zip packaged differently refused to change the
-  published release.
+  `release.test.ts`.
 
-On 2026-11-16, the earlier preparation of a page, which showed the file as it is when preparing its
-copy failed, and could fail on CSS escapes and on stylesheets that could not be read, failed
-`document.test.ts`, `rendered.test.ts`, and `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1.
+### Files, refresh, and the plugin's lifecycle
 
-On 2026-11-16, these failed the check named (#90):
-
-- Leaving out the view's `save` override: `refresh.test.ts`; in Obsidian 1.5.3 and 1.15.1,
-  `read-only.e2e.ts`, where leaving a tab after a refresh wrote the refreshed contents to the file.
+- Leaving out the view's `save` override: `refresh.test.ts`, and `read-only.e2e.ts`, where leaving
+  a tab after a refresh writes the refreshed contents to the file (#90).
 - Leaving out the refresh's check that it is the latest and its file is still shown:
-  `refresh.test.ts`; in Obsidian, with the `save` override left out too, `read-only.e2e.ts`, where
-  the second file was overwritten with the first's contents, and the first file's read error
-  replaced the third page.
+  `refresh.test.ts`; with the `save` override left out too, `read-only.e2e.ts`, where one file is
+  overwritten with another's contents (#90).
+- The view as 0.5.2 has it, where Obsidian's reload of a changed file that finishes after another
+  file opened in the tab shows the first file's contents under the second file's name:
+  `refresh.test.ts`, whose stand-in reloads a changed file as Obsidian does, and `read-only.e2e.ts`
+  (#115).
+- Leaving out the view's own read of its file: both of `read-only.e2e.ts`'s tests of Obsidian's
+  reload (#115).
+- Keeping the viewer's extensions registered after the plugin unloads, or ignoring the saved
+  settings when it loads: `lifecycle.e2e.ts` on 1.5.3 (#98).
 
-On 2026-11-16, keeping the viewer's extensions registered after the plugin unloads, and ignoring
-the saved settings when it loads, each failed `lifecycle.e2e.ts` on Obsidian 1.5.3 (#98).
+### Find in the page
 
-On 2026-11-16, giving the frame its sandbox only after inserting it failed `rendered.test.ts`,
-and `resources.e2e.ts` on Obsidian 1.5.3 and 1.15.1 (#83).
+- Leaving out a canvas's fallback text, or finding the children of a progress bar: `find.e2e.ts`.
+- Closing the find bar without its pending search: the three close tests in `find.test.ts`.
+- Matching text at zero opacity, leaving out text inside `display: contents`, and a fixture word
+  meant to be hidden but painted: `find.e2e.ts`'s paint test (#160).
+- Decoding a PNG row's average or sub filter wrongly: `pixels.test.ts`.
 
-On 2026-11-17, find in the page that left out a canvas's fallback text, or that found the children
-of a progress bar, failed `find.e2e.ts` in Obsidian 1.5.3 and 1.15.1. Closing the find bar without
-its pending search failed only the three close tests in `find.test.ts`.
+### Links and shadow roots
 
-On 2026-11-17, the earlier handling of links, which found a clicked link from the event's target,
-where a shadow root hides it, failed `links.test.ts`, `document.test.ts`, and `links.e2e.ts` in
-Obsidian 1.5.3 and 1.15.1. Finding links along the event's path instead, while leaving the copy's
-shadow roots closed and the frame's other navigations uncanceled, still failed `links.e2e.ts` in
-both versions.
+- Finding a clicked link from the event's target, where a shadow root hides it: `links.test.ts`,
+  `document.test.ts`, and `links.e2e.ts`. Finding it along the event's path, but leaving the copy's
+  shadow roots closed and the frame's other navigations uncanceled: `links.e2e.ts`.
+- After a tab moves to another tab group or window, each of these fails `links.e2e.ts`:
+  - Watching a frame's new document only when it loads, without making the copy inert: a link
+    clicked before the page loads again navigates the frame away, and a copy of the frame that the
+    view does not watch follows its links.
+  - Making the copy inert, but watching the new document only when it loads: the moved page cannot
+    follow its links before it loads.
+  - Watching the new document at once, without making the copy inert: the unwatched copy follows
+    its links.
+  - Leaving out the cancellation of the frame's other navigations: a click on a link in an
+    undeclared closed shadow root, or on one copied by SVG `<use>`, starts a navigation that
+    nothing cancels.
+- Collecting a page's templates by passing them all to one call: `document.stress.ts`, on a page
+  with more of them than a call can take.
+- Leaving the content of a page's templates, and so of its declared shadow roots, as written: the
+  shadow DOM and SVG link tests in `document.test.ts`, and those in `resources.e2e.ts` and
+  `links.e2e.ts` (#124).
+- Giving every SVG link without text a tooltip, or one to an SVG link around HTML in a
+  `<foreignObject>`: the tooltip test in `document.test.ts`, and `links.e2e.ts` (#117).
+- In the split view's pairing, leaving out shadow roots, leaving out the body's own shadow root,
+  taking every shadow root to come before its host's own content, or taking any comment with its
+  mark's text, or the mark of a declaration that stayed a template, for the mark: `split.test.ts`
+  (and `document.test.ts` for the marks), and `split.e2e.ts` (#124).
 
-On 2026-11-17, these failed `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1:
+**Unreleased (#199):** Reading a click's `href` as written and trimming a tooltip's with `trim`,
+or trimming both with `trim`: the tests of U+00A0 in `document.test.ts` and `links.test.ts`. The
+first also fails the test of U+00A0 in `links.e2e.ts`.
 
-- Leaving the view to watch a frame's new document only when it loads, without making the copy
-  inert: after the tab moved to another tab group or window, a link clicked before the page loaded
-  again navigated the frame away from the page, and a copy of the frame that the view did not
-  watch followed its links.
-- Making the copy inert, but watching the new document only when it loads: the moved page could
-  not follow its links before it loaded.
-- Watching the new document at once, without making the copy inert: the unwatched copy of the
-  frame followed its links.
-- Leaving out the cancellation of the frame's other navigations: a click on a link in a closed
-  shadow root that the page did not declare, and one on a link copied by SVG `<use>`, each started
-  a navigation that nothing canceled.
+### A page's place across a tab's move
 
-Collecting a page's templates by passing them all to one call failed the test now in
-`document.stress.ts` on a page with more of them than a call can take.
+- The view as 0.5.2 has it: `move.e2e.ts`, where after a move the page is back at its top, a theme
+  changed in place is undone, and the split view's sides are apart (#126).
+- Keeping the page's place as the height it was scrolled to: only the move to a narrower tab group.
+- Keeping the split view's following of the document that the frame dropped: only the split view's
+  test, which counts its measurements of that document.
+- Placing the page again when it has loaded, after the reader scrolled it or the split view's
+  source: both tests of the reader's scrolling.
+- Treating only a part without a box as closed: both tests of a part closed again, and
+  `move.test.ts`'s tests of those parts and of a page inside `display: contents`.
 
-On 2026-11-17 (#115), with the view as 0.5.2 has it, Obsidian's reload of a changed file that
-finished after another file opened in the tab showed the first file's contents under the second
-file's name: in `refresh.test.ts`, whose stand-in for Obsidian now reloads a changed file as
-Obsidian 1.5.3 and 1.15.1 do, and in `read-only.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where nothing
-was written. Leaving out the view's own read of its file failed both of `read-only.e2e.ts`'s tests
-of Obsidian's reload in 1.5.3 and 1.15.1: neither a change on disk nor the late reload showed the
-page again.
-
-On 2026-11-17 (#124), the earlier preparation of a page, which left the content of its templates,
-and so of its declared shadow roots, as written, failed the new shadow DOM and SVG link tests in
-`document.test.ts`, and in Obsidian 1.5.3 and 1.15.1 those in `resources.e2e.ts` and `links.e2e.ts`:
-the shadow DOM's image found by name, linked stylesheet, and import did not show, with scripts off
-or with them on and copying files; its link and image had no title; and SVG links had no
-`xlink:title`. The split view's earlier pairing, which left out shadow roots, failed
-`split.test.ts`, and `split.e2e.ts` in both versions, where scrolling the source to paragraph 30's
-line moved the page to paragraph 88.
-
-On 2026-11-17 (#124), after the independent review, these failed against the earlier version of that
-change. Giving every SVG link without text a tooltip failed the new tooltip test in
-`document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around a labelled
-shape and one around a `<use>` icon with a title were named by their URLs instead (#117). The split
-view's pairing, which left out the body's own shadow root and took every shadow root to come before
-its host's own content, failed `split.test.ts`, and `split.e2e.ts` in both versions: scrolling the
-source to paragraph 30's line moved a page whose body has a shadow root to paragraph 89, and
-scrolling it to paragraph 15's line left a page that declares its shadow root after 30 paragraphs at
-paragraph 1.
-
-On 2026-11-17 (#124), after the follow-up review, these failed against the version before it. Giving
-a tooltip to an SVG link around HTML in a `<foreignObject>` failed the new tooltip test in
-`document.test.ts`, and `links.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where a link around text in a
-shadow root declared there was named by its URL instead (#117). The split view's pairing, which took
-any comment with its mark's text for the mark, and also the mark of a declaration that stayed a
-template, failed `split.test.ts` and `document.test.ts`, and `split.e2e.ts` in both versions: with a
-comment of the page's own with that text before its first paragraph, scrolling the source to
-paragraph 15's line left a page that declares its shadow root after 30 paragraphs at paragraph 1.
-
-On 2026-11-17 (#126), `move.e2e.ts` failed in Obsidian 1.5.3 and 1.15.1 with the view as 0.5.2 has
-it: after the tab moved, the page was back at its top in a new tab group and in a new window, a
-theme changed in place was undone, and the split view's sides were apart. Keeping the page's place
-as the height it was scrolled to failed only the move to a narrower tab group, where the page showed
-paragraph 19 or 21 in place of 30. Keeping the split view's following of the document that the frame
-dropped failed only the split view's test, which counted six measurements of that document after the
-move. Placing the page again when it had loaded, even after the reader had scrolled it with the
-mouse wheel, in the page or in the split view's source, failed both tests of the reader's scrolling:
-the page showed paragraph 30 again in place of 41 or 42. Treating only a part without a box as
-closed failed both tests of a part closed again, in both versions: the page showed a closed
-`<details>` element 418 pixels, and a closed accordion's panel 429 pixels, above the window's top.
-It also failed `move.test.ts`'s tests of those parts and of a page inside an element with
-`display: contents`, which kept its place only as a share of the body's height.
-
-**Unreleased (#157):** On 2026-11-18, with the view as 0.6.0 has it, five of `move.e2e.ts`'s tests
-of the reader's scrolling of the split view's source in a move failed in Obsidian 1.5.3 and 1.15.1:
-to line 30 before the moved page showed again, in the frame in which the view placed it, from one to
-the other, and with the find bar open, the source went back to line 20 and the page stayed at
-paragraph 12; scrolled on by 200 pixels, it stayed at line 20. The version that the independent
-review read, `8214323`, failed both tests with the find bar open and an input before the page
-showed, in both versions: the find bar's search again scrolled the source to its match, which then
-led, and both sides went to paragraph 26 and line 33 or 34. It failed the test scrolled on by 200
-pixels in 1.5.3, where the page followed the source from its top to paragraph 2 and line 10.
-The version that the follow-up review read, `73fce54`, failed the five tests of a scroll to the
-source's start in both versions, where the view put the source back where it was: in the first task
-after a move to a new window, and with no move, when a layout change or a resize came before
-Chromium reported the scroll, in the split view and in the source view, which 0.6.0 has done since
-#135. Each of these deliberate breakages failed a unit test:
+**Unreleased (#157):** The view as 0.6.0 has it fails five of `move.e2e.ts`'s tests of the
+reader's scrolling of the split view's source during a move. Each of these fails a unit test:
 
 - In `placeNextDocument`: following the placed page whatever the reader scrolled, also when the
   page was at its top before the move; passing over the source's earlier scrolling also after the
@@ -680,49 +649,24 @@ Chromium reported the scroll, in the split view and in the source view, which 0.
   a lost place before Chromium reports it; and doing so still after the next frame, or after a
   scroll event. `source.test.ts`.
 
-**Unreleased (#162, #167):** On 2026-11-18, with the view as `main` at `dbe7b1a` has it, seven of
-`move.e2e.ts`'s tests failed in Obsidian 1.5.3, and all but the modifier key's in 1.15.1, where
-Obsidian puts a moved source back itself:
+**Unreleased (#162, #167):** In `move.e2e.ts`, a build without each part of the fix fails only that
+part's tests: not finding the find matches again after a move, the two tests of the matches; the
+find bar not telling the kept place of its scroll, the four tests of its scroll to the source's
+start with a layout change or resize in the same task; and modifier keys counting as the reader's
+input, the modifier key's test on 1.5.3, where Obsidian does not put a moved source back itself.
+Each of these fails a unit test:
 
-- Both tests of the Source view's find matches after a move: in another tab group, the 11 ranges of
-  every match and the current one stayed registered but collapsed, and a new window had none, while
-  the bar said "1 of 11".
-- The four tests of the find bar's scroll of the source to its start with a layout change or a
-  resize in the same task: the view put the source back where it was, at 400 px in the Source view
-  and at line 20 in the split view.
-- In 1.5.3, the test of a modifier key in the source in the task of a move to another tab group: the
-  source stayed at its start.
-
-A build without each part of the fix failed only that part's tests, in both versions: not finding
-the matches again, the two tests of the matches; the find bar not telling the kept place of its
-scroll, the four tests of that scroll; and modifier keys counting as the reader's input, the
-modifier key's test in 1.5.3. Each of these deliberate breakages failed a unit test:
-
-- Not finding the matches again after a move, or finding them again only when their ranges
-  collapsed, or only in another window; and finding them again in the rendered view.
-  `find.test.ts`.
+- Not finding the matches again after a move, or only when their ranges collapsed, or only in
+  another window; and finding them again in the rendered view. `find.test.ts`.
 - The find bar not telling the kept place of its scroll; and the kept place taking that scroll of a
-  source that is not laid out, which scrolls nothing. `source.test.ts`.
+  source that is not laid out. `source.test.ts`.
 - Modifier keys counting as the reader's input: in the source's guard, `source.test.ts`; in placing
   the page again when it loads and in the watch of the reader, `move.test.ts`.
 
-**Unreleased (#165, #175):** On 2026-11-19, with the view as `main` at `1d80ca5` has it, four of
-`move.e2e.ts`'s tests failed, and the others passed:
-
-- In Obsidian 1.5.3 and 1.15.1, both tests of the find bar's delay. In a new window, after typing
-  and Enter twice, the bar said "1 of 11" in place of "2 of 11" a second later. After the move back
-  from the new window, which closed, the bar had found nothing a second after the typing.
-- In 1.5.3, both tests of the split view in a new window whose app.css arrives after the view has
-  followed the page, in 7 of 7 runs and 3 of 3 runs. Without the reader, the source stayed at
-  409 px, where line 20 was before app.css, while line 20 was at 384 px. After the reader's scroll
-  to line 25, the source stayed at 509 px, 31 px below line 25. Both passed in 1.15.1, where
-  holding app.css back does not move the source's lines, which have their height without it.
-  Without holding app.css back, 1.5.3 laid the source out without it when the view showed the page
-  in the first 2 of 6 moves of a session.
-
-The view as this change first had it, at `9882fa6`, failed the test with the reader's scroll in
-1.5.3, in 3 of 3 runs, the same way: it had the source lead again from 509 px, and the page left
-paragraph 17. Each of these deliberate breakages failed a unit test:
+**Unreleased (#165, #175):** The view before these changes fails both of `move.e2e.ts`'s tests of
+the find bar's delay, and on 1.5.3 both tests of the split view in a new window whose app.css
+arrives after the view has followed the page. They pass on 1.15.1, whose source lines
+have their height without app.css. Each of these fails a unit test:
 
 - Clearing the find bar's timer through the view's window, setting it through the window that the
   bar was made in, and not cancelling it at the next key: `find.test.ts`.
@@ -739,42 +683,23 @@ paragraph 17. Each of these deliberate breakages failed a unit test:
   the signal or the first change, from the first report whatever its size, or by the height only;
   and not measuring again when asked. `split.test.ts`.
 
-**Unreleased (#178):** On 2026-11-19, with the view as `main` at `6acb438` has it, 11 of
-`move.e2e.ts`'s 14 tests of a tab that Obsidian shows again after hiding it failed in Obsidian
-1.5.3 and 1.15.1. The three that passed are the reader's scroll to the page's top, the **Source**
-view, and a page that scrolls inside a column, whose places Chromium keeps. The page showed from
-its top: at 0 px in place of 3312 px at paragraph 30, of 1490 px (1484 px on 1.5.3) where the find
-bar had put it, and of 2000 px in a sidebar expanded again. In the split view, the page was 920 px
-from its place while the source was back at line 30, and where the source's lines wrap, the page
-was 3255 px (3243 px on 1.5.3) from its place. The version that the independent review read,
-`55a82bb`, failed the four tests that its review asked for, in both versions. Where the source's
-lines wrap, the page went 248 px further down at the first of three switches where it led (69 px
-on 1.5.3), and 272 px where the source led. In a page with a long head, the source went from line
-150 to line 155, 103 px. Each of these deliberate breakages failed the test named in Obsidian, in
-both versions:
+**Unreleased (#178):** The view before this change fails 11 of `move.e2e.ts`'s 14 tests of a tab
+that Obsidian shows again after hiding it; the reader's scroll to the page's top, the **Source**
+view, and a page that scrolls inside a column pass, since Chromium keeps their places. Each of these
+fails the `move.e2e.ts` test named:
 
 - Not putting the source back: the wrapped lines where the source led.
 - Following the hidden page's scroll, or having the page lead once the sides are back: the long
   head.
-- The find bar not telling the page's kept place: its scroll in the task that hid the tab, where
-  the page went back to 600 px in place of 1490 px.
-- In the first version of this change, putting the page back at every resize of its frame, not
-  only when the frame shows again: a test of #157 in 1.15.1, where after a move to a new window
-  the page went back to paragraph 12 instead of following the reader's scroll of the source to its
-  start.
-
-The version that the follow-up review read, `4b3bc67`, failed the test of a tab moved to a new
-window while hidden, in both versions: after the reader scrolled the source to line 10 there, the
-next switch sent both sides back to line 30, 800 px from the reader's place. Three more breakages
-failed a test in Obsidian, in both versions:
-
-- Leaving the source's hold on at `back`: the reader's scroll between two switches, the same 800 px.
-- Leaving it on at `release`: the hidden tab moved to a new window.
+- The find bar not telling the page's kept place: its scroll in the task that hid the tab.
+- Putting the page back at every resize of its frame, not only when the frame shows again: a test
+  of #157 on 1.15.1.
+- Leaving the source's hold on at `back`: the reader's scroll between two switches. At `release`:
+  the hidden tab moved to a new window.
 - Keeping the scroll reported while held: the wrapped lines where the source led, shown by a click
-  on the tab header, 272 px off at the first switch (69 px on 1.5.3). `4b3bc67`'s tests, which
-  showed the tab from inside an animation frame, passed with it.
+  on the tab header.
 
-Each of these 26 failed a unit test, in `move.test.ts` or `split.test.ts`:
+Each of these fails a unit test, in `move.test.ts` or `split.test.ts`:
 
 - In the kept place: taking reports while held; not going back, or only from the start; going
   back where the reader's input can be unreported; keeping the old place when released; leaving
@@ -789,41 +714,24 @@ Each of these 26 failed a unit test, in `move.test.ts` or `split.test.ts`:
   there; and leaving the hold on when the frame drops its document.
 - The find bar not telling the page's kept place.
 
-**Unreleased (#182, #186):** On 2026-11-19, with the view as `main` at `c3411ee` has it, the five
-first new tests of `move.e2e.ts` failed in Obsidian 1.5.3 and 1.15.1. In a view narrowed to 500 px
-while its tab was hidden, the page came back at paragraph 14 on 1.15.1 and 15 on 1.5.3, in place
-of 30. In a split view narrowed to 900 px, the sides came back at paragraph 21 and line 28 where
-the page led, and at paragraph 20 and line 27 where the source led, in place of 30 and 37. After a
-hidden tab moved to a new window with its tab header's menu, the page showed from its top; in the
-split view, the source showed line 46 there, beside the page at its top on 1.5.3 and at paragraph
-39 on 1.15.1.
-
-The version that the in-depth review read, `800babe`, failed six later tests, in both versions:
-
-- The four of **Split down** in the tab in front of a hidden tab, rendered and split, with the new
-  pane left open or closed again: the page at its top, beside the source at line 37.
-- Readable line length turned off while the tab showed: the page went back to paragraph 30, at
-  2616 px, in place of paragraph 38, at 3312 px.
-- A page without scroll anchoring narrowed while it showed: paragraph 30, at 4341 px, in place of
-  paragraph 14 at 1987 px (15 at 2141 px on 1.5.3).
-
-Each of these deliberate breakages failed the tests named in Obsidian, in both versions:
+**Unreleased (#182, #186):** Each of these fails the `move.e2e.ts` tests named:
 
 - Going back as far down as it was, whatever it showed: the three tests of a narrowed view.
-- The split view's source without its line: the narrowed split view where the source led, which
-  came back at paragraph 20 and line 27.
-- Measuring nothing once the scrolling settles: the first five.
+- The split view's source without its line: the narrowed split view where the source led.
+- Measuring nothing once the scrolling settles: the tests of a view narrowed while hidden, of the
+  narrowed split view, and of a hidden tab's move to a new window with its tab header's menu.
 - Giving the frame's next document the hidden page's own place: the two tests of a hidden tab's
   move by its menu.
-- No starting place for the next document: the four of Split down.
+- No starting place for the next document: the four tests of **Split down** in the tab in front of
+  a hidden tab.
 - No observer of the page's root and body: the Readable line length and narrowing tests.
 - The sideways place lost: the page scrolled 300 px sideways.
 - Using a measurement after a scroll that it predates: the hide two frames after a scroll, and
   three tests of #178, among them the find bar's scroll in the task that hid the tab.
 
-Measuring after one quiet frame, in place of 100 ms, passed every test in Obsidian; only
-`move.test.ts` tests it. Each of these 32 failed a unit test, in `move.test.ts` or
-`split.test.ts`:
+Measuring after one quiet frame, in place of 100 ms, passes every host test; only `move.test.ts`
+tests it. Taking the place of a page at its top for one that cannot tell changes nothing, since both
+go back to the page's top. Each of these fails a unit test, in `move.test.ts` or `split.test.ts`:
 
 - In the kept place: going back as far down as it was whatever it showed; using a measurement
   after a scroll that it predates, or after a change of layout; no exact return within a pixel, or
@@ -840,385 +748,64 @@ Measuring after one quiet frame, in place of 100 ms, passed every test in Obsidi
 - In the view: the hidden page's own place at `pagehide`, or the kept place also for a page that
   shows; and the frame's hiding not recorded, or never ended.
 
-One changed nothing: taking the place of a page at its top for one that cannot tell, since both
-go back to the page's top.
-
-**Unreleased (#189, #195):** On 2026-11-19, with the view as `main` at `eb926d3` has it, the ten
-new tests of `move.e2e.ts` failed in Obsidian 1.5.3, and nine of them in 1.15.1:
-
-- The **Source** view at line 37 showed line 19 in a narrower tab group, line 58 in a wider one,
-  line 19 narrowed while hidden, line 49 in a new window on 1.5.3, and after a hidden tab's move to
-  a new window by its menu line 24 on 1.15.1 and 49 on 1.5.3. In a new window it never showed line
-  37 while the window's app.css was held back. In a new window on 1.15.1, Chromium's scroll
-  anchoring kept line 37, and that test passed.
-- The split view's source at line 150 of a long head showed line 155 in another tab group, and
-  line 194 on 1.15.1 and 174 on 1.5.3 in a new window, also after a hidden tab's move by its menu.
-  Where the head's rules wrap in a narrower tab group, it showed line 58 on 1.15.1 and line 20 on
-  1.5.3.
-
-Each of these deliberate breakages failed the host tests named, in both versions unless said:
+**Unreleased (#189, #195):** Each of these fails the `move.e2e.ts` tests named:
 
 - The **Source** view without its line: its five tests of a tab group, a new window, a narrowed
   view, and a hidden tab's move.
-- No watch of the **Source** view's own size: the narrowed view, and on 1.15.1 the hidden tab's
-  move.
+- No watch of the **Source** view's own size: the narrowed view, and on 1.15.1 the
+  hidden tab's move.
 - No going back to the line at a scroll that leaves the source where it was last reported: both
   tab groups; and not at its end short of that: the wider one.
-- No watch of its lines in a new window: the held-back app.css, in 1.5.3.
+- No watch of its lines in a new window: the held-back app.css, on 1.5.3.
 - The split view's page leading after every move: the four tests of #195.
 - The split view's source not going back to its line when the next document shows: the wrapping
-  rules in a narrower tab group, and in 1.5.3 both tests of #165.
-- The hold until the next document not ended by the reader's input: four tests of #157 in 1.5.3,
-  and three in 1.15.1.
+  rules in a narrower tab group, and on 1.5.3 both tests of #165.
+- The hold until the next document not ended by the reader's input: four tests of #157 on 1.5.3,
+  and three on 1.15.1.
 
-Five breakages failed no host test, and each failed a unit test: no hold of the source while the
-frame shows no page; no going back to the line where Chromium leaves the source at its end at
-#165's resize; measuring the source's line only once its scrolling settles, which a host test of
-#165 showed only where the tab moved within 100 ms of the scroll; and the line place, or the
-watch of the **Source** view, taking a source with no width for one that can tell. Each of 28
-one-edit mutations of this change failed a unit test in `move.test.ts`, `split.test.ts`,
-`source.test.ts`, or `find.test.ts`. Three earlier forms of the change that a mutation showed to
-change nothing were simplified: `back` in place of `release` where the reader scrolled the source
-while no page showed, whose own scroll ends the hold; no leader carried past a document that
-none led; and no guard on measuring while held.
+These fail no host test, and each fails a unit test in `move.test.ts`, `split.test.ts`,
+`source.test.ts`, or `find.test.ts`: no hold of the source while the frame shows no page; no going
+back to the line where Chromium leaves the source at its end at #165's resize; measuring the
+source's line only once its scrolling settles, which a host test of #165 shows only where the tab
+moves within 100 ms of the scroll; and the line place, or the watch of the **Source** view, taking
+a source with no width for one that can tell.
 
-On 2026-11-17, each of these deliberate breakages failed the check named (#91):
+### Stylesheets and resources
 
-- The regular expressions used before #91, which read URLs and imports inside CSS strings and
-  comments: `document.test.ts`, also with only a shadow root's `<style>` elements and linked
-  stylesheets in its cases (#124).
-- Counting a string that a newline ends as a string, or reading U+0010 to U+0019 as hex digits:
-  `css.test.ts` and `document.test.ts`.
-- Taking a malformed quoted `url(` as a URL: `css.test.ts` and `document.test.ts`.
-- Counting braces without the parentheses and brackets around them: `css.test.ts` and
-  `document.test.ts`.
+- Reading URLs and imports inside CSS strings and comments with regular expressions, as before #91:
+  `document.test.ts`, also for a shadow root's `<style>` elements and linked stylesheets (#124).
+- Counting a string that a newline ends as a string, reading U+0010 to U+0019 as hex digits, taking
+  a malformed quoted `url(` as a URL, or counting braces without the parentheses and brackets around
+  them: `css.test.ts` and `document.test.ts`.
 - Reading U+0000 in a linked stylesheet as anything but an identifier character, and processing
   linked stylesheets again as the page's own styles: `document.test.ts`.
 - Leaving out of the second pass the `<style>` elements that links become only in the document,
-  not in a shadow root (#124): `document.test.ts`, where a 20-deep import chain linked from a
-  shadow root read 16 files rather than 8.
-- Removing a string's line continuations before decoding its escapes, so that `"gh\6\` and a
-  newline before `fst.css"` named `ghost.css`: `css.test.ts` and `document.test.ts`.
-- Trimming the end of an import's media list, which removed the newline that ends a bad string
-  there, or trimming JavaScript's whitespace at its start, which removed a U+FEFF that starts a
+  not in a shadow root: `document.test.ts`, where a 20-deep import chain linked from a shadow root
+  reads 16 files rather than 8.
+- Removing a string's line continuations before decoding its escapes: `css.test.ts` and
+  `document.test.ts`.
+- Trimming the end of an import's media list, which removes the newline that ends a bad string
+  there, or trimming JavaScript's whitespace at its start, which removes a U+FEFF that starts a
   name there: `document.test.ts`.
-- Assigning every `<style>` element's text, even unchanged, which removed an SVG `<style>`
+- Assigning every `<style>` element's text, even unchanged, which removes an SVG `<style>`
   element's children: `document.test.ts`.
+- Finding imports anywhere outside blocks, or at the start of any top-level rule, allowing
+  `@layer` statements after an import, or reading `<!--` and `-->` as other text: `css.test.ts` and
+  `document.test.ts`. The preparation before #136 also fails both tests of imports in
+  `resources.e2e.ts`.
+- Classifying an import's conditions with a regular expression, which reads an import into a layer
+  with a comment before `layer` as `@media /**/ layer`: `document.test.ts` (#144).
+- Inlining an imported stylesheet without closing it, closing it after resolving its own URLs, or
+  putting a stylesheet with a `}` outside any block in `@media`, or checking only its own text and
+  not that of the stylesheets it imports: `document.test.ts` (#139).
+- Processing a MathML `<style>`, reading an SVG `<style>`'s `textContent`, assigning a rewritten
+  `<style>`'s `textContent`, turning a `<link>` inside SVG or MathML into a `<style>`, or counting
+  any `<style>` as the page's own styles: `document.test.ts`'s reads and copies, rewriting, links,
+  and reading style tests (#143). The preparation before #143 also fails both tests of `<style>`
+  text in `resources.e2e.ts`.
 
-On 2026-11-17 (#136), the stylesheet preparation before that change, after #91, failed both new
-tests of imports in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where an import after a style
-rule applied. Finding imports anywhere outside blocks, as it does, or at the start of any top-level
-rule, or allowing `@layer` statements after an import, failed `css.test.ts` and `document.test.ts`.
-So did reading `<!--` and `-->` as other text.
-
-On 2026-11-17 (#144), in the same `resources.e2e.ts` run, an import into a layer with a comment
-before `layer` became `@media /**/ layer`. The regular expression that classified an import's
-conditions before that change failed `document.test.ts`.
-
-On 2026-11-17 (#139), in the same `resources.e2e.ts` run, the rules after imports whose stylesheets
-end inside a string, a comment, an unquoted `url(`, or a block did not apply. These failed
-`document.test.ts`:
-
-- Inlining an imported stylesheet without closing it.
-- Closing it after resolving its own URLs, which left its unquoted URL at the end unresolved.
-- Putting a stylesheet with a `}` outside any block in `@media`, or checking only its own text and
-  not that of the stylesheets it imports.
-
-On 2026-11-17 (#143), the preparation of `<style>` elements and links as `main` had it at `f329f7f`
-failed four tests in `document.test.ts`, and both tests of `<style>` text in `resources.e2e.ts` in
-Obsidian 1.5.3 and 1.15.1. There, a rule inside an SVG `<style>`'s `<desc>` applied once the copy
-rewrote the `<style>`, which lost its `<desc>`. A `<link>` inside SVG applied, as an SVG `<style>`
-that the copy put in its place. The copy held the text of both stylesheets that nothing applies and,
-with scripts on, six copied images where the applied CSS names two. Each of these breakages failed
-the check named in `document.test.ts`:
-
-- Processing a MathML `<style>`: the reads and copies test, and the reading style test.
-- Reading an SVG `<style>`'s `textContent`: the reads and copies test, and the rewriting test.
-- Assigning a rewritten `<style>`'s `textContent`, which removes its child elements: the rewriting
-  test.
-- Turning a `<link>` inside SVG or MathML into a `<style>`: the links test, and the reading style
-  test.
-- Counting any `<style>` as the page's own styles: the reading style test.
-
-**Unreleased (#154):** On 2026-11-18, each of these breakages failed the check named:
-
-- No limit on how many links and imports a page follows: `document.stress.ts`'s test of small
-  stylesheets, within a second, with its context's error, and four tests in `document.test.ts`.
-- No limit on the stylesheets' text: the stress test of 20 KB stylesheets, which took in 1,000
-  rather than 792, and three tests in `document.test.ts`.
-- Counting only the links and imports whose stylesheet the copy takes in: the counting test in
-  `document.test.ts`.
-- No reuse of a page's repeated links and imports, reuse of links only or of imports only, or a
-  repeat that takes one from the count: the components test in `document.test.ts`, and the stress
-  test of 4,000 components. A count limit of 10,000 without reuse passed the components test of the
-  time, with 600, but kept Obsidian from responding for 3 to 8 s on eight stylesheets that each
-  import the next ten times.
-- Keeping no result for a stylesheet that cannot be read: the test of repeats of such a stylesheet.
-- One kept text for a link and an import of the same URL, a repeat that loses the stray `}` of its
-  stylesheet, and a repeat checked against the text limit but not added to it: the test of each.
-- Reusing a stylesheet that the count, or the text limit, cut short: the test of preparing it
-  again after each. Reusing stylesheets at every depth: the counting test, the test of preparing
-  again after the text limit, and both fan-out stress tests.
-
-**Unreleased (#151):** On 2026-11-18, with `main`'s preparation at `7f22ed1`, the layered imports
-did not apply in Obsidian 1.5.3 and 1.15.1, and an import into a layer, with a comment before
-`layer`, stayed an import, where Chromium applied it. Each of these breakages failed the check
-named, in `resources.e2e.ts` on both hosts unless one is named:
-
-- Keeping imports into layers as imports: the viewer tests, where the layered imports did not
-  apply and a missing file's layer came after the layer of the import after it; and the block form
-  tests in `document.test.ts`.
-- Putting the layer outside the conditions: the viewer tests, where a layer whose import's media
-  query did not match came first; and `document.test.ts`.
-- Putting imports with support conditions in `@supports` blocks on every host: the viewer tests
-  on 1.5.3, where such an import applied, and `document.test.ts`.
-- Keeping them as imports on every host: `document.test.ts`.
-- Reading any text in `layer()` as a name, or one that starts with a number, keeping no scoped
-  import, or putting empty support conditions in a block: `css.test.ts` and `document.test.ts`.
-
-**Unreleased (#152):** On 2026-11-18, with `main`'s preparation at `7f22ed1`, the copy had no
-`CSSImportRule` for a web import after an inlined stylesheet, or for one inside a stylesheet
-imported with `screen`, and an imported stylesheet's rules between `<!--` and `-->` did not apply
-inside `@media`. Each of these breakages failed the check named, in `resources.e2e.ts` on both
-hosts as well, unless only `document.test.ts` is named:
-
-- Keeping a kept import in the stylesheet before it: the viewer tests, which found no
-  `CSSImportRule` for it, and five tests in `document.test.ts`, two of #154 among them.
-- Adding no conditions to the kept imports of a stylesheet imported with them: the viewer tests,
-  and `document.test.ts`.
-- Adding them through an anonymous layer around the kept imports: `document.test.ts`.
-- Leaving a stylesheet file's markers as they are: the viewer tests, and `document.test.ts`.
-- Letting an `@layer` statement after an import leave later imports counting: `css.test.ts` and
-  `document.test.ts`.
-
-**Unreleased (#152):** On 2026-11-19, the preparation at `db60de8`, which its review found to
-copy past the stylesheet limits, failed the three new tests of `document.stress.ts`. One of its
-pages took 400 MB more than the page and its files, another gave 3,001 `<style>` elements where
-the limit allows 1,001, and the link of 130,000 kept imports exceeded the call stack. Each of
-these breakages failed the check named:
-
-- Taking no block, or no text, from the text limit for what conditions add, or not stopping
-  once it passes it: the text limit tests in `document.test.ts` or `document.stress.ts`.
-- No single block when what conditions add would pass the limit: `document.test.ts`.
-- No limit on the `<style>` elements, or none on their copied attributes: `document.stress.ts`.
-- A stylesheet of its own for every kept import: two tests of #154 in `document.test.ts`, and
-  the tests of kept imports. None for Google Fonts: those tests, and `document.stress.ts`.
-- A block around blank text: four tests in `document.test.ts`.
-- Keeping the stylesheet that a kept import split stopped, so that the next kept import splits
-  again: `document.test.ts`.
-- No `@layer` statement for a stylesheet that declares none, or one for an anonymous layer too:
-  `document.test.ts`, and for the first, the viewer tests in `resources.e2e.ts` on both hosts,
-  where the empty stylesheet's layer came after the next one's.
-- Not copying a `<style>`'s `type`: `document.test.ts`, and the viewer tests on 1.5.3, where the
-  split SVG `<style>` applied. Copying a link's `type`, whose parameters keep a `<style>` from
-  applying: the tests of link types and kept imports in `document.test.ts`.
-- Reading no comment beside a dot in a layer name: `css.test.ts`, and the viewer tests on both
-  hosts, where the import stayed one.
-
-**Unreleased (#152):** On 2026-11-19, the preparation at `2d1dc23`, which its follow-up review
-found to give the text limit back what composition leaves out, failed the new test of
-`document.stress.ts` within half a second: a stylesheet of 15 MB imported 999 times with
-`screen` was prepared again. That review measured 216 s for such a page, against 0.29 s on
-`main`. The same review found that a stylesheet holding only kept imports with conditions of
-their own declared no layer; `document.test.ts` and the viewer tests now cover it. Each of these
-breakages failed the check named:
-
-- Giving back what composition leaves out: `document.stress.ts`, with spaces, with comments, and
-  with a comment in the layer name.
-- Taking any kept import for a declaration of the layer: `document.test.ts`, and the viewer tests,
-  where the layer came after the next one's: for the `print` import on both hosts, and for the
-  `supports()` import on 1.5.3.
-- Not charging a link's copied attributes, or a `<style>`'s `title`: `document.stress.ts`.
-- Room for conditions as the whole limit, not what other stylesheets left: `document.test.ts`.
-- Asking for another `<style>` element before whether the import's place matters, which spends
-  the limit on imports that stay: `document.test.ts`.
-- Reading Google Fonts by a prefix of the URL, which a look-alike origin passes, or keeping an
-  import with conditions that the viewer does not read where it is: `document.test.ts`.
-- An `@layer` statement that stops no later import, stops them only after an import inside its
-  blocks, or stands outside its `@supports` block: `document.test.ts`.
-
-**Unreleased (#177):** On 2026-11-19, the preparation of `main` at `6acb438` failed seven of the
-eight new tests of the text limit in `document.test.ts`, all but the one of what it does not count,
-and both stress tests of the limit's text: a link of #177's stylesheet of `url()`s added 78,000,762
-characters to the copy, and the fan-out of 20 KB stylesheets copied more of them than its count.
-Each of these breakages failed the check named:
-
-- Not counting what making URLs absolute adds: `document.stress.ts`, and six of the new tests in
-  `document.test.ts`.
-- Not counting an import as long as the copy writes a kept import: both stress tests, and three of
-  the new tests.
-- Not counting the text that closes a stylesheet: the test of that text.
-- Not counting what copying a page's `<style>` imports adds to its URLs and imports, or counting
-  its own text too: the test of each place, and the test of a page's `<style>`.
-- Giving back the text of a stylesheet that stays a link: the test of that stylesheet.
-- A repeat that counts nothing: the new test of repeats, and #154's.
-
-**Unreleased (#177):** On 2026-11-19, the preparation at `7ab873d`, which the review of #180 found
-to rewrite a stylesheet that stays a link again for each link of it, failed the work stress test:
-1,000 links of one rewrote 1,014,715 URLs, in 216 s beside the unit tests. It also failed the tests
-of the discard limit, of repeats and importers, and of a page's `<style>`. Each of these
-breakages failed the check named:
-
-- Not remembering by URL a stylesheet whose rewritten text did not fit: the work stress test, which
-  counted 2,724 rewrites for 1,000 links, and the test of repeats and importers.
-- Not counting what such a stylesheet's rewriting reached against the discard limit: the work
-  stress test, with 1,362,000 rewrites for 1,000 queries in 136 s, and both tests of the discard
-  limit.
-- Counting the stylesheet's text against the text limit instead: both tests of the discard limit.
-- Not counting such a refusal as a refusal, so that its importer's result was kept: the test of
-  repeats and importers.
-- Comparing the rewritten text with the room only at its end: the #177 stress test, with 1,000,000
-  rewrites, and the test of rewriting that stops at the room.
-- Giving room back for a rewrite that shortens its text: the test of such rewrites.
-- Not counting the text that closes a stylesheet: both tests of it. Leaving out the check of that
-  text and the room check of `StylesheetBudget.add` together: the second of them, #152's stress
-  test of conditions, #154's repeat test, and the new repeat test.
-- A `StylesheetBudget.add` that takes what it is given: #152's stress test of conditions, which
-  added 100 million characters, #154's repeat test, and the new repeat test.
-- Making a page's `<style>`'s URLs absolute: six tests in `document.test.ts`, among them those of
-  #139, #143, and #147, and the work stress test.
-- Returning a stylesheet given alone past the limit unlocated, or a page's `<style>` past it as
-  written: the test of each, and three more of locating by name.
-- Leaving the copy's `<base>` out: in Obsidian 1.15.1, the new `resources.e2e.ts` test with
-  scripts off, where the images of the `<style>` URLs kept as written did not show, and six other
-  tests of the spec. With scripts on and files copied, preparing resolves the URLs itself, and that
-  test passed.
-
-**Unreleased (#177):** On 2026-11-19, the follow-up review of #180 found four changes to
-`src/document.ts` at `dfc59b1` that passed every test. One was comparing a stylesheet's length
-with the text limit's room, not `rewriteRoom`, before scanning it, which took 1,000 links of #177's
-stylesheet, each with a query of its own, from 2.3 s to 121 s. Each of them failed the check named,
-within a second:
-
-- That comparison: the test of a stylesheet too long for what remains of the discard limit.
-- Not counting a repeat of a remembered refusal as a refusal: the test of repeats and importers,
-  with a third link of the importer, and the test of the count, where each repeat after the first
-  was answered as kept.
-- Not counting such a repeat toward the count: the test of the count.
-- Taking nothing from the discard limit for a page's `<style>` whose imports would not fit: the test
-  of two such `<style>` elements.
-
-The test in `resources.e2e.ts` was not run against the preparation before the limits, which would
-keep Obsidian from responding for 6 to 10 minutes on its page, by extrapolation; #154 records that
-preparation's measurements in Obsidian, with up to five imports a stylesheet.
-
-**Unreleased (#179):** On 2026-11-19, the preparation of `main` at `bcaaec5` failed four of the
-five new tests of `image-set()` strings in `document.test.ts`, all but the one of the strings that
-name nothing: a linked stylesheet in another folder kept `"icon.png"` as written, and nothing was
-copied for such strings. It also failed both viewer tests of such strings in `resources.e2e.ts` in
-Obsidian 1.5.3 and 1.15.1, where the squares of the stylesheet's three strings showed the red image
-beside the page, and with scripts on and files copied no square showed; the served page showed what
-the tests expect. Each of these breakages failed the check named:
-
-- Rewriting only the URL tokens of a copied stylesheet: the tests of strings made absolute, of
-  every place, and of the text limit.
-- Not counting what making such strings absolute adds: the test of the text limit.
-- Copying only the files of URL tokens: the tests of every place, and of the page's own `<style>`
-  and `style` attributes.
-- Finding only URL tokens by name: the test of the page's own `<style>` and `style` attributes.
-- Taking a string anywhere inside `image-set()`, as in its `type()`, or a string in any function:
-  `css.test.ts`, the test of other strings, and those of strings made absolute and of every place.
-- Taking the strings of any block after the name `image-set`, as in `image-set{content:"a.png"}`,
-  which passed every test until the review of #188 found it: `css.test.ts`.
-
-**Unreleased (#185):** On 2026-11-19, the preparation of `main` at `bcaaec5` failed all six new
-tests of a `<base>` after the page's stylesheets in `document.test.ts`: every stylesheet resolved
-against the `<base>`, and a `<base>` inside SVG or of a `data:` URL applied. It also failed the
-three viewer tests of `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where the served pages
-showed what the tests expect: the seven squares before the `<base>` showed the image in its folder,
-with scripts on and files copied all ten squares were blue, the page with an SVG `<base>` showed
-the red image in that `<base>`'s folder, and the one with a `data:` `<base>` named
-`app://obsidian.md/Late%20img/sq.png`, which Obsidian does not serve. Each of these breakages
-failed the check named:
-
-- Taking an SVG `<base>`, or one of a `data:` or `javascript:` URL: the test of the base that
-  applies.
-- One base for every stylesheet: all six tests.
-- Never taking a shadow root's stylesheets for ones before the `<base>`, or taking any template's
-  content for them: the test of every place.
-- Resolving a link against the copy's `<base>`: the tests of every place and of copying.
-- Copying the files of a `<style>` or a `style` attribute against the copy's `<base>`: the test of
-  the text limit, where those kept as written past it copied from the `<base>`'s folder.
-- Never making a `style` attribute's URLs absolute: the tests of every place, of the `<html>`
-  element, and of the text limit.
-- Not counting what making a `style` attribute's URLs absolute adds: the test of the text limit,
-  with two attributes, and `document.stress.ts`, where the copy added 19.5 million characters.
-- Keeping the URLs of a `<style>` without imports as written: four of the tests.
-
-The review of #188 found five more changes that passed every test; each now fails the check named:
-
-- Letting a later `<base>` apply after an ignored `data:` one: the test of the base that applies.
-- Finding the references of a `style` attribute, or of a `<style>`, that does not fit by name
-  against the copy's `<base>`: the test of finding by name past the limit.
-- Giving room back for a rewrite that shortens a `style` attribute, or rewriting the whole of one
-  before comparing it with the room: the test of shortening and of the room, by its lookups.
-
-**Unreleased (#187):** On 2026-11-19, the preparation of `main` at `c853231` failed all five new
-tests of resource attributes before a later `<base>` in `document.test.ts`. It also failed both
-viewer tests of such attributes in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where the
-served page showed what the tests expect: the copy resolved every element before the `<base>` to
-the `<base>`'s folder, and with scripts on and files copied it showed twelve blue images and no
-green one, with the media, the track's cue, and the script from that folder. Each of these
-breakages failed the check named in `document.test.ts`:
-
-- Resolving every resource attribute against the copy's `<base>`: all five tests.
-- Taking no shadow root's elements for ones before the `<base>`: the tests of every kind and of
-  copying.
-- Leaving a `srcset`'s URLs as written: the tests of every kind, of copying, and of finding by name.
-- Making a fragment absolute, or a reference that the page and the `<base>` resolve alike: the test
-  of what stays as written.
-- Leaving `<embed>`, `<object>`, and SVG `<image>` to the copy's `<base>`, as Chrome 158's table in
-  the issue suggested: the tests of every kind and of copying.
-
-**Unreleased (#169):** On 2026-11-19, the preparation of `main` at `bcaaec5` failed all four new
-tests of stylesheet sets in `document.test.ts`, and both viewer tests of sets in
-`resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where both served pages showed what the tests
-expect. There, the viewer read five stylesheets of the other set, which apply nothing, did not
-prepare the `alternate stylesheet` link of the preferred set, which Chromium applies, and with
-scripts on copied six images where the `<style>` elements that apply name three. Each of these
-breakages failed the check named in `document.test.ts`:
-
-- A `<meta http-equiv="Default-Style">` that names no set: the tests of sets and of the reading
-  style.
-- An alternate link, or one with a blank `href`, or any link with a title, that names the set:
-  the test of sets.
-- Titles that never matter: all four tests.
-- No alternate link that applies: the tests of sets and of the reading style.
-- Titles that matter in the content of templates: the test of shadow roots and templates.
-- Copying the files of every `<style>`, whatever its set: the test of what the copy keeps.
-- A page's own styles counted whatever their set: the test of the reading style.
-- Titles compared in any case: the test of sets.
-- An `http-equiv` compared in its exact case, a `<meta>` counted only in the `<head>`, which the
-  review of #188 found to pass every test, and a link whose `href` is no URL naming the set: the
-  test of sets.
-
-**Unreleased (#192):** On 2026-11-19, the preparation of `main` at `c853231` failed all four new
-tests of ASCII whitespace in `document.test.ts`, and both viewer tests of `resources.e2e.ts` in
-Obsidian 1.5.3 and 1.15.1, where the served page showed what the tests expect. There, the viewer
-read and applied the 20 links whose types other spaces join, and with scripts on and files copied
-it showed the green image of the name without U+00A0, and none for the `srcset`. Each of these
-breakages failed the check named in `document.test.ts`:
-
-- Splitting `rel` on JavaScript's whitespace: the tests of links and of stylesheet sets.
-- Splitting a `srcset`, or stripping a URL attribute, on JavaScript's whitespace: the tests of
-  copying and of finding by name.
-- Splitting a `srcset` on ASCII whitespace without the form feed, or without the tab, or `rel`
-  without the carriage return, which the review of #197 found to pass every test: the test of
-  copying, and the test of links.
-
-Lowercasing `rel` with `toLowerCase` instead of in ASCII passes every test: no character but an
-ASCII capital lowercases into a letter of `stylesheet` or `alternate`, so that part only keeps the
-rule exact.
-
-**Unreleased (#147):** On 2026-11-18, the preparation of `<style>` and `<link>` elements as `main`
-had it at `eb92df5` failed both viewer tests of types in `resources.e2e.ts` in Obsidian 1.5.3 and
-1.15.1. There, the links of other types and the disabled links applied, as `<style>` elements put in
-their place, the copy kept none of the elements that do not apply as written, the viewer read 20
-stylesheets of elements that apply nothing, and with scripts on it copied 44 images where the
-`<style>` elements that apply name 16. Both served pages showed what the tests expect. In an
-earlier run of the spec, with an SVG `<style>`'s type compared case-sensitively, an SVG `<style>`
-of type `TEXT/CSS` in 1.15.1 applied its own rule but not its import, which Chromium applies. Each
-of these breakages failed the check named in `document.test.ts`:
+**Unreleased (#147):** Each of these fails the check named in `document.test.ts`; the preparation
+before #147 also fails both viewer tests of types in `resources.e2e.ts`:
 
 - Preparing every `<style>`, whatever its type: the `<style>` test, the SVG `<style>` test, and the
   reading style test of #147.
@@ -1226,17 +813,79 @@ of these breakages failed the check named in `document.test.ts`:
 - Leaving out a link's `disabled` attribute, or its type: the link test and the reading style test
   of #147.
 - Trimming nothing from a link type's essence, or JavaScript's whitespace, which includes U+00A0:
-  the link test.
-- Trimming only ASCII whitespace and U+2003: the test of the whitespace that Chromium trims.
+  the link test. Trimming only ASCII whitespace and U+2003: the test of the whitespace that
+  Chromium trims.
 - Trimming with a regular expression that tries each run of whitespace from each of its positions:
-  `document.stress.ts`'s test of long types, which took 12.7 s against its bound of 1 s.
+  `document.stress.ts`'s test of long types, against its bound of 1 s.
 - Counting any `<style>` or stylesheet link as the page's own styles: the reading style tests of
   #143 and #147.
 
-**Unreleased (#155):** On 2026-11-18, in the same `resources.e2e.ts` run, a linked stylesheet and a
-`<style>` that end in an import without its `;` did not apply its file, and the unquoted URL at the
-end of a linked stylesheet resolved against the page, in Obsidian 1.5.3 and 1.15.1, with scripts
-off and on. Each of these breakages failed the check named in `document.test.ts`:
+**Unreleased (#151):** Each of these fails the check named, in `resources.e2e.ts` unless only a
+unit test is named:
+
+- Keeping imports into layers as imports: the viewer tests, and the block form tests in
+  `document.test.ts`.
+- Putting the layer outside the conditions: the viewer tests, and `document.test.ts`.
+- Putting imports with support conditions in `@supports` blocks on every host: the viewer tests on
+  1.5.3, and `document.test.ts`. Keeping them as imports on every host: `document.test.ts`.
+- Reading any text in `layer()` as a name, or one that starts with a number, keeping no scoped
+  import, or putting empty support conditions in a block: `css.test.ts` and `document.test.ts`.
+
+**Unreleased (#152):** Each of these fails the check named, also the viewer tests in
+`resources.e2e.ts` where they are named:
+
+- Keeping a kept import in the stylesheet before it: the viewer tests, and five tests in
+  `document.test.ts`.
+- Adding no conditions to the kept imports of a stylesheet imported with them: the viewer tests,
+  and `document.test.ts`. Adding them through an anonymous layer around the kept imports:
+  `document.test.ts`.
+- Leaving a stylesheet file's `<!--` and `-->` markers as they are: the viewer tests, and
+  `document.test.ts`.
+- Letting an `@layer` statement after an import leave later imports counting: `css.test.ts` and
+  `document.test.ts`.
+- Taking no block, or no text, from the text limit for what conditions add, or not stopping once it
+  passes it: the text limit tests in `document.test.ts` or `document.stress.ts`. No single block when
+  what conditions add would pass the limit: `document.test.ts`.
+- No limit on the `<style>` elements, or none on their copied attributes, not charging a link's
+  copied attributes or a `<style>`'s `title`, or giving the text limit back what composition leaves
+  out: `document.stress.ts`.
+- A stylesheet of its own for every kept import: two tests of #154 in `document.test.ts`, and the
+  tests of kept imports. None for Google Fonts: those tests, and `document.stress.ts`.
+- A block around blank text: four tests in `document.test.ts`.
+- Keeping the stylesheet that a kept import split stopped: `document.test.ts`.
+- No `@layer` statement for a stylesheet that declares none, or one for an anonymous layer too:
+  `document.test.ts`, and for the first, the viewer tests.
+- Taking any kept import for a declaration of the layer: `document.test.ts`, and the viewer tests,
+  for the `print` import, and on 1.5.3 for the `supports()` import.
+- Not copying a `<style>`'s `type`: `document.test.ts`, and the viewer tests on 1.5.3. Copying a
+  link's `type`, whose parameters keep a `<style>` from applying: the tests of link types and kept
+  imports in `document.test.ts`.
+- Reading no comment beside a dot in a layer name: `css.test.ts`, and the viewer tests.
+- Room for conditions as the whole limit, not what other stylesheets left; asking for another
+  `<style>` element before whether the import's place matters; reading Google Fonts by a prefix of
+  the URL, which a look-alike origin passes; keeping an import with conditions that the viewer does
+  not read where it is; and an `@layer` statement that stops no later import, stops them only after
+  an import inside its blocks, or stands outside its `@supports` block: `document.test.ts`.
+
+**Unreleased (#154):** Each of these fails the check named:
+
+- No limit on how many links and imports a page follows: `document.stress.ts`'s test of small
+  stylesheets, within a second, and four tests in `document.test.ts`.
+- No limit on the stylesheets' text: the stress test of 20 KB stylesheets, and three tests in
+  `document.test.ts`.
+- Counting only the links and imports whose stylesheet the copy takes in: the counting test in
+  `document.test.ts`.
+- No reuse of a page's repeated links and imports, reuse of links only or of imports only, or a
+  repeat that takes one from the count: the components test in `document.test.ts`, and the stress
+  test of 4,000 components.
+- Keeping no result for a stylesheet that cannot be read: the test of repeats of such a stylesheet.
+- A repeat that loses the stray `}` of its stylesheet, or one checked against the text limit but
+  not added to it: the test of each.
+- Reusing a stylesheet that the count, or the text limit, cut short: the test of preparing it again
+  after each. Reusing stylesheets at every depth: the counting test, the test of preparing again
+  after the text limit, and both fan-out stress tests.
+
+**Unreleased (#155):** Each of these fails the check named in `document.test.ts`:
 
 - Not closing a linked stylesheet: the tests of a last import, of the URL at its end, of one text
   for a link and an import, and of a linked stylesheet's stray `}`.
@@ -1246,76 +895,143 @@ off and on. Each of these breakages failed the check named in `document.test.ts`
 - Dropping a stylesheet's own stray `}` from its prepared result: the stray `}` tests of #139,
   #154, and #155.
 
-**Unreleased (#194):** On 2026-11-19, the preparation of `main` at `c853231` failed all three new
-tests of `style` attributes left open in `document.test.ts`, and both viewer tests of
-`resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where the served page showed what the tests
-expect: the four squares before the `<base>` showed the `<base>`'s images, and with scripts on and
-files copied no square showed one. Each of these breakages failed the check named:
+**Unreleased (#169):** Each of these fails the check named in `document.test.ts`; the preparation
+before #169 also fails both viewer tests of stylesheet sets in `resources.e2e.ts`:
 
-- Reading an attribute as written to make its references absolute, to find them by name, or to
-  copy their files: the test of each in `document.test.ts`.
-- Keeping an attribute's closed text: the test of making references absolute, which keeps the
-  rest as written.
+- A `<meta http-equiv="Default-Style">` that names no set, or no alternate link that applies: the
+  tests of sets and of the reading style.
+- An alternate link, one with a blank `href`, any link with a title, or a link whose `href` is no
+  URL naming the set; titles compared in any case; an `http-equiv` compared in its exact case; and
+  a `<meta>` counted only in the `<head>`: the test of sets.
+- Titles that never matter: all four tests of sets.
+- Titles that matter in the content of templates: the test of shadow roots and templates.
+- Copying the files of every `<style>`, whatever its set: the test of what the copy keeps.
+- A page's own styles counted whatever their set: the test of the reading style.
+
+**Unreleased (#177):** Each of these fails the check named:
+
+- Not counting what making URLs absolute adds: `document.stress.ts`, and six of the text limit
+  tests in `document.test.ts`.
+- Not counting an import as long as the copy writes a kept import: both stress tests of the limit's
+  text, and three of the text limit tests.
+- Not counting the text that closes a stylesheet: both tests of that text. Leaving out that check
+  and the room check of `StylesheetBudget.add` together, or a `StylesheetBudget.add` that takes what
+  it is given: #152's stress test of conditions, #154's repeat test, and the repeat test of #177.
+- Not counting what copying a page's `<style>` imports adds to its URLs and imports, or counting its
+  own text too: the test of each place, and the test of a page's `<style>`.
+- Giving back the text of a stylesheet that stays a link: the test of that stylesheet.
+- A repeat that counts nothing: the repeat tests of #177 and #154.
+- Not remembering by URL a stylesheet whose rewritten text did not fit: the work stress test, and
+  the test of repeats and importers.
+- Not counting what such a stylesheet's rewriting reached against the discard limit: the work
+  stress test, and both tests of the discard limit. Counting the stylesheet's text against the text
+  limit instead: both tests of the discard limit.
+- Not counting such a refusal as a refusal, or a repeat of a remembered refusal: the test of repeats
+  and importers. Not counting such a repeat toward the count: the test of the count.
+- Comparing the rewritten text with the room only at its end: the #177 stress test, and the test of
+  rewriting that stops at the room. Comparing a stylesheet's length with the text limit's room, not
+  `rewriteRoom`, before scanning it: the test of a stylesheet too long for what remains of the
+  discard limit.
+- Giving room back for a rewrite that shortens its text: the test of such rewrites.
+- Making a page's `<style>`'s URLs absolute: six tests in `document.test.ts`, among them those of
+  #139, #143, and #147, and the work stress test.
+- Returning a stylesheet given alone past the limit unlocated, or a page's `<style>` past it as
+  written: the test of each, and three more of locating by name.
+- Taking nothing from the discard limit for a page's `<style>` whose imports would not fit: the test
+  of two such `<style>` elements.
+
+**Unreleased (#179):** Each of these fails the check named in `document.test.ts` unless another is
+named; the preparation before #179 also fails both viewer tests of `image-set()` strings in
+`resources.e2e.ts`:
+
+- Rewriting only the URL tokens of a copied stylesheet: the tests of strings made absolute, of
+  every place, and of the text limit.
+- Not counting what making such strings absolute adds: the test of the text limit.
+- Copying only the files of URL tokens: the tests of every place, and of the page's own `<style>`
+  and `style` attributes. Finding only URL tokens by name: the latter.
+- Taking a string anywhere inside `image-set()`, as in its `type()`, or a string in any function:
+  `css.test.ts`, the test of other strings, and those of strings made absolute and of every place.
+- Taking the strings of any block after the name `image-set`, as in `image-set{content:"a.png"}`:
+  `css.test.ts`.
+
+**Unreleased (#185):** Each of these fails the check named in `document.test.ts` unless another is
+named; the preparation before #185 also fails the three viewer tests of a late `<base>` in
+`resources.e2e.ts`:
+
+- Taking an SVG `<base>`, or one of a `data:` or `javascript:` URL, or letting a later `<base>`
+  apply after an ignored `data:` one: the test of the base that applies.
+- One base for every stylesheet: all six tests of a `<base>` after the page's stylesheets.
+- Never taking a shadow root's stylesheets for ones before the `<base>`, or taking any template's
+  content for them: the test of every place.
+- Resolving a link against the copy's `<base>`: the tests of every place and of copying.
+- Copying the files of a `<style>` or a `style` attribute against the copy's `<base>`: the test of
+  the text limit. Finding the references of one that does not fit by name against it: the test of
+  finding by name past the limit.
+- Never making a `style` attribute's URLs absolute: the tests of every place, of the `<html>`
+  element, and of the text limit.
+- Not counting what making a `style` attribute's URLs absolute adds: the test of the text limit,
+  and `document.stress.ts`.
+- Giving room back for a rewrite that shortens a `style` attribute, or rewriting the whole of one
+  before comparing it with the room: the test of shortening and of the room.
+- Keeping the URLs of a `<style>` without imports as written: four of the tests.
+
+**Unreleased (#187, #198, #200):** Each of these fails the check named in `document.test.ts`; the
+preparations before #187 and #198 also fail their viewer tests in `resources.e2e.ts`:
+
+- Resolving every resource attribute against the copy's `<base>`: all five tests of resource
+  attributes before a later `<base>`.
+- Taking no shadow root's elements for ones before the `<base>`: the tests of every kind and of
+  copying.
+- Leaving a `srcset`'s URLs as written: the tests of every kind, of copying, and of finding by name.
+- Making a fragment absolute, or a reference that the page and the `<base>` resolve alike: the test
+  of what stays as written.
+- Leaving `<embed>`, `<object>`, and SVG `<image>` to the copy's `<base>`: the tests of every kind
+  and of copying.
+- Leaving the backgrounds, `<feImage>`, or SVG scripts out of the attributes made absolute and found
+  by name: the #187 tests of every kind and of copying, and the test of finding by name; for the
+  backgrounds, the test of the `<body>` too. Leaving them out of the copied attributes: the #187
+  test of copying and the test of the checks.
+- Leaving `<col>` and `<colgroup>` out of the backgrounds: the #187 tests of every kind and of
+  copying.
+- Copying an SVG `<use>`'s file: the #187 test of copying and the test of namespaces.
+- Reading an attribute on the elements of every namespace, or `background` attributes in SVG too:
+  the test of namespaces.
+- Looking up a copied type among an object's inherited properties, or an element's attribute names
+  in an object, which makes a page with an extension such as `constructor`, or a `<constructor>`
+  element, fail to prepare: the tests of each.
+
+**Unreleased (#192):** Each of these fails the check named in `document.test.ts`; the preparation
+before #192 also fails both viewer tests of ASCII whitespace in `resources.e2e.ts`:
+
+- Splitting `rel` on JavaScript's whitespace: the tests of links and of stylesheet sets.
+- Splitting a `srcset`, or stripping a URL attribute, on JavaScript's whitespace: the tests of
+  copying and of finding by name.
+- Splitting a `srcset` on ASCII whitespace without the form feed, or without the tab, or `rel`
+  without the carriage return: the test of copying, and the test of links.
+
+Lowercasing `rel` with `toLowerCase` instead of in ASCII passes every test: no character but an
+ASCII capital lowercases into a letter of `stylesheet` or `alternate`, so that part only keeps the
+rule exact.
+
+**Unreleased (#194):** Each of these fails the check named; the preparation before #194 also fails
+both viewer tests of `style` attributes left open in `resources.e2e.ts`:
+
+- Reading an attribute as written to make its references absolute, to find them by name, or to copy
+  their files: the test of each in `document.test.ts`.
+- Keeping an attribute's closed text: the test of making references absolute, which keeps the rest
+  as written.
 - Closing only the token left open, without the blocks: every test of #194 in `css.test.ts` and
   `document.test.ts`.
 - Closing an attribute as a stylesheet, with a rule's `{}`: the test of closers in `css.test.ts`.
 
-On 2026-11-19 (#196), the copy of a page's text tracks with scripts off at `d4726cf`, the head of
-#203 that its review read, failed `rendered.test.ts`'s test of text tracks, which takes that copy
-for a file that the page's CSS could read.
+### The test harness
 
-**Unreleased (#200):** On 2026-11-19, looking up a copied type among an object's inherited
-properties, as `main` at `eb926d3` does, failed the test of extensions such as `constructor` in
-`document.test.ts`, for which preparing the page threw.
-
-**Unreleased (#198):** On 2026-11-19, `main`'s preparation at `eb926d3` failed both viewer tests of
-the page of backgrounds in `resources.e2e.ts` in Obsidian 1.5.3 and 1.15.1, where the served page
-showed what the tests expect: with scripts off, the copy resolved every background, `<feImage>`,
-and SVG script before the `<base>` to the `<base>`'s folder, and with scripts on and files copied
-it showed none of their images and ran neither SVG script. Each of these breakages failed the
-checks named in `document.test.ts`:
-
-- Leaving the backgrounds, `<feImage>`, or SVG scripts out of the attributes made absolute and
-  found by name: the #187 tests of every kind and of copying, and the test of finding by name; for
-  the backgrounds, the test of the `<body>` too.
-- Leaving `<col>` and `<colgroup>` out of the backgrounds: the #187 tests of every kind and of
-  copying.
-- Leaving the backgrounds, `<feImage>`, or SVG scripts out of the copied attributes: the #187 test
-  of copying and the test of the checks.
-- Copying an SVG `<use>`'s file: the #187 test of copying and the test of namespaces.
-- Reading an attribute on the elements of every namespace: the test of namespaces.
-
-The review of #203 found two changes that passed every test; each now fails the check named:
-
-- Looking an element's attribute names up in an object, which gave a `<constructor>` element the
-  prototype's function and made every page with one fail to prepare: the test of `<constructor>`.
-- Reading `background` attributes in SVG too: the test of namespaces, with its SVG `<td>`, `<tr>`,
-  and `<col>`.
-
-**Unreleased (#199):** On 2026-11-19, `main` at `eb926d3` failed the new test of `links.e2e.ts` in
-Obsidian 1.5.3 and 1.15.1: the tooltip of the link with U+00A0 named the decoy without it, where
-Chromium resolved the link to the file with it. Restoring `main`'s reads, a click's `href` as
-written and a tooltip's trimmed with `trim`, and trimming both with `trim`, each failed both new
-tests, in `document.test.ts` and `links.test.ts`.
-
-Since #155, a link and an import of the same URL share one kept text, so the #154 entry above for
-one kept text describes a breakage of that time, not of the current checkout.
-
-On 2026-11-18, find that matched text at zero opacity, find that left out text inside
-`display: contents`, and a fixture word meant to be hidden but painted each failed `find.e2e.ts`'s
-paint test in Obsidian 1.5.3 and 1.15.1 (#160). Decoding a PNG row's average or sub filter wrongly
-failed `pixels.test.ts`.
-
-On 2026-11-18, in Obsidian 1.5.3 and 1.15.1, a test of `move.e2e.ts` cut short by a 0.5 s timeout
-went on to scroll and move the tab of the test after it, which then failed, and a test of
-`find.e2e.ts` cut short at 1.5 s left the test after it with no highlight painted (#170). With the
-run's refusal of late requests, and without the paint test's own stop, those two tests and the paint
-test cut short at 10 s each failed alone, and each failure named the requests that its code still
-sent. Not refusing late requests failed `harness.e2e.ts`, and running tests outside their scopes
-failed every request in it. While the refusal began only with Mocha's result, with a failure
-screenshot made a second slower, the cut `move.e2e.ts` test moved its tab and the cut `find.e2e.ts`
-test typed into the find bar during the `afterTest` hook; ending the test's code where that hook
-starts left neither test a step after it, and the screenshot was taken.
+- Not refusing a finished test's late WebDriver requests: `harness.e2e.ts`. Running tests outside
+  their scopes: every request in it (#170).
+- With the refusal, a `move.e2e.ts` or `find.e2e.ts` test, or the paint test, cut short by its
+  timeout fails alone, and its failure names the requests that its code still sent. Ending the
+  test's code later than where WebdriverIO's `afterTest` hooks start lets a cut test act during the
+  failure screenshot.
 
 ## Limits
 
