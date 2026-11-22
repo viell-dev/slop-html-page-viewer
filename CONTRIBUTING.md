@@ -176,6 +176,29 @@ issue. The audit fails on an exception that it no longer needs, so that the entr
 lockfile update adopts a fix, that update fails until it also removes the entry, and when GitHub
 withdraws, downgrades, or narrows the advisory, every branch fails until the entry is removed.
 
+Dependabot waits a week after a version's publication before proposing it, so that a compromised or
+broken release can be found first. A published advisory against a version in the dependency tree is
+a known risk and takes precedence over that wait, but only for the versions the fix needs:
+
+1. Confirm that the advisory covers the resolved version, and that the fixed release comes from the
+   package's usual publisher and source and is named as the fix by the advisory, changelog, or
+   release notes.
+2. Take the smallest version that resolves it, normally its patch release, within the declared
+   range where there is one. Dependabot's security updates are not held by the wait. When the
+   vulnerable package comes through a dependency that has not adopted the fix, pin it with an
+   `overrides` entry in that directory's `package.json`, once the checks show that the dependency
+   still works with it. Remove the override when the dependency adopts the fix, also without the
+   wait. When no working fixed version exists, record the advisory in #2 as blocked upstream or
+   worked around, with an audit exception if the rules above allow one.
+3. Decide whether the change between the current and fixed versions needs an independent review of
+   the published package, not only its repository. A check of the release notes and diff can do for
+   a widely used, actively maintained package with an established release process; a less used
+   package, a recent change of maintainer or publishing method, or a fix release with substantial
+   unrelated changes gets the review.
+4. Record the advisory, the affected and fixed versions, the dependency path, the skipped wait, and
+   the review decision with its reason in the pull request. Unrelated updates, and later releases of
+   the same package, keep the wait.
+
 ## Branches
 
 The fork keeps every change that could serve upstream separate, so that it can be offered upstream
@@ -223,9 +246,13 @@ document rather than repeating its procedure elsewhere. Public procedures must s
 
 Keep guidance accurate when behavior or policy changes. Issues and pull requests own decisions,
 investigations, progress, and verification receipts; do not append their history to agent
-instructions. Read configuration from its checked-in source and release state from tags and
-releases. Preserve changelogs, version-specific release notes, compatibility and upgrade guidance,
-active restrictions, and unresolved work.
+instructions or other documents. A document states the current behavior, coverage, and procedure,
+and replaces an outdated statement rather than adding a dated one beside it. For example,
+`TESTING.md`'s **Shown to fail** names each deliberate breakage and the check that it fails; the
+date it ran, the commit it ran against, the behavior before the fix, and what each review round
+found belong in the pull request. Read configuration from its checked-in source and release state
+from tags and releases. Preserve changelogs, version-specific release notes, compatibility and
+upgrade guidance, active restrictions, and unresolved work.
 
 The public default, including the README, `SECURITY.md`, and installation links, describes the
 latest installable release rather than `main`, and the README names that version. Contributor

@@ -7,6 +7,8 @@ updates:
       interval: weekly
     # A version becomes a candidate a week after its publication, which leaves
     # time for a compromised or broken release to be found and withdrawn.
+    # Security updates are not held back; CONTRIBUTING.md says how to handle
+    # an advisory fix.
     cooldown:
       default-days: 7
     groups:
