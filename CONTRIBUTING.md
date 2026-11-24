@@ -207,7 +207,7 @@ exactly as it was merged here:
 - **Upstream-bound** changes, labelled `Target: Upstream`, start from upstream's `main`, or from the
   upstream-bound branch they build on. They contain nothing specific to the fork: not its documents,
   `.github/` files, plugin id, or versions, and never `main.js`.
-- **Fork-only** changes, labelled `Target: Fork`, start from this repository's `main`.
+- **Fork-only** changes, the default without that label, start from this repository's `main`.
 
 To base a branch on upstream, add it as a remote:
 

@@ -2,9 +2,9 @@ Describe the problem and resulting behavior for a reader who has not seen the co
 owner reads pull request descriptions to judge direction without reading the diff. State the design
 decisions the change makes and why, rather than leaving them as questions. Link the issue.
 
-Say whether the change is upstream-bound (`Target: Upstream`, based on upstream's `main`) or
-fork-only (`Target: Fork`), as `CONTRIBUTING.md` describes. Confirm that the security model is
-unchanged, or that the README and `SECURITY.md` describe the change.
+Say whether the change is upstream-bound (labelled `Target: Upstream`, based on upstream's `main`)
+or fork-only (without that label), as `CONTRIBUTING.md` describes. Confirm that the security model
+is unchanged, or that the README and `SECURITY.md` describe the change.
 
 ## Verification
 
