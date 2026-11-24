@@ -83,7 +83,7 @@ and pending human requests before preparing a version.
 
 1. Choose the version by semantic versioning: a minor version for new features, a patch for
    fixes. A version with a prerelease part, such as `0.6.0-rc.1`, becomes a prerelease.
-2. In a pull request from a branch of `main`, labelled `Target: Fork`:
+2. In a pull request from a branch of `main`:
    - Set the version with `npm version <version> --no-git-tag-version`, which changes
      `package.json` and its lockfile, and in `manifest.json`.
    - Add `"<version>": "<minAppVersion>"` to `versions.json`.

@@ -88,10 +88,5 @@
     "name": "Target: Upstream",
     "color": "1d76db",
     "description": "Based on upstream's main with nothing fork-specific, so it can be offered upstream."
-  },
-  {
-    "name": "Target: Fork",
-    "color": "bfdadc",
-    "description": "Only for this fork; not offered upstream."
   }
 ]

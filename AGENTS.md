@@ -46,8 +46,8 @@ Track its defects, offered changes, and maintainer responses through
 ## Branches and merging
 
 Upstream-bound branches start from `upstream/main` and fork-only branches from `main`, as
-CONTRIBUTING.md describes; label each pull request `Target: Upstream` or `Target: Fork`. Merge with
-a merge commit after checking the exact head: `gh pr merge --merge --match-head-commit SHA`.
+CONTRIBUTING.md describes; label upstream-bound pull requests `Target: Upstream`. Merge with a merge
+commit after checking the exact head: `gh pr merge --merge --match-head-commit SHA`.
 
 - Squash and rebase merging are disabled, because they would create commits that differ from the
   ones offered upstream, and later upstream syncs would conflict with them.
@@ -106,8 +106,8 @@ Labels follow [`.github/labels.json`](./.github/labels.json); keep GitHub in syn
   reproduced defect or an accepted request; remove it when the item closes. The `Type:`, `Status:`,
   and `Needs:` labels, `Good First Issue`, and `Help Wanted` are shared with the maintainers' other
   repositories: keep their names, colors, and descriptions as they are there, and add no synonyms.
-- `Target: Upstream` or `Target: Fork` says where the change can go. An upstream-bound defect found
-  in upstream's code is also listed in #2.
+- `Target: Upstream` marks upstream-bound issues and pull requests; one without it is fork-only. An
+  upstream-bound defect found in upstream's code is also listed in #2.
 - The fixing pull request names its issue with a closing keyword and carries the same labels.
 - Record each defect or limit found during other work as an issue, or in an existing one, and link
   it from the pull request. An issue filed for later work states what its assignee must decide.
