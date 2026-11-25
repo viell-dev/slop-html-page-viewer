@@ -117,7 +117,9 @@ describe("turns for the window (#158)", () => {
 });
 
 describe("preparing a page with turns for the window (#158)", () => {
-  const images = `<img src="img.png"><a href="other.html">Other</a>`.repeat(500);
+  // Ten thousand elements of each kind: dozens of turns.
+  const images = `<img src="img.png"><a href="other.html">Other</a>`.repeat(10_000);
+  const styled = `<p style="background: url(img.png)">Text</p>`.repeat(10_000);
   const pages: Record<string, { html: string; files?: Record<string, string>; copy?: true }> = {
     "a large linked stylesheet": {
       html: `<link rel="stylesheet" href="large.css">`,
@@ -133,11 +135,9 @@ describe("preparing a page with turns for the window (#158)", () => {
       files: { "Saved/large.css": `@media screen { ${LARGE}` },
     },
     "many images and links": { html: images },
-    "many style attributes": {
-      html: `<p style="background: url(img.png)">Text</p>`.repeat(500),
-    },
+    "many style attributes": { html: styled },
     "copying the files of many images, of a large <style>, and of many style attributes": {
-      html: `${images}<style>${LARGE}</style>${`<p style="background: url(img.png)"></p>`.repeat(500)}`,
+      html: `${images}<style>${LARGE}</style>${styled}`,
       copy: true,
     },
   };
@@ -160,7 +160,7 @@ describe("preparing a page with turns for the window (#158)", () => {
         prepared = await prepare();
       });
       assert.equal(prepared.html, atOnce.html);
-      assert.ok(tasks >= 3, `${tasks} tasks`);
+      assert.ok(tasks >= 10, `${tasks} tasks`);
     });
   }
 
@@ -172,9 +172,8 @@ describe("preparing a page with turns for the window (#158)", () => {
     assert.deepEqual(ctx.reads, ["Saved/large.css"]);
   });
 
-  it("ends when the view shows another file, without an error", async (t) => {
-    hurryClock(t);
-    const logged = t.mock.method(console, "error", () => undefined);
+  /** Opens a page that links a large stylesheet and then another one, which is prepared for many turns. */
+  async function openLarge() {
     const harness = await Harness.load();
     const reads: string[] = [];
     const read = harness.app.vault.cachedRead;
@@ -188,12 +187,31 @@ describe("preparing a page with turns for the window (#158)", () => {
     const links = `<link rel="stylesheet" href="large.css"><link rel="stylesheet" href="next.css">`;
     harness.open(view, "large.html", links);
     await settle();
-    assert.equal(frame(view)?.srcdoc, "", "preparing it has given the window a turn");
+    const iframe = frame(view);
+    assert.equal(iframe?.srcdoc, "", "preparing it has given the window a turn");
+    return { harness, view, iframe, reads };
+  }
+
+  it("ends when the view shows another file, without an error", async (t) => {
+    hurryClock(t);
+    const logged = t.mock.method(console, "error", () => undefined);
+    const { harness, view, reads } = await openLarge();
     harness.open(view, "other.html", "<p>Other</p>");
     for (let i = 0; i < 100; i++) await settle();
     assert.deepEqual(reads, ["large.css"]);
     assert.match(frame(view)?.srcdoc ?? "", /<p>Other<\/p>/);
     assert.equal(message(view), null);
+    assert.equal(logged.mock.callCount(), 0);
+  });
+
+  it("ends when the view closes, as when its tab closes or shows a note, without an error", async (t) => {
+    hurryClock(t);
+    const logged = t.mock.method(console, "error", () => undefined);
+    const { view, iframe, reads } = await openLarge();
+    await view.onClose();
+    for (let i = 0; i < 100; i++) await settle();
+    assert.deepEqual(reads, ["large.css"]);
+    assert.equal(iframe.srcdoc, "");
     assert.equal(logged.mock.callCount(), 0);
   });
 

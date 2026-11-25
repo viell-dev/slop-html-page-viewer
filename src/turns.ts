@@ -18,7 +18,9 @@ export function finish<T>(steps: Steps<T>): T {
 
 /**
  * How long a slice runs before the window gets a turn, in milliseconds: less
- * than a reader notices, and long enough that turns cost next to nothing.
+ * than a reader notices, and long enough that turns cost next to nothing. Work
+ * between steps that is not in steps itself makes a slice longer, as following
+ * the rules of a stylesheet of millions of characters does.
  */
 const SLICE = 25;
 

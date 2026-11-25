@@ -1120,8 +1120,12 @@ describe("A page's local files in Obsidian", function () {
     const rule = `.card:hover > .label { color: red; background: url(img.png); content: "text" }\n`;
     const rules = rule.repeat(Math.ceil(8_000_000 / rule.length));
     const files = {
-      "Large stylesheet.html": `<link rel="stylesheet" href="Large stylesheet.css"><p id="styled">Styled</p>`,
-      "Large stylesheet.css": `${rules}#styled { color: ${GREEN_TEXT} }`,
+      "Large stylesheet.html": [
+        `<link rel="stylesheet" href="Large stylesheet.css">`,
+        `<link rel="stylesheet" href="Large stylesheet next.css"><p id="styled">Styled</p>`,
+      ].join(""),
+      "Large stylesheet.css": rules,
+      "Large stylesheet next.css": `#styled { color: ${GREEN_TEXT} }`,
     };
 
     before(async function () {
@@ -1187,7 +1191,7 @@ describe("A page's local files in Obsidian", function () {
           await openInActiveTab("Large stylesheet.html");
           await waitForPage();
           const gaps = await notedTurns();
-          // At most 0.15 s on a busy host, against 2.3 s in one task without turns,
+          // At most 0.2 s on a busy host, against 2.3 s in one task without turns,
           // and 1 s with them where the copy's <style> is put in a document.
           expect(gaps[0]).toBeLessThan(600);
           expect(gaps.length).toBeGreaterThan(10);
@@ -1198,6 +1202,25 @@ describe("A page's local files in Obsidian", function () {
           await copyLocalFiles(false);
         }
       });
+
+    it("stops preparing it once its tab closes", async function () {
+      await recordReads("Large stylesheet");
+      try {
+        const preparing = await browser.executeObsidian(async ({ app }) => {
+          const leaf = app.workspace.getLeaf("tab");
+          await leaf.openFile(app.vault.getAbstractFileByPath("Large stylesheet.html") as never);
+          const { srcdoc } = leaf.view.containerEl.querySelector("iframe")!;
+          leaf.detach();
+          return srcdoc === "";
+        });
+        expect(preparing).toBe(true);
+        // Longer than the next stylesheet takes to come, when nothing stops.
+        await browser.pause(6_000);
+        expect(await recordedReads()).not.toContain("Large stylesheet next.css");
+      } finally {
+        await restoreHost();
+      }
+    });
   });
 
   before(async function () {

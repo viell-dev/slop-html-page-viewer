@@ -294,11 +294,12 @@ and that it ends after a turn once its result is no longer wanted. With a clock 
 has run long enough, it prepares pages with a large stylesheet, linked, imported, in a `<style>`,
 and left open at its end, with many images, links, and `style` attributes, and copying the files of
 all of these, gets the same copy as at once, and sees the window's tasks run meanwhile. A view that
-shows another file meanwhile reads no further stylesheet and shows no error, and one that stays
-shows its page. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that its window's timers
+shows another file meanwhile, or closes, reads no further stylesheet and shows no error, and one that
+stays shows its page. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that its window's timers
 never stop for 0.6 s while the viewer prepares a page with a stylesheet of 8 million characters,
 with scripts off, and with them on and copying files, until the frame has its copy. They stopped
-for at most 0.15 s when measured on a busy host, against 2.3 to 9.6 s without turns.
+for at most 0.2 s when measured on a busy host, against 2.3 to 9.6 s without turns. It also checks
+that closing the page's tab meanwhile keeps its next stylesheet from being read.
 
 **Unreleased (#177):** `document.test.ts` checks that the text limit counts a stylesheet's text as
 preparing writes it, each to the character, with stylesheets in a folder whose long name makes a
@@ -1075,8 +1076,8 @@ both host tests of a large stylesheet in `resources.e2e.ts`:
 - Giving the window no turns, giving one after any work, however little, or never starting a slice
   anew: the tests of turns, and, for the second, tests of the view that expect an ordinary page in
   one task.
-- Not asking whether the copy is still wanted, a view that does not say so, or one that shows the
-  end of unwanted work as an error: the tests of ending.
+- Not asking whether the copy is still wanted, a view that does not say so, also when it closes, or
+  one that shows the end of unwanted work as an error: the tests of ending.
 - Scanning a stylesheet's tokens, or its references, in one step: the test of scanning in steps.
 
 **Unreleased (#148):** Each of these fails the check named; the preparation before #148 also fails
@@ -1150,7 +1151,9 @@ them on by that and the `<noscript>` content:
 - **Unreleased (#158):** Obsidian does not respond while Chromium parses a page, as the viewer parses
   its file and the frame the copy. On the tested hosts the frame's parse of a `<style>` of 14
   million characters stopped the window's timers for 0.75 to 0.85 s, as parsing a stylesheet is one
-  task in Chromium. Which of the steps of copying files give turns is checked only together.
+  task in Chromium. Passes over a stylesheet that are not in steps, such as following its rules,
+  take up to about 0.1 s for 8 million characters and 0.2 s for 16 million. Which of the steps of
+  copying files give turns is checked only together.
 - **Unreleased (#185):** which base a stylesheet resolves against follows where it stands in the
   prepared tree, which is taken for the order in which the HTML parser made its elements. It is not
   always that order: the parser puts a `<base>` inside a `<table>` before the table, which it made
