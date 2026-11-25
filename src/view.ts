@@ -52,6 +52,7 @@ import {
   syncPoints,
   topOfLine,
 } from "./split";
+import { StoppedError } from "./turns";
 
 export const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
 /** The workspace event that tells open views the settings changed. */
@@ -694,6 +695,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
           scripts: this.scriptsEnabled,
           openShadowRoots: !this.scriptsEnabled,
           inertUntilWatched: !this.scriptsEnabled,
+          stopped: () => this.iframe !== iframe,
         },
       );
       page = prepared.html;
@@ -703,6 +705,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
       // preparePage adds the reading style only to pages without styles.
       shownStyle = ownStyles ? null : (readingStyle ?? null);
     } catch (error) {
+      if (error instanceof StoppedError) return;
       console.error("HTML Page Viewer: could not prepare the page", error);
       if (this.iframe === iframe) this.showPreparationError(iframe, error);
       return;

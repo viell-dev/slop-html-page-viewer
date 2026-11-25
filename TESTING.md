@@ -286,6 +286,18 @@ window's timers never stop for 2 s while it opens. They stopped for at most 0.3 
 (#154), against 3 to 5 s with five imports a stylesheet before the limits, and, by extrapolation,
 6 to 10 minutes for this page.
 
+**Unreleased (#158):** `turns.test.ts` checks that work in steps gives the window turns, each after a
+slice of time and only once there is much work, so that an ordinary page is prepared in one task,
+and that it ends after a turn once its result is no longer wanted. With a clock on which every slice
+has run long enough, it prepares pages with a large stylesheet, linked, imported, in a `<style>`,
+and left open at its end, with many images, links, and `style` attributes, and copying the files of
+all of these, gets the same copy as at once, and sees the window's tasks run meanwhile. A view that
+shows another file meanwhile reads no further stylesheet and shows no error, and one that stays
+shows its page. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that its window's timers
+never stop for 0.6 s while the viewer prepares a page with a stylesheet of 8 million characters,
+with scripts off, and with them on and copying files, until the frame has its copy. They stopped
+for at most 0.15 s when measured on a busy host, against 2.3 to 9.6 s without turns.
+
 **Unreleased (#177):** `document.test.ts` checks that the text limit counts a stylesheet's text as
 preparing writes it, each to the character, with stylesheets in a folder whose long name makes a
 short stylesheet's copy take the whole limit: one whose copy is exactly the limit is copied, and
@@ -1041,6 +1053,16 @@ both viewer tests of `style` attributes left open in `resources.e2e.ts`:
   `document.test.ts`.
 - Closing an attribute as a stylesheet, with a rule's `{}`: the test of closers in `css.test.ts`.
 
+**Unreleased (#158):** Each of these fails the check named; the preparation before #158 also fails
+both host tests of a large stylesheet in `resources.e2e.ts`:
+
+- Giving the window no turns, giving one after any work, however little, or never starting a slice
+  anew: the tests of turns, and, for the second, tests of the view that expect an ordinary page in
+  one task.
+- Not asking whether the copy is still wanted, a view that does not say so, or one that shows the
+  end of unwanted work as an error: the tests of ending.
+- Scanning a stylesheet's tokens, or its references, in one step: the test of scanning in steps.
+
 **Unreleased (#148):** Each of these fails the check named; the preparation before #148 also fails
 the viewer tests of `<noscript>` in `resources.e2e.ts`, with scripts off by the empty line and with
 them on by that and the `<noscript>` content:
@@ -1105,6 +1127,10 @@ them on by that and the `<noscript>` content:
   `<noscript>` that the source does not show as one, as inside an SVG `<title>` or after CDATA text
   that seems to hold one, is prepared as elements, as before #148
   ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
+- **Unreleased (#158):** Obsidian does not respond while Chromium parses a page, as the viewer parses
+  its file and the frame the copy. On the tested hosts the frame's parse of a `<style>` of 14
+  million characters stopped the window's timers for 0.75 to 0.85 s, as parsing a stylesheet is one
+  task in Chromium. Which of the steps of copying files give turns is checked only together.
 - **Unreleased (#185):** which base a stylesheet resolves against follows where it stands in the
   prepared tree, which is taken for the order in which the HTML parser made its elements. It is not
   always that order: the parser puts a `<base>` inside a `<table>` before the table, which it made

@@ -347,8 +347,14 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   links and imports past either limit stay links and imports, which
   Obsidian's policy keeps from loading, so such a page shows only some of its styles, without
   keeping the viewer preparing it. A smaller stylesheet after one too large for what remains is
-  still copied. Obsidian still does not respond while the viewer prepares a page, about a third to
-  half a second for each million characters of stylesheets that it copies
+  still copied.
+
+  **Unreleased (#158):** Obsidian responds while the viewer prepares a page's references and
+  stylesheets, and the viewer stops preparing a page once its tab closes or shows something else.
+  Version 0.6.0 keeps Obsidian from responding until a page is prepared, about a third to half a
+  second for each million characters of stylesheets that it copies. What Chromium does in one go
+  still does so: parsing the page, and parsing the copy's stylesheets in the frame, as a browser
+  parses them too, about a twentieth of a second for each million characters of one
   ([#158](https://github.com/viell-dev/slop-html-page-viewer/issues/158)).
 
   **Unreleased (#177):** a stylesheet's text counts as preparing writes it into the page: closed

@@ -173,6 +173,7 @@ Record material settings decisions and their rationale in the owning issue or pu
 - `src/source.ts`: the source's tokenizer, highlighting, and start tags. It shows every file's text
   unchanged.
 - `src/document.ts`: the rendered copy, resource paths, stylesheets, and optional local-file copying.
+  `src/css.ts` scans CSS for it, and `src/turns.ts` gives the window turns meanwhile.
 - `src/reading.ts`, `src/links.ts`, `src/find.ts`, `src/split.ts`, and `src/scrolling.ts`: reading
   style, navigation, search, synchronized scrolling, and a page's place across a tab's move.
 - `src/settings.ts` and `src/extensions.ts`: saved settings, controls, and extension registration.
