@@ -42,6 +42,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   lines wrap there, instead of going back as far down as it was scrolled, which showed other lines.
   The split view's source keeps its line too where its tab hides or moves within a tenth of a
   second of a scroll (#189).
+- In a new window, the **Source** view and the split view with scripts on no longer take where
+  Obsidian put the moved source back for the reader's scrolling, where the window changed its layout
+  meanwhile, which showed lines near the one that was at the source's top (#218).
 - With scripts on, the split view's source shows the line that was at its top, too, when its tab
   moves to another tab group or window or shows again after its pane changed width while the tab was
   hidden, instead of going back as far down as it was scrolled, which showed other lines (#204).
