@@ -69,6 +69,16 @@ export class Turns {
     this.start = performance.now();
   }
 
+  /**
+   * Counts this much more work, and gives the window a turn if it is due one.
+   * Work that is no longer wanted ends here, also without a turn, as where it
+   * has waited for a file.
+   */
+  async step(work: number): Promise<void> {
+    if (this.stopped()) throw new StoppedError();
+    if (this.due(work)) await this.give();
+  }
+
   /** Does work in steps, giving the window a turn whenever it is due one. */
   async run<T>(steps: Steps<T>): Promise<T> {
     for (;;) {

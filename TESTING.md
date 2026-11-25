@@ -295,11 +295,12 @@ has run long enough, it prepares pages with a large stylesheet, linked, imported
 and left open at its end, with many images, links, and `style` attributes, and copying the files of
 all of these, gets the same copy as at once, and sees the window's tasks run meanwhile. A view that
 shows another file meanwhile, or closes, reads no further stylesheet and shows no error, and one that
-stays shows its page. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that its window's timers
+stays shows its page. A page that is no longer wanted once one of its files is read, without a turn,
+reads no further one, whether links, imports, images, or stylesheets name them. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that its window's timers
 never stop for 0.6 s while the viewer prepares a page with a stylesheet of 8 million characters,
 with scripts off, and with them on and copying files, until the frame has its copy. They stopped
 for at most 0.2 s when measured on a busy host, against 2.3 to 9.6 s without turns. It also checks
-that closing the page's tab meanwhile keeps its next stylesheet from being read.
+that closing a page's tab while its first stylesheet is read keeps its second from being read.
 
 **Unreleased (#177):** `document.test.ts` checks that the text limit counts a stylesheet's text as
 preparing writes it, each to the character, with stylesheets in a folder whose long name makes a

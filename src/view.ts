@@ -325,9 +325,13 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     // Nothing to save: see `save`.
   };
 
-  /** Closes the view, as when its tab closes or shows another view, so that it prepares no page. */
+  /**
+   * Closes the view, as when its tab closes or shows another view: what it
+   * still prepares or reads is not wanted anymore.
+   */
   override async onClose(): Promise<void> {
     this.iframe = null;
+    this.contentsVersion += 1;
     await super.onClose();
   }
 

@@ -79,6 +79,25 @@ describe("refreshing", () => {
     assert.equal(await shownText(view), "second original");
   });
 
+  it("ignores a read that finishes as the view closes, and prepares no page then (#158)", async () => {
+    // The read can go on in any of the microtasks in which the file unloads.
+    for (let ticks = 0; ticks < 10; ticks++) {
+      const harness = await Harness.load();
+      const view = harness.newView();
+      await harness.openFile(view, "Review/first.html", FIRST);
+      const read = holdNextRead(harness, "Review/first.html");
+      button(view, "Refresh preview").click();
+
+      read.resolve("<p>stale first</p>");
+      for (let tick = 0; tick < ticks; tick++) await Promise.resolve();
+      await view.onClose();
+      await settle();
+
+      assert.equal(view.file, null);
+      assert.equal(frame(view), null, `${ticks} microtasks before the close`);
+    }
+  });
+
   it("ignores a read that finishes after the file was opened again", async () => {
     const harness = await Harness.load();
     const view = harness.newView();
