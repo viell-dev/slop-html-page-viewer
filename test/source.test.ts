@@ -836,6 +836,28 @@ describe("the source view's place after its tab moves (#135)", () => {
       }
     });
 
+    // Obsidian puts the source back, and the new window lays it out at another
+    // height before Chromium reports that: it is neither as far down as it was
+    // nor at its end then.
+    it(`goes back to its line at its first scroll report in a new window (${issue}, #218)`, async () => {
+      const shown = await movedSource(mode, options);
+      const popout = new JSDOM("<!doctype html><html><body></body></html>")
+        .window as unknown as Window;
+      try {
+        const { harness, view, scroll, scrolledTo, report } = shown;
+        resizeObservers(popout);
+        report();
+        scroll(300);
+        popout.document.body.append(popout.document.adoptNode(view.contentEl));
+        harness.app.workspace.trigger("layout-change");
+        scroll(500);
+        assert.deepEqual(scrolledTo, [{ top: 300, left: 0, behavior: "instant" }]);
+      } finally {
+        endObservers();
+        (popout as unknown as { close(): void }).close();
+      }
+    });
+
     // A scroll that the reader has made and that Chromium has yet to report
     // is theirs, also where the lines change size meanwhile.
     it(`leaves its source where the reader's input in it can still be unreported, when its lines change size after a move to a new window (${issue})`, async () => {
