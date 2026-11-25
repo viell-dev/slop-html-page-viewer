@@ -410,6 +410,59 @@ describe("the find bar", () => {
     press(input(view), "Escape");
   });
 
+  it("keeps text typed just before Obsidian unloads the file, when the next one takes longer to read than the search waits", async () => {
+    const { harness, view } = await sourceView();
+    button(view, "Find in page").click();
+    input(view).value = "page";
+    press(input(view), "Enter");
+    input(view).value = "three";
+    input(view).dispatchEvent(new window.Event("input"));
+    // What Obsidian does when it unloads the view's file.
+    view.clear();
+    assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    harness.open(view, "Other.html", "<p>Three pages.</p>");
+    assert.equal(input(view).value, "three");
+    assert.equal(count(view), "1 of 1");
+    press(input(view), "Escape");
+  });
+
+  it("leaves no highlight or match behind when a refresh finds the file empty", async () => {
+    const { harness, view } = await sourceView();
+    button(view, "Find in page").click();
+    input(view).value = "page";
+    press(input(view), "Enter");
+    assert.equal(highlighted(MATCH_HIGHLIGHT).length, 3);
+
+    harness.app.files.set("Notes.html", "");
+    button(view, "Refresh preview").click();
+    await settle();
+    assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
+    assert.deepEqual(highlighted(CURRENT_HIGHLIGHT), []);
+    button(view, "Next match").click();
+    assert.equal(count(view), "");
+    press(input(view), "Escape");
+  });
+
+  it("closes when the file cannot be read, and keeps its text", async () => {
+    const { harness, view } = await sourceView();
+    button(view, "Find in page").click();
+    input(view).value = "page";
+    press(input(view), "Enter");
+
+    harness.app.vault.read = () => Promise.reject(new Error("permission denied"));
+    button(view, "Refresh preview").click();
+    await settle();
+    assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
+    assert.deepEqual(highlighted(CURRENT_HIGHLIGHT), []);
+    harness.open(view, "Other.html", "<p>One page.</p>");
+    assert.equal(view.contentEl.querySelector(".html-page-viewer__find"), null);
+    button(view, "Find in page").click();
+    assert.equal(input(view).value, "page");
+    assert.equal(count(view), "1 of 1");
+    press(input(view), "Escape");
+  });
+
   it("closes with Escape, and leaves no highlight behind", async () => {
     const { view } = await sourceView();
     button(view, "Find in page").click();

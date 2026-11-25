@@ -12,13 +12,12 @@ import {
   pageTopForLine,
   remeasured,
   ScrollFollower,
-  type StartTag,
   syncPoints,
   topOfLine,
 } from "../src/split";
 import { preparePage, SHADOW_ROOT_MARK } from "../src/document";
-import { startTags } from "../src/main";
 import { keepScrolling } from "../src/scrolling";
+import { type StartTag, startTags } from "../src/source";
 import { button, Harness, layOutFrame, loadFrame, moveFrame, settle } from "./support/harness";
 import { resizeObservers } from "./support/observers";
 

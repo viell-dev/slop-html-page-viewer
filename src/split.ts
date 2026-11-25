@@ -5,12 +5,7 @@
 
 import { declaresShadowRoot, SHADOW_ROOT_MARK } from "./document";
 import type { Placing } from "./scrolling";
-
-/** A start tag in the source: its element's name, lowercased, and its line, from 1. */
-export interface StartTag {
-  readonly name: string;
-  readonly line: number;
-}
+import type { StartTag } from "./source";
 
 /** An element of the page with the source line of its start tag. */
 export interface Anchor {

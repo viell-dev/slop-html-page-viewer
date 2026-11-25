@@ -38,10 +38,11 @@ Track its defects, offered changes, and maintainer responses through
   `upstream-sync-<date>` and open a pull request into `main`. If it conflicts, create that branch
   from `main` instead, merge `upstream/main` into it, and resolve the conflicts there. Upstream's
   releases change `main.js`, which this fork deleted; resolve that conflict by keeping it deleted.
-  Move entries that upstream adds to `CHANGELOG.md` under its **Upstream releases** section, and
-  add their versions to `versions.json`. Leave out the records of upstream's own release
-  verification, such as `docs/obsidian-1.15.1.md` and the screenshot it shows: they describe
-  upstream's builds, not the fork's.
+  Upstream keeps its view and tokenizer in `src/main.ts`; apply its changes there to `src/view.ts`
+  and `src/source.ts`. Move entries that upstream adds to `CHANGELOG.md` under its **Upstream
+  releases** section, and add their versions to `versions.json`. Leave out the records of upstream's
+  own release verification, such as `docs/obsidian-1.15.1.md` and the screenshot it shows: they
+  describe upstream's builds, not the fork's.
 
 ## Branches and merging
 
@@ -165,7 +166,12 @@ Record material settings decisions and their rationale in the owning issue or pu
 
 ## Technical map
 
-- `src/main.ts`: plugin, view lifecycle, toolbar, source highlighting, and sandbox selection.
+- `src/main.ts`: the plugin's entry point, which registers its view, commands, settings, and
+  extensions.
+- `src/view.ts`: the view: its lifecycle, toolbar, frame and sandbox selection, and the split view's
+  following. `src/find-bar.ts` holds its find bar's state, and `src/buttons.ts` the buttons of both.
+- `src/source.ts`: the source's tokenizer, highlighting, and start tags. It shows every file's text
+  unchanged.
 - `src/document.ts`: the rendered copy, resource paths, stylesheets, and optional local-file copying.
 - `src/reading.ts`, `src/links.ts`, `src/find.ts`, `src/split.ts`, and `src/scrolling.ts`: reading
   style, navigation, search, synchronized scrolling, and a page's place across a tab's move.
