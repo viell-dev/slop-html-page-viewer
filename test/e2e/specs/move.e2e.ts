@@ -1739,10 +1739,7 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
       await openInActiveTab(await writeLongHeadPage());
       await clickToolbarButton("Split");
       await waitForPage();
-      await scrollViewSourceToLine(150);
-      await browser.pause(500);
-      const before = (await pageState(false))!;
-      expect(before.line).toBe(150);
+      const before = await leadFromLongHead();
 
       if (to === "window")
         expect(await moveToWindowHoldingStyles(150)).toMatchObject({
@@ -1768,10 +1765,7 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
       await openInActiveTab(await writeLongHeadPage({ image: image.url }));
       await clickToolbarButton("Split");
       await waitForParsedPage();
-      await scrollViewSourceToLine(150);
-      await browser.pause(500);
-      const before = (await pageState(false))!;
-      expect(before.line).toBe(150);
+      const before = await leadFromLongHead();
 
       await moveActiveTab("group");
       await waitForMovedPage(
@@ -1807,8 +1801,7 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
     await clickToolbarButton("Split");
     await waitForPage();
     await prepareTabGroups({ other: 300 });
-    await scrollViewSourceToLine(150);
-    await browser.pause(500);
+    await leadFromLongHead();
     const before = (await sourceLine())!;
     expect(before.line).toBe(150);
 
@@ -2284,6 +2277,32 @@ async function openParagraphsSource(view: (typeof SOURCES)[number]): Promise<voi
   await clickToolbarButton("Split");
   await clickToolbarButton("Scripts OFF");
   await waitForPage();
+}
+
+/**
+ * Scrolls the split view's source to line 150 of the long head, and returns
+ * the page's state once it has followed, so that the source is the side that
+ * led last. The view follows the source only from when it watches the frame's
+ * page, which is inert until then: a scroll before that leads nothing, and the
+ * page, at its start beside line 150, would lead after a move.
+ */
+async function leadFromLongHead(): Promise<PageState> {
+  await browser.waitUntil(
+    () =>
+      browser.execute((active) => {
+        const frame = document.querySelector<HTMLIFrameElement>(`${active} iframe`);
+        return frame?.contentDocument?.documentElement.hasAttribute("inert") === false;
+      }, ACTIVE),
+    { timeoutMsg: "the view did not watch the frame's page" },
+  );
+  await scrollViewSourceToLine(150);
+  await browser.waitUntil(async () => ((await pageState(false))?.scrollY ?? 0) > 0, {
+    timeoutMsg: "the page did not follow the source to line 150",
+  });
+  await browser.pause(500);
+  const state = (await pageState(false))!;
+  expect(state.line).toBe(150);
+  return state;
 }
 
 /** The source that a test marked with `data-e2e-moved`, in whichever window it is. */
@@ -2945,10 +2964,7 @@ describe("A tab shown again after Obsidian hid it", function () {
     await openInActiveTab(await writeLongHeadPage());
     await clickToolbarButton("Split");
     await waitForPage();
-    await scrollViewSourceToLine(150);
-    await browser.pause(500);
-    const before = (await pageState(false))!;
-    expect(before.line).toBe(150);
+    const before = await leadFromLongHead();
 
     await moveHiddenTabByMenu();
     await waitForMovedPage();
