@@ -820,6 +820,49 @@ describe("the split view's source's line at its top (#182)", () => {
   });
 });
 
+describe("a source alone in the view, in another window (#218)", () => {
+  /** A source of 12 lines, each 20 pixels high, at line 8 of a window, that moves to another one. */
+  function moved(alone: boolean) {
+    const first = new JSDOM("<!doctype html><body></body>").window;
+    const second = new JSDOM("<!doctype html><body></body>").window;
+    const firstFrames = animationFrames(first as unknown as Window);
+    const secondFrames = animationFrames(second as unknown as Window);
+    const placed = placedSource(first.document);
+    const { source, lines, scroll } = placed;
+    keepScrolling(source, linePlacing(source), { alone });
+    scroll(150);
+    firstFrames.settle();
+    second.document.body.append(second.document.adoptNode(source));
+    // The new window lays the lines out twice as high.
+    lines.height = 40;
+    return { ...placed, win: second, frames: secondFrames };
+  }
+
+  // Obsidian puts it back as far down as it was, or at its end short of that,
+  // and the window can change its height before Chromium reports it.
+  it("goes back to its line at its first report there", () => {
+    const { scrolledTo, scroll } = moved(true);
+    scroll(120);
+    assert.deepEqual(scrolledTo, [290], "line 8, as laid out now");
+    // The reader's scrolling after that is theirs.
+    scroll(200);
+    assert.deepEqual(scrolledTo, [290]);
+  });
+
+  it("stays where the reader scrolls it there first", () => {
+    const { win, source, scrolledTo, scroll } = moved(true);
+    source.dispatchEvent(new win.WheelEvent("wheel", { bubbles: true, deltaY: 100 }));
+    scroll(120);
+    assert.deepEqual(scrolledTo, []);
+  });
+
+  it("takes a report of one that follows a page for a scroll of it", () => {
+    const { scrolledTo, scroll } = moved(false);
+    scroll(120);
+    assert.deepEqual(scrolledTo, []);
+  });
+});
+
 describe("start tags", () => {
   it("lists each start tag with its line, and no end tags, comments, or script contents", () => {
     const html =
