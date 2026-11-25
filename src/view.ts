@@ -358,7 +358,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
    * Its place is held while it is hidden.
    */
   private keepSourcePlace(source: HTMLElement): void {
-    const scrolling = keepScrolling(source, linePlacing(source));
+    const scrolling = keepScrolling(source, linePlacing(source), { alone: true });
     this.sourceScrolling = scrolling;
     const end = new AbortController();
     const watch = watchElementHiding(source, end.signal, {

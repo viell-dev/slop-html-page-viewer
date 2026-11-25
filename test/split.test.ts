@@ -820,6 +820,97 @@ describe("the split view's source's line at its top (#182)", () => {
   });
 });
 
+describe("a source alone in the view, in another window (#218)", () => {
+  /** A source of 12 lines, each 20 pixels high, at line 8 of a window, that moves to another one. */
+  function moved(alone = true) {
+    const first = new JSDOM("<!doctype html><body></body>").window;
+    const second = new JSDOM("<!doctype html><body></body>").window;
+    const firstFrames = animationFrames(first as unknown as Window);
+    const secondFrames = animationFrames(second as unknown as Window);
+    const placed = placedSource(first.document);
+    const { source, lines, scroll } = placed;
+    const kept = keepScrolling(source, linePlacing(source), { alone });
+    scroll(150);
+    firstFrames.settle();
+    const moveTo = (win: typeof first): void => {
+      win.document.body.append(win.document.adoptNode(source));
+    };
+    moveTo(second);
+    // The new window lays the lines out twice as high.
+    lines.height = 40;
+    return { ...placed, kept, first, second, frames: secondFrames, moveTo };
+  }
+
+  // Obsidian puts it back as far down as it was, or at its end short of that,
+  // and the window can change its height before Chromium reports it.
+  it("goes back to its line at its first report there", () => {
+    const { scrolledTo, scroll } = moved();
+    scroll(120);
+    assert.deepEqual(scrolledTo, [290], "line 8, as laid out now");
+    scroll(290);
+    // The reader's scrolling after that is theirs.
+    scroll(200);
+    assert.deepEqual(scrolledTo, [290]);
+  });
+
+  it("goes back to its line again where the window lays it out anew before that scroll is reported", () => {
+    const { lines, scrolledTo, scroll } = moved();
+    scroll(120);
+    assert.deepEqual(scrolledTo, [290]);
+    lines.height = 30;
+    // Scroll anchoring has left it some way into the line.
+    scroll(230);
+    assert.deepEqual(scrolledTo, [290, 220], "line 8, as laid out then");
+    scroll(220);
+    scroll(100);
+    assert.deepEqual(scrolledTo, [290, 220], "the reader's");
+  });
+
+  it("stays where the reader scrolls it there first, also where Chromium reports that a frame later", () => {
+    for (const later of [false, true]) {
+      const { second, source, frames, scrolledTo, scroll } = moved();
+      source.dispatchEvent(new second.WheelEvent("wheel", { bubbles: true, deltaY: 100 }));
+      if (later) frames.run();
+      scroll(120);
+      assert.deepEqual(scrolledTo, []);
+    }
+  });
+
+  it("stays where the find bar scrolls it there first, as a smooth scroll goes on from there", () => {
+    const { kept, scrolledTo, scroll } = moved();
+    kept.placed();
+    scroll(120);
+    scroll(160);
+    assert.deepEqual(scrolledTo, []);
+  });
+
+  it("goes back to its line at its first report after each move, also to a window that it was in", () => {
+    const { first, second, source, lines, kept, scrolledTo, scroll, moveTo } = moved();
+    // The reader uses it in the second window, and then it moves back.
+    source.dispatchEvent(new second.WheelEvent("wheel", { bubbles: true, deltaY: 100 }));
+    scroll(210);
+    moveTo(first);
+    lines.height = 20;
+    scroll(60);
+    assert.deepEqual(scrolledTo, [110], "line 6");
+    scroll(110);
+    // To the second window again, where it reports nothing, and back: Obsidian
+    // tells the view of each move.
+    moveTo(second);
+    kept.restore();
+    moveTo(first);
+    kept.restore();
+    scroll(60);
+    assert.deepEqual(scrolledTo, [110, 110]);
+  });
+
+  it("takes a report of one that follows a page for a scroll of it", () => {
+    const { scrolledTo, scroll } = moved(false);
+    scroll(120);
+    assert.deepEqual(scrolledTo, []);
+  });
+});
+
 describe("start tags", () => {
   it("lists each start tag with its line, and no end tags, comments, or script contents", () => {
     const html =

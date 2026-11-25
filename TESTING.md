@@ -810,6 +810,13 @@ its test of a hidden tab's move by the menu now and then on 1.5.3, and seven tes
 `source.test.ts`. The moves into a narrower and a wider tab group pass without it, since the source
 goes back to its line where Obsidian puts it back in pixels.
 
+**Unreleased (#218):** Each of these fails a test of a source alone in the view in `split.test.ts`,
+or of the view's in `source.test.ts`: taking its first report in another window for the reader's
+scrolling; settling at that report, whatever it finds; not settling at all; taking its reports for
+Obsidian's also after the reader's input or the find bar's scroll there; noticing only its first
+move, or only moves with a report; having the same rule for a source that follows a page; and a view
+whose source is not alone.
+
 **Unreleased (#201):** Each of these fails the `move.e2e.ts` tests of a page that showed for a
 moment in every run, on both versions, and `move.test.ts`:
 
@@ -1488,6 +1495,15 @@ them on by that and the `<noscript>` content:
     `move.e2e.ts` holds the new window's app.css back until the view has put the source at its line
     without it, as for the split view. It also hides the tab two frames after a scroll of the
     source, within the 100 ms in which a page's scrolling settles.
+  - **Unreleased (#218):** A source alone in the view, in the **Source** view or in the split view
+    with scripts on, goes back to its line at each scroll report in a window that it moved to, until
+    a report that finds it at its line, the reader's input in it, or the find bar's scroll.
+    Obsidian's put-back is otherwise told by where the source is, at its end or as far down as it
+    was, which a window that lays it out anew before Chromium reports it hides. A source that
+    follows a page has no such rule, as the view scrolls it itself in the new window. The reader's
+    scroll there without input that the source sees, such as a command's, is undone once. Only
+    `split.test.ts` and `source.test.ts` test the rule; #204's host test of a new window failed for
+    the want of it in CI now and then, on Obsidian 1.15.1, with line 39 in place of 37.
   - **Unreleased (#204):** With scripts on, the split view's source goes back to its line as the
     **Source** view's does, by the same watch, since no page that the view can reach tells of a
     hide or a move. `move.e2e.ts` tests it as it tests the **Source** view, apart from a hide two
