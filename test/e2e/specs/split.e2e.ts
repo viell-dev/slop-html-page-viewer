@@ -238,6 +238,70 @@ describe("The split view in Obsidian", function () {
     });
   });
 
+  it("shows the page where the reader scrolled the source before it first showed (#215)", async function () {
+    // Paragraph N is on line 1 + N. Reading the stylesheet waits for the test.
+    const paragraphs = Array.from({ length: 200 }, (_, index) => `<p>Paragraph ${index + 1} </p>`);
+    const files = {
+      "Held page.html": ['<link rel="stylesheet" href="Held page.css">', ...paragraphs].join("\n"),
+      "Held page.css": "p { color: green }",
+    };
+    await browser.executeObsidian(async ({ app }, files) => {
+      for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+      const vault = app.vault as unknown as {
+        cachedRead(file: { path: string }): Promise<string>;
+      };
+      const own = Object.hasOwn(vault, "cachedRead");
+      const read = vault.cachedRead;
+      const held = new Promise<void>((resolve) => {
+        Object.assign(window, { e2eRelease: resolve });
+      });
+      vault.cachedRead = async (file) => {
+        if (file.path === "Held page.css") await held;
+        return read.call(vault, file);
+      };
+      Object.assign(window, {
+        e2eRestore: () => {
+          if (own) vault.cachedRead = read;
+          else delete (vault as { cachedRead?: unknown }).cachedRead;
+        },
+      });
+    }, files);
+    const release = () =>
+      browser.execute(() => (window as unknown as { e2eRelease(): void }).e2eRelease());
+    try {
+      await openInActiveTab(PAGE);
+      await clickToolbarButton("Split");
+      await waitForPage();
+      await openInActiveTab("Held page.html");
+      const scrolled = await browser.execute(async (active) => {
+        const view = document.querySelector(active)!;
+        const source = view.querySelector<HTMLElement>(".html-page-viewer__source")!;
+        const line = source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[100];
+        const reported = new Promise((resolve) =>
+          source.addEventListener("scroll", resolve, { once: true }),
+        );
+        source.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+        source.scrollTop = line.offsetTop;
+        await reported;
+        return { srcdoc: view.querySelector("iframe")!.srcdoc };
+      }, ACTIVE);
+      expect(scrolled).toEqual({ srcdoc: "" });
+      await release();
+      await waitForPage();
+      expectNear(await settledNear(topParagraph, 100), 100);
+      expectNear(await topLine(), 101);
+    } finally {
+      await release();
+      await browser.execute(() => (window as unknown as { e2eRestore(): void }).e2eRestore());
+      await browser.executeObsidian(async ({ app }, paths) => {
+        for (const path of paths) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file);
+        }
+      }, Object.keys(files));
+    }
+  });
+
   it("keeps in step with a page whose article is in a shadow root (#124)", async function () {
     // In the shadow root, after a tall figure, paragraph N is on line 9 + N.
     await openInActiveTab("Saved/Shadow page.html");

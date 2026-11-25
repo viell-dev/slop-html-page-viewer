@@ -129,6 +129,8 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - Obsidian responds while the viewer prepares a page with large stylesheets or many images and
   links, instead of only once it is prepared, such a page opens sooner, and the viewer stops
   preparing a page once its tab closes or shows something else (#158).
+- In the split view with scripts off, a page shows where the reader scrolled its source before it
+  first showed, as while the viewer prepares it, instead of from its top (#215).
 - With scripts on, the content of a page's `<noscript>` elements stays text, as in browsers: the
   viewer no longer reads and copies files for it, which took from the limits of what the page
   shows, no longer shows an image of a `<noscript>` in the `<head>`, and applies the stylesheets
