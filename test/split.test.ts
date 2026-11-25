@@ -2126,6 +2126,39 @@ describe("the split view's side that led last, after a move (#195)", () => {
     };
   }
 
+  // Preparing a page can take seconds, in which the source shows already.
+  it("follows the reader's scroll of the source from before the page first shows, and no other (#215)", async () => {
+    for (const reader of [true, false]) {
+      const frames = animationFrames(window);
+      const harness = await Harness.load();
+      const view = harness.newView();
+      document.body.append(view.contentEl);
+      try {
+        harness.open(view, "Long head.html", LONG_HEAD);
+        button(view, "Split").click();
+        await settle();
+        const source = laidOutSource(view);
+        const sourceEl = view.contentEl.querySelector<HTMLElement>(".html-page-viewer__source")!;
+        Object.defineProperties(sourceEl, {
+          clientHeight: { configurable: true, get: () => 200 },
+          clientWidth: { configurable: true, get: () => 300 },
+        });
+        if (reader)
+          sourceEl.dispatchEvent(new window.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+        source.readerScrolls(430);
+        const page = pageLayout();
+        page.top = 8;
+        await loadFrame(view, laidOutPage(page));
+        frames.run();
+        assert.deepEqual(page.scrolledTo, reader ? [4] : []);
+        assert.deepEqual(source.scrolledTo, [], "the source stays where it was scrolled");
+      } finally {
+        view.contentEl.remove();
+        delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
+      }
+    }
+  });
+
   // Were the placed page to lead, its 4 pixels would take the source to
   // line 23.
   it("has the source that led last lead after a move, from its line, and the page follow it", async () => {

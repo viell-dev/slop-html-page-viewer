@@ -101,6 +101,8 @@ interface FrameHistory extends PreviousDocument {
   led: SideName | null;
   /** The window that the view showed the previous document in, or null before the first (#165). */
   shownIn: Window | null;
+  /** Whether the frame has dropped a document, also one that the view never showed. */
+  dropped: boolean;
 }
 
 /**
@@ -452,6 +454,9 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
       else this.sourceScrolling = keepScrolling(source, linePlacing(source));
       this.updateWrap();
       this.renderIframe(split);
+      // The page follows the reader's scrolling of the source also from before
+      // it first shows, which preparing it can delay (#215).
+      if (!this.scriptsEnabled) this.startReaderWatch();
       this.findBar.run();
       return;
     }
@@ -754,7 +759,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
       poll();
     };
     const watched = new WeakSet<Document>();
-    const frame: FrameHistory = { place: null, led: null, shownIn: null };
+    const frame: FrameHistory = { place: null, led: null, shownIn: null, dropped: false };
     const watch = (): boolean => {
       // Only a page with Obsidian's origin (scripts off) can be reached.
       const doc = iframe.contentDocument;
@@ -823,6 +828,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     // other lines where they wrap otherwise there (#189).
     doc.defaultView?.addEventListener("pagehide", () => {
       showing.abort();
+      frame.dropped = true;
       if (placed) frame.place = hidden ? (kept?.place() ?? null) : scrollPlace(doc);
       frame.led = split?.follower.leading ?? frame.led;
       if (kept !== null && this.pageScrolling === kept) this.pageScrolling = null;
@@ -841,15 +847,13 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     const parsed = (): void => {
       this.restyle(doc);
       const reader = this.stopReaderWatch();
-      // The view watches the reader only once the frame has dropped a page:
-      // without a watch, this is the frame's first document. The split
-      // view's source goes back to the line that it showed, or stays where
-      // the reader scrolled it meanwhile, as the watch says, also where
-      // Chromium reported that scroll only after the frame of their input.
-      const firstDocument = reader === null;
+      // The split view's source goes back to the line that it showed before
+      // the frame dropped its page, or stays where the reader scrolled it
+      // meanwhile, as the watch says, also where Chromium reported that
+      // scroll only after the frame of their input.
       if (reader?.scrolled) this.sourceScrolling?.release();
-      else if (reader) this.sourceScrolling?.back();
-      this.findBar.run(firstDocument);
+      else if (frame.dropped) this.sourceScrolling?.back();
+      this.findBar.run(!frame.dropped);
       const shownIn = this.contentEl.ownerDocument.defaultView;
       const newWindow = frame.shownIn !== null && frame.shownIn !== shownIn;
       frame.shownIn = shownIn;
@@ -910,9 +914,10 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
 
   /**
    * Watches what the reader does in the view until it shows the frame's next
-   * document. The view follows no scrolling of the split view's source
-   * meanwhile, as it shows no page. A watch that runs already, as when the
-   * frame drops a document that it never showed, goes on.
+   * document, or, in the split view, its first (#215). The view follows no
+   * scrolling of the split view's source meanwhile, as it shows no page. A
+   * watch that runs already, as when the frame drops a document that it never
+   * showed, goes on.
    */
   private startReaderWatch(): void {
     if (this.readerWatch !== null) return;

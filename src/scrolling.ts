@@ -353,8 +353,8 @@ export interface NextDocumentFollowing {
  * document of the same copy was, `previous`, as after its tab moved (#126),
  * and keeps the split view's sides in step there with `split`, if the view
  * shows the split view and can follow the page. `reader` says what the
- * reader did while the frame showed no page (#157), and is null when it
- * showed one, as for its first document.
+ * reader did while the frame showed no page (#157), also before its first one
+ * in the split view (#215), and is null when nothing watched them.
  *
  * - If they scrolled the source, the page follows it, and is not placed.
  * - Otherwise, where the source led last, it leads again from its line, where

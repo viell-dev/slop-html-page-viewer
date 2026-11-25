@@ -238,6 +238,48 @@ describe("The split view in Obsidian", function () {
     });
   });
 
+  it("shows the page where the reader scrolled the source before it first showed (#215)", async function () {
+    // Preparing the page's stylesheet takes a while. Paragraph N is on line 1 + N.
+    const rule = ".card:hover > .label { color: red; background: url(img.png) }\n";
+    const paragraphs = Array.from({ length: 200 }, (_, index) => `<p>Paragraph ${index + 1} </p>`);
+    const files = {
+      "Slow page.html": ['<link rel="stylesheet" href="Slow page.css">', ...paragraphs].join("\n"),
+      "Slow page.css": rule.repeat(60_000),
+    };
+    await browser.executeObsidian(async ({ app }, files) => {
+      for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+    }, files);
+    try {
+      await openInActiveTab("Slow page.html");
+      await waitForPage();
+      const early = await browser.execute(async (active) => {
+        const view = document.querySelector(active)!;
+        [...view.querySelectorAll("button")].find((each) => each.textContent === "Split")!.click();
+        const source = view.querySelector<HTMLElement>(".html-page-viewer__source")!;
+        const line = source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[100];
+        const frame = view.querySelector("iframe")!;
+        // In a task of their own, as the reader's are.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        source.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+        source.scrollTop = line.offsetTop;
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        return frame.srcdoc === "";
+      }, ACTIVE);
+      // The premise: the page did not show yet.
+      expect(early).toBe(true);
+      await waitForPage();
+      expectNear(await settledNear(topParagraph, 100), 100);
+      expectNear(await topLine(), 101);
+    } finally {
+      await browser.executeObsidian(async ({ app }, paths) => {
+        for (const path of paths) {
+          const file = app.vault.getAbstractFileByPath(path);
+          if (file) await app.vault.delete(file);
+        }
+      }, Object.keys(files));
+    }
+  });
+
   it("keeps in step with a page whose article is in a shadow root (#124)", async function () {
     // In the shadow root, after a tall figure, paragraph N is on line 9 + N.
     await openInActiveTab("Saved/Shadow page.html");
