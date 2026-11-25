@@ -102,8 +102,10 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | **Unreleased (#165):** The split view's sides stay in step in a new window when Obsidian's styles arrive there after the view has followed the page                                | `split.test.ts`: the first resize of the source's lines soon after a move to a new window; a source that led keeps its line; none in one window                           | `move.e2e.ts`: the new window's app.css held back until the view has followed the page or the reader                                   |
 | **Unreleased (#178):** A tab that Obsidian shows again after hiding it keeps the place of a page that scrolls as a whole, and the split view's sides where they were, in step      | `move.test.ts`: the frame's own observer; held while hidden, back when shown; `split.test.ts`: either order of reports, the side that led last, the reader, the find bar  | `move.e2e.ts`: rendered, split, wrapped lines, a long head, the reader, the find bar, a sidebar; the Source view and a column          |
 | **Unreleased (#182):** Shown again after its pane changed width while hidden, a page shows the element at its top, and the split view's source the line at its top                 | `move.test.ts`: measured once scrolling settles for 100 ms, out of date after a scroll or a layout change, not hidden, sideways; `split.test.ts`: the source's line       | `move.e2e.ts`: narrowed while hidden, rendered, split, sideways; Readable line length and narrowing while shown; hidden mid-scroll     |
+| **Unreleased (#201):** A tab that showed for a moment shows the element at its page's top when it shows again soon after, at another width                                         | `move.test.ts`: the brief show's settling ended in the frame that shows the tab again                                                                                     | `move.e2e.ts`: shown for a moment, its settling ended while hidden and as the tab shows again                                          |
 | **Unreleased (#186):** A tab moved while hidden shows its page where it was, and the split view's sides in step; also one whose hidden frame reloads                               | `split.test.ts`: the hidden page's element for the next document, also one with no size yet, twice; a page moved while it shows                                           | `move.e2e.ts`: rendered and split, by the tab header's menu, a drop's calls, and Split down in the tab in front                        |
 | **Unreleased (#189):** The **Source** view shows the line at its top after a move, and when its tab shows again at another width                                                   | `source.test.ts`: lines that wrap otherwise, put back in pixels or at its end, its own observer, a new window; `split.test.ts`: measured at once, not without a width     | `move.e2e.ts`: narrowed while hidden; a narrower and a wider tab group; a new window; a hidden tab moved by its menu                   |
+| **Unreleased (#204):** With scripts on, the split view's source shows the line at its top after a move, and when its tab shows again at another width                              | `source.test.ts`: the **Source** view's tests of its own watch, for the split view with scripts on                                                                        | `move.e2e.ts`: narrowed while hidden; a narrower and a wider tab group; a new window; a hidden tab moved by its menu                   |
 | **Unreleased (#195):** After a move, the split view's side that led last leads: a source keeps its line, and the page follows it until it loads                                    | `move.test.ts`: the source leads, again at load, the page's scrolling passed over; `split.test.ts`: a long head, moved shown or hidden; the source held meanwhile         | `move.e2e.ts`: a long head in another tab group, a new window, and a hidden tab moved by its menu; wrapped rules, a narrower tab group |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                        |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                              |
@@ -292,11 +294,13 @@ and that it ends after a turn once its result is no longer wanted. With a clock 
 has run long enough, it prepares pages with a large stylesheet, linked, imported, in a `<style>`,
 and left open at its end, with many images, links, and `style` attributes, and copying the files of
 all of these, gets the same copy as at once, and sees the window's tasks run meanwhile. A view that
-shows another file meanwhile reads no further stylesheet and shows no error, and one that stays
-shows its page. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that its window's timers
+shows another file meanwhile, or closes, reads no further stylesheet and shows no error, and one that
+stays shows its page. A page that is no longer wanted once one of its files is read, without a turn,
+reads no further one, whether links, imports, images, or stylesheets name them. `resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that its window's timers
 never stop for 0.6 s while the viewer prepares a page with a stylesheet of 8 million characters,
 with scripts off, and with them on and copying files, until the frame has its copy. They stopped
-for at most 0.15 s when measured on a busy host, against 2.3 to 9.6 s without turns.
+for at most 0.2 s when measured on a busy host, against 2.3 to 9.6 s without turns. It also checks
+that closing a page's tab while its first stylesheet is read keeps its second from being read.
 
 **Unreleased (#177):** `document.test.ts` checks that the text limit counts a stylesheet's text as
 preparing writes it, each to the character, with stylesheets in a folder whose long name makes a
@@ -818,6 +822,20 @@ source's line only once its scrolling settles, which a host test of #165 shows o
 moves within 100 ms of the scroll; and the line place, or the watch of the **Source** view, taking
 a source with no width for one that can tell.
 
+**Unreleased (#204):** With no watch of the split view's source with scripts on, its tests of a
+narrowed view and of a new window whose app.css is held back fail in `move.e2e.ts` on both versions,
+its test of a hidden tab's move by the menu now and then on 1.5.3, and seven tests of the watch in
+`source.test.ts`. The moves into a narrower and a wider tab group pass without it, since the source
+goes back to its line where Obsidian puts it back in pixels.
+
+**Unreleased (#201):** Each of these fails the `move.e2e.ts` tests of a page that showed for a
+moment in every run, on both versions, and `move.test.ts`:
+
+- Measuring a page elsewhere than it was last reported: the settling that ends as the tab shows
+  again.
+- Counting the showing's report of its layout, or going back as far down as it was whatever it
+  showed: both.
+
 ### Stylesheets and resources
 
 - Reading URLs and imports inside CSS strings and comments with regular expressions, as before #91:
@@ -1088,8 +1106,8 @@ both host tests of a large stylesheet in `resources.e2e.ts`:
 - Giving the window no turns, giving one after any work, however little, or never starting a slice
   anew: the tests of turns, and, for the second, tests of the view that expect an ordinary page in
   one task.
-- Not asking whether the copy is still wanted, a view that does not say so, or one that shows the
-  end of unwanted work as an error: the tests of ending.
+- Not asking whether the copy is still wanted, a view that does not say so, also when it closes, or
+  one that shows the end of unwanted work as an error: the tests of ending.
 - Scanning a stylesheet's tokens, or its references, in one step: the test of scanning in steps.
 
 **Unreleased (#148):** Each of these fails the check named; the preparation before #148 also fails
@@ -1150,16 +1168,22 @@ them on by that and the `<noscript>` content:
   cannot write every tree so that it parses as the same one. An `<mglyph>` in a table in MathML's
   `<mtext>` is moved out of the table as an HTML element, and parsed as a MathML one in the copy,
   where a `<style>` inside it holds markup that preparing took for text. That was measured on both
-  hosts, as was that no protection depends on what preparing saw: with scripts off, neither follows
-  a refresh that only the frame's parse creates. The copy is not parsed again to compare the trees,
-  which would double the parsing of every page for markup that no known page has. With scripts on, a
-  `<noscript>` that the source does not show as one, as inside an SVG `<title>` or after CDATA text
-  that seems to hold one, is prepared as elements, as before #148
+  hosts, as was that with scripts off neither follows a refresh that only the frame's parse creates,
+  in a sandboxed frame without the view's listeners too; no other element that only that parse
+  creates was. The copy is not parsed again to compare the trees, which would double the parsing of
+  every page for markup that no known page has. With scripts on, a `<noscript>` that the source does
+  not show as one, as inside an SVG `<title>` or after CDATA text that seems to hold one, is prepared
+  as elements, as before #148. One after a formatting element that its paragraph left open, as in
+  `<p><b>one</p><noscript>x</noscript><p>two`, stands inside another `<b>` in the copy, with what
+  follows it, as it does in a browser that runs no scripts; and a carriage return from `&#13;` before
+  a `<pre>`'s text reads as a line feed there. The review of #209 saw both in Chrome 158
   ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
 - **Unreleased (#158):** Obsidian does not respond while Chromium parses a page, as the viewer parses
   its file and the frame the copy. On the tested hosts the frame's parse of a `<style>` of 14
   million characters stopped the window's timers for 0.75 to 0.85 s, as parsing a stylesheet is one
-  task in Chromium. Which of the steps of copying files give turns is checked only together.
+  task in Chromium. Passes over a stylesheet that are not in steps, such as following its rules,
+  take up to about 0.1 s for 8 million characters and 0.2 s for 16 million. Which of the steps of
+  copying files give turns is checked only together.
 - **Unreleased (#185):** which base a stylesheet resolves against follows where it stands in the
   prepared tree, which is taken for the order in which the HTML parser made its elements. It is not
   always that order: the parser puts a `<base>` inside a `<table>` before the table, which it made
@@ -1420,8 +1444,13 @@ them on by that and the `<noscript>` content:
       `back`, in the same animation frame: that report is passed over, and where `back` showed the
       element, it is up to date where `back` put the page. So a tab shown for less than 100 ms, as
       one passed over while stepping through a tab group's tabs, keeps the element for its next
-      show. `move.e2e.ts` shows the tab for two frames, and narrows its view while it is hidden
-      again; only `move.test.ts` tests a brief show at another width.
+      show. **Unreleased (#201):** the settling of such a show goes on while the tab is hidden, and
+      can end in the frame that shows the tab again, before `back`, with the page laid out at its
+      start: a page that is elsewhere than it was last reported is not measured. `move.e2e.ts`
+      narrows the view while the tab is hidden again, and has the settling end while it is hidden
+      and in the frame that shows it. The 100 ms and that frame depend on how fast Obsidian renders,
+      so the test gives the page's animation frames, whose times the view settles by, one time until
+      then. Only `move.test.ts` tests a brief show at another width.
     - `move.e2e.ts` narrows the tab's view with a style while the tab is hidden, as a narrower pane
       would; a sidebar opened meanwhile is not tested. It checks the page's sideways place with a
       page wider than its view.
@@ -1479,6 +1508,12 @@ them on by that and the `<noscript>` content:
     `move.e2e.ts` holds the new window's app.css back until the view has put the source at its line
     without it, as for the split view. It also hides the tab two frames after a scroll of the
     source, within the 100 ms in which a page's scrolling settles.
+  - **Unreleased (#204):** With scripts on, the split view's source goes back to its line as the
+    **Source** view's does, by the same watch, since no page that the view can reach tells of a
+    hide or a move. `move.e2e.ts` tests it as it tests the **Source** view, apart from a hide two
+    frames after a scroll and a new window whose app.css is not held back. A split view with
+    scripts off whose page could not be prepared has no page either, and no watch: its source goes
+    back as far down as it was when its tab shows again.
   - **Unreleased (#189):** A resize of the pane while the **Source** view shows is left to
     Chromium's scroll anchoring, which keeps the source near its line but not at it. The in-depth
     review of #202 narrowed it from 1196 to 454 px wide while it showed: the source went to 75 px
@@ -1529,8 +1564,8 @@ them on by that and the `<noscript>` content:
 - The Release workflow's writes to GitHub are tested against a stand-in, and its reads against
   GitHub; its publish job runs for real only in a release, whose run the release's pull request
   records.
-- The lint and end-to-end test tools retain moderate advisories (#85). Both dependency packages
-  have a required CI audit that fails on any advisory above moderate severity that
-  `.github/audit-exceptions.json` does not accept, and on an exception that is no longer needed.
-  `audit.test.ts` checks its decisions, and CONTRIBUTING.md says when an exception is acceptable. The tools run against the repository's own files, and only its configuration
-  supplies their glob patterns.
+- Both dependency packages have a required CI audit that fails on any advisory above moderate
+  severity that `.github/audit-exceptions.json` does not accept, and on an exception that is no
+  longer needed. `audit.test.ts` checks its decisions, and CONTRIBUTING.md says when an exception is
+  acceptable. The lint and end-to-end test tools run against the repository's own files and
+  patterns.

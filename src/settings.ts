@@ -145,9 +145,7 @@ export class ViewerSettingTab extends PluginSettingTab {
               void this.host
                 .updateSettings({ extensions: normalizeExtensions(text.getValue()) })
                 .then(() => {
-                  // eslint-disable-next-line obsidianmd/no-unsupported-api -- feature-detected; display() supports Obsidian < 1.13
                   if (typeof this.update === "function") this.update();
-                  // eslint-disable-next-line @typescript-eslint/no-deprecated -- fallback for Obsidian < 1.13
                   else this.display();
                 });
             });

@@ -1187,7 +1187,7 @@ describe("A page's local files in Obsidian", function () {
           await openInActiveTab("Large stylesheet.html");
           await waitForPage();
           const gaps = await notedTurns();
-          // At most 0.15 s on a busy host, against 2.3 s in one task without turns,
+          // At most 0.2 s on a busy host, against 2.3 s in one task without turns,
           // and 1 s with them where the copy's <style> is put in a document.
           expect(gaps[0]).toBeLessThan(600);
           expect(gaps.length).toBeGreaterThan(10);
@@ -1198,6 +1198,52 @@ describe("A page's local files in Obsidian", function () {
           await copyLocalFiles(false);
         }
       });
+  });
+
+  it("stops preparing a page once its tab closes (#158)", async function () {
+    const files = {
+      "Closed page.html": [
+        `<link rel="stylesheet" href="Closed page one.css">`,
+        `<link rel="stylesheet" href="Closed page two.css"><p>Closed</p>`,
+      ].join(""),
+      "Closed page one.css": "p { color: green }",
+      "Closed page two.css": "p { color: green }",
+    };
+    await createVaultFiles(files);
+    await recordReads("Closed page");
+    const readsAfter = async (close: boolean) =>
+      browser.executeObsidian(async ({ app }, close) => {
+        const vault = app.vault as unknown as {
+          cachedRead(file: { path: string }): Promise<string>;
+        };
+        const reads = (window as unknown as { e2eReads: string[] }).e2eReads;
+        reads.length = 0;
+        const read = vault.cachedRead;
+        let release = () => undefined as void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        vault.cachedRead = async (file) => {
+          if (file.path === "Closed page one.css") await held;
+          return read.call(vault, file);
+        };
+        try {
+          const leaf = app.workspace.getLeaf("tab");
+          await leaf.openFile(app.vault.getAbstractFileByPath("Closed page.html") as never);
+          if (close) leaf.detach();
+          release();
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          if (!close) leaf.detach();
+        } finally {
+          vault.cachedRead = read;
+        }
+        return [...reads];
+      }, close);
+    try {
+      expect(await readsAfter(false)).toContain("Closed page two.css");
+      expect(await readsAfter(true)).toEqual(["Closed page one.css"]);
+    } finally {
+      await restoreHost();
+      await deleteVaultPaths(Object.keys(files));
+    }
   });
 
   before(async function () {

@@ -18,7 +18,9 @@ export function finish<T>(steps: Steps<T>): T {
 
 /**
  * How long a slice runs before the window gets a turn, in milliseconds: less
- * than a reader notices, and long enough that turns cost next to nothing.
+ * than a reader notices, and long enough that turns cost next to nothing. Work
+ * between steps that is not in steps itself makes a slice longer, as following
+ * the rules of a stylesheet of millions of characters does.
  */
 const SLICE = 25;
 
@@ -65,6 +67,16 @@ export class Turns {
     });
     if (this.stopped()) throw new StoppedError();
     this.start = performance.now();
+  }
+
+  /**
+   * Counts this much more work, and gives the window a turn if it is due one.
+   * Work that is no longer wanted ends here, also without a turn, as where it
+   * has waited for a file.
+   */
+  async step(work: number): Promise<void> {
+    if (this.stopped()) throw new StoppedError();
+    if (this.due(work)) await this.give();
   }
 
   /** Does work in steps, giving the window a turn whenever it is due one. */

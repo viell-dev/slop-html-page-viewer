@@ -123,9 +123,10 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
    */
   private sourceScrolling: KeptScrolling | null = null;
   /**
-   * The watch of the **Source** view's source, of whether it shows, as
-   * Obsidian hides the tab and shows it again, and of its window (#189), and
-   * what ends it with that source.
+   * The watch of a source that shows without a page that the view can reach,
+   * in the **Source** view (#189) or in the split view with scripts on (#204),
+   * of whether it shows, as Obsidian hides the tab and shows it again, and of
+   * its window, and what ends it with that source.
    */
   private sourceHiding: { readonly moved: () => void; readonly end: AbortController } | null = null;
   /**
@@ -324,6 +325,16 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     // Nothing to save: see `save`.
   };
 
+  /**
+   * Closes the view, as when its tab closes or shows another view: what it
+   * still prepares or reads is not wanted anymore.
+   */
+  override async onClose(): Promise<void> {
+    this.iframe = null;
+    this.contentsVersion += 1;
+    await super.onClose();
+  }
+
   clear(): void {
     // A refresh still pending for what this view showed no longer owns it.
     this.contentsVersion += 1;
@@ -337,11 +348,12 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
   }
 
   /**
-   * Keeps the **Source** view's source at the line at its top, which can wrap
-   * otherwise after its tab moves or shows again (#189). Chromium lays it out
-   * again as far down as it was when the tab shows, before the window paints,
-   * and reports no scroll for that; it does not report the scroll to its
-   * start while hidden either. Its place is held while it is hidden.
+   * Keeps the source of the **Source** view, or of the split view with scripts
+   * on, at the line at its top, which can wrap otherwise after its tab moves
+   * or shows again (#189, #204). Chromium lays it out again as far down as it
+   * was when the tab shows, before the window paints, and reports no scroll
+   * for that; it does not report the scroll to its start while hidden either.
+   * Its place is held while it is hidden.
    */
   private keepSourcePlace(source: HTMLElement): void {
     const scrolling = keepScrolling(source, linePlacing(source));
@@ -368,7 +380,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     };
   }
 
-  /** Stops watching whether the **Source** view's source shows. */
+  /** Stops the watch that keepSourcePlace started. */
   private stopSourceHiding(): void {
     this.sourceHiding?.end.abort();
     this.sourceHiding = null;
@@ -438,8 +450,10 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
       // followed the page, and a scroll of the reader's would start there.
       // When the tab shows again, and after a move, it goes back to its line,
       // which can wrap otherwise there, and leads from it where it led last
-      // (#182, #189, #195).
-      this.sourceScrolling = keepScrolling(source, linePlacing(source));
+      // (#182, #189, #195). With scripts on, no page's frame tells the view
+      // of either, so the source's own watch does (#204).
+      if (this.scriptsEnabled) this.keepSourcePlace(source);
+      else this.sourceScrolling = keepScrolling(source, linePlacing(source));
       this.updateWrap();
       this.renderIframe(split);
       this.findBar.run();
@@ -571,7 +585,6 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     const doc = this.iframe?.contentDocument;
     if (!doc || doc.URL !== "about:srcdoc" || doc.readyState === "loading") return null;
     if (!doc.getElementById(FIND_STYLE_ID)) {
-      // eslint-disable-next-line obsidianmd/prefer-create-el -- the page's document, without Obsidian's helpers
       const style = doc.createElement("style");
       style.id = FIND_STYLE_ID;
       style.textContent = FIND_STYLE;

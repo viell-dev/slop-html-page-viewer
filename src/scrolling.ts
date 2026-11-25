@@ -532,7 +532,9 @@ interface KeptPlace<P> extends KeptScrolling {
  * does not make it out of date. Measuring a page's place reads the boxes of
  * its elements, which on a long page takes a share of a frame that would show
  * in every frame of a scroll, or at each step of the find bar. Nothing is
- * measured while it is not laid out.
+ * measured while it is not laid out, nor elsewhere than it was last reported:
+ * a settling that a hide interrupted can end in the frame that shows the tab
+ * again, where Chromium shows the page from its start until `back` (#201).
  *
  * What it measured is out of date where it was measured elsewhere than it
  * was last reported, as when the reader scrolled it and Obsidian hid the tab
@@ -575,9 +577,13 @@ function keepPlace<P>(
   let shownAgain = false;
   const measure = (): void => {
     if (!placing || !scroller.laidOut()) return;
+    // Elsewhere than it was last reported, it has lost its place, as a page
+    // has in the frame that shows its tab again, until `back`.
+    const { top } = scroller.position();
+    if (top !== kept.top) return;
     const place = placing.measure();
     if (place === undefined) return;
-    content = { place, at: scroller.position().top };
+    content = { place, at: top };
     outdated = false;
   };
   /** The window whose animation frames say whether its scrolling has settled. */
@@ -910,14 +916,14 @@ export interface ElementHiding {
 
 /**
  * Tells `hiding` when `element` is laid out with no size and when with a size
- * again, until `signal`, as watchHiding does for a frame: the **Source** view's
- * source, which Chromium lays out again as far down as it was when its tab
- * shows again, also where its lines wrap otherwise now, and which reports no
- * scroll for that (#189). An element that has no size when watched counts as
- * hidden. The observer is made in the element's own window, whose rendering
- * reports the sizes of its elements; after the tab moves to another window,
- * `moved` watches it there. A window without ResizeObserver, as jsdom is,
- * tells nothing.
+ * again, until `signal`, as watchHiding does for a frame: a source beside no
+ * page that the view can reach, which Chromium lays out again as far down as
+ * it was when its tab shows again, also where its lines wrap otherwise now,
+ * and which reports no scroll for that (#189, #204). An element that has no
+ * size when watched counts as hidden. The observer is made in the element's
+ * own window, whose rendering reports the sizes of its elements; after the tab
+ * moves to another window, `moved` watches it there. A window without
+ * ResizeObserver, as jsdom is, tells nothing.
  */
 export function watchElementHiding(
   element: HTMLElement,

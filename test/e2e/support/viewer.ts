@@ -415,7 +415,8 @@ export async function moveActiveTab(to: "group" | "window", width?: number): Pro
       const frame = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe");
       if (frame) {
         frame.dataset.e2eMoved = "";
-        frame.contentDocument!.documentElement.dataset.e2eBefore = "";
+        // With scripts on, the window cannot reach the frame's document.
+        if (frame.contentDocument) frame.contentDocument.documentElement.dataset.e2eBefore = "";
       }
       const resize = (): void => {
         if (width !== undefined)
