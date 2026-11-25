@@ -1667,9 +1667,9 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
   });
 
   // Obsidian puts the moved source back as far down as it was, which shows
-  // other lines where they wrap otherwise in the new pane: line 19 in place
-  // of line 37 in a narrower tab group, and line 58 in a wider one, on both
-  // versions, with the view as main at eb926d3 has it.
+  // other lines where they wrap otherwise in the new pane: in the Source view,
+  // line 19 in place of line 37 in a narrower tab group, and line 58 in a wider
+  // one, on both versions, with the view as main at eb926d3 has it.
   for (const view of SOURCES) {
     for (const into of ["narrower", "wider"] as const) {
       it(`keeps the line of the ${view} in a ${into} tab group, where its lines wrap otherwise (${ISSUE[view]})`, async function () {
@@ -1686,7 +1686,9 @@ describe("A tab moved to another tab group or window in Obsidian", function () {
         await moveToOtherGroup();
         const after = await expectSourceAtLine(37);
         // The premise: line 37 is elsewhere in the source's new width.
-        expect(Math.abs(after.width - before.width)).toBeGreaterThan(100);
+        expect(Math.abs(after.width - before.width)).toBeGreaterThan(
+          view === "Source view" ? 200 : 100,
+        );
         expect(Math.abs(after.top - before.top)).toBeGreaterThan(200);
       });
     }
@@ -2889,8 +2891,9 @@ describe("A tab shown again after Obsidian hid it", function () {
   });
 
   // Chromium lays the source out again as far down as it was, which showed
-  // line 19 in place of line 37 on both versions, with the view as main at
-  // eb926d3 has it.
+  // line 19 in place of line 37 on both versions in the Source view, with the
+  // view as main at eb926d3 has it, and line 27 in the split view with scripts
+  // on, as at 2c0e76a.
   for (const view of SOURCES) {
     it(`keeps the line of the ${view}, where its view narrowed while the tab was hidden (${ISSUE[view]})`, async function () {
       await openParagraphsSource(view);
@@ -2900,9 +2903,10 @@ describe("A tab shown again after Obsidian hid it", function () {
       expect(before.line).toBe(37);
 
       // Wide enough that the split view's sides stay side by side.
-      await showTabAgain({ width: view === "Source view" ? 500 : 900 });
+      const [width, narrower] = view === "Source view" ? [500, 300] : [900, 100];
+      await showTabAgain({ width });
       const after = await expectSourceAtLine(37);
-      expect(after.width).toBeLessThan(before.width - 100);
+      expect(after.width).toBeLessThan(before.width - narrower);
     });
   }
 

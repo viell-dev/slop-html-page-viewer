@@ -916,14 +916,14 @@ export interface ElementHiding {
 
 /**
  * Tells `hiding` when `element` is laid out with no size and when with a size
- * again, until `signal`, as watchHiding does for a frame: a source beside no page
- * that the view can reach, which Chromium lays out again as far down as it was
- * when its tab shows again, also where its lines wrap otherwise now, and which
- * reports no scroll for that (#189, #204). An element that has no size when watched counts as
- * hidden. The observer is made in the element's own window, whose rendering
- * reports the sizes of its elements; after the tab moves to another window,
- * `moved` watches it there. A window without ResizeObserver, as jsdom is,
- * tells nothing.
+ * again, until `signal`, as watchHiding does for a frame: a source beside no
+ * page that the view can reach, which Chromium lays out again as far down as
+ * it was when its tab shows again, also where its lines wrap otherwise now,
+ * and which reports no scroll for that (#189, #204). An element that has no
+ * size when watched counts as hidden. The observer is made in the element's
+ * own window, whose rendering reports the sizes of its elements; after the tab
+ * moves to another window, `moved` watches it there. A window without
+ * ResizeObserver, as jsdom is, tells nothing.
  */
 export function watchElementHiding(
   element: HTMLElement,
