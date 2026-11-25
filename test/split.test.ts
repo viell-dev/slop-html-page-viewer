@@ -2159,6 +2159,22 @@ describe("the split view's side that led last, after a move (#195)", () => {
     }
   });
 
+  it("stops watching the reader where the page cannot be prepared (#215)", async (t) => {
+    t.mock.method(console, "error", () => undefined);
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.app.metadataCache.getFirstLinkpathDest = () => {
+      throw new Error("synthetic failure");
+    };
+    harness.open(view, "page.html", `<img src="missing.png">`);
+    button(view, "Split").click();
+    const watch = () => (view as unknown as { readerWatch: unknown }).readerWatch;
+    assert.notEqual(watch(), null, "the source shows already");
+    await settle();
+    assert.equal(view.contentEl.querySelector("iframe"), null);
+    assert.equal(watch(), null);
+  });
+
   // Were the placed page to lead, its 4 pixels would take the source to
   // line 23.
   it("has the source that led last lead after a move, from its line, and the page follow it", async () => {

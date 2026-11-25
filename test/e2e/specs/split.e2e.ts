@@ -239,38 +239,60 @@ describe("The split view in Obsidian", function () {
   });
 
   it("shows the page where the reader scrolled the source before it first showed (#215)", async function () {
-    // Preparing the page's stylesheet takes a while. Paragraph N is on line 1 + N.
-    const rule = ".card:hover > .label { color: red; background: url(img.png) }\n";
+    // Paragraph N is on line 1 + N. Reading the stylesheet waits for the test.
     const paragraphs = Array.from({ length: 200 }, (_, index) => `<p>Paragraph ${index + 1} </p>`);
     const files = {
-      "Slow page.html": ['<link rel="stylesheet" href="Slow page.css">', ...paragraphs].join("\n"),
-      "Slow page.css": rule.repeat(60_000),
+      "Held page.html": ['<link rel="stylesheet" href="Held page.css">', ...paragraphs].join("\n"),
+      "Held page.css": "p { color: green }",
     };
     await browser.executeObsidian(async ({ app }, files) => {
       for (const [path, text] of Object.entries(files)) await app.vault.create(path, text);
+      const vault = app.vault as unknown as {
+        cachedRead(file: { path: string }): Promise<string>;
+      };
+      const own = Object.hasOwn(vault, "cachedRead");
+      const read = vault.cachedRead;
+      const held = new Promise<void>((resolve) => {
+        Object.assign(window, { e2eRelease: resolve });
+      });
+      vault.cachedRead = async (file) => {
+        if (file.path === "Held page.css") await held;
+        return read.call(vault, file);
+      };
+      Object.assign(window, {
+        e2eRestore: () => {
+          if (own) vault.cachedRead = read;
+          else delete (vault as { cachedRead?: unknown }).cachedRead;
+        },
+      });
     }, files);
+    const release = () =>
+      browser.execute(() => (window as unknown as { e2eRelease(): void }).e2eRelease());
     try {
-      await openInActiveTab("Slow page.html");
+      await openInActiveTab(PAGE);
+      await clickToolbarButton("Split");
       await waitForPage();
-      const early = await browser.execute(async (active) => {
+      await openInActiveTab("Held page.html");
+      const scrolled = await browser.execute(async (active) => {
         const view = document.querySelector(active)!;
-        [...view.querySelectorAll("button")].find((each) => each.textContent === "Split")!.click();
         const source = view.querySelector<HTMLElement>(".html-page-viewer__source")!;
         const line = source.querySelectorAll<HTMLElement>(".html-page-viewer__source-line")[100];
-        const frame = view.querySelector("iframe")!;
-        // In a task of their own, as the reader's are.
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        const reported = new Promise((resolve) =>
+          source.addEventListener("scroll", resolve, { once: true }),
+        );
         source.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
         source.scrollTop = line.offsetTop;
-        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
-        return frame.srcdoc === "";
+        await reported;
+        return { srcdoc: view.querySelector("iframe")!.srcdoc };
       }, ACTIVE);
-      // The premise: the page did not show yet.
-      expect(early).toBe(true);
+      expect(scrolled).toEqual({ srcdoc: "" });
+      await release();
       await waitForPage();
       expectNear(await settledNear(topParagraph, 100), 100);
       expectNear(await topLine(), 101);
     } finally {
+      await release();
+      await browser.execute(() => (window as unknown as { e2eRestore(): void }).e2eRestore());
       await browser.executeObsidian(async ({ app }, paths) => {
         for (const path of paths) {
           const file = app.vault.getAbstractFileByPath(path);

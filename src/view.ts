@@ -905,6 +905,8 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
    */
   private showPreparationError(iframe: HTMLIFrameElement, error: unknown): void {
     this.iframe = null;
+    // No page comes for the split view's source to lead.
+    this.stopReaderWatch();
     const wrap = iframe.parentElement;
     const parent = wrap?.parentElement;
     if (!wrap || !parent) return;
