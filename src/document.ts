@@ -2509,7 +2509,6 @@ export async function preparePage(
   // that nothing shows, Chromium parses the stylesheet of a <style> that is
   // put there, at once: over a second for 15 million characters, for nothing,
   // as the frame parses the copy again (#158).
-  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const tree = doc.createDocumentFragment();
   tree.append(root);
 
