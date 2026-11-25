@@ -371,8 +371,9 @@ stylesheet counts the escape that keeps it inside its element, to the character.
 fit in the text limit, in an `<img>`, a `background` attribute, an SVG `<use>`, a `srcset`, a
 `<style>`, one with an import, and a `style` attribute, and that those past it stay as written; how
 many tooltips of links and images fit, whose `&` counts as `&amp;`; and that a stylesheet has exactly
-the room that the page's images leave. It also checks that the copy stays within the limit where
-made absolute URLs escape `<`, which Chromium 114 and 150 serialize otherwise, and, once the limit
+the room that the page's images leave. It also checks that the copy stays within the limit as
+Chromium 114 and as 150 serialize it, where made absolute URLs escape `<` and where CSS escapes of
+`<` and `>` become those characters, and, once the limit
 is reached, that marking shadow roots and closing `<style>` elements adds at most about as much as
 they are long. `document.stress.ts` checks that a page of 50,000 images
 before a later `<base>`, in a folder of 1,000 characters, makes a copy at most the limit longer than
@@ -1297,9 +1298,9 @@ them on by that and the `<noscript>` content:
 - **Unreleased (#183, #184):** the text limit does not count what serializing adds to the page's own
   text and attributes, such as an unescaped `&`, nor what closes a page's own stylesheets, the marks
   of declared shadow roots, or the tags of `<style>` elements in place of links: each is at most about
-  as long as the markup that it is for, so it grows with the page alone. An attribute counts
-  as it grows in Chromium 114, where it grows most: only 150 writes `<` and `>` in one as references,
-  and a URL made absolute has `%3C` for `<`. Where preparing makes a later reference shorter, what it counted before is not given
+  as long as the markup that it is for, so it grows with the page alone. An attribute counts as it
+  grows in whichever of Chromium 114 and 150 it grows more, as only 150 writes `<` and `>` in one as
+  references. Where preparing makes a later reference shorter, what it counted before is not given
   back.
 - The bundle check in `policy.test.ts` sees only the plugin's own code. Obsidian's TextFileView,
   which the view extends, saves a view's data to its file from Obsidian's own code. The unit tests

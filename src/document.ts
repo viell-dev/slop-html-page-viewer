@@ -790,14 +790,18 @@ function attributeLength(value: string): number {
 }
 
 /**
- * The growth of an attribute's value whose references are rewritten. A URL
- * made absolute has `%3C` where it had `<`, so it never has more of the
- * characters that only Chromium 150 writes as references: left as they are,
- * as in Chromium 114, it grows most.
+ * The growth of an attribute's value whose references are rewritten, in
+ * whichever Chromium it grows more: a URL made absolute has `%3C` where it had
+ * `<`, which grows more where `<` was written as it is, and a CSS escape of
+ * `<` in a `data:` URL or a fragment becomes `<`, which grows more where that
+ * is written as a reference.
  */
 const attributeGrowth: Growth = (from, to) =>
-  escapedLength(to, { angles: false, quotes: true }) -
-  escapedLength(from, { angles: false, quotes: true });
+  Math.max(
+    attributeLength(to) - attributeLength(from),
+    escapedLength(to, { angles: false, quotes: true }) -
+      escapedLength(from, { angles: false, quotes: true }),
+  );
 
 /**
  * Replaces only the references in CSS (`cssReferences`) that `locatedUrl`

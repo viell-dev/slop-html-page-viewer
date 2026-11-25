@@ -1608,21 +1608,38 @@ describe("what preparing adds to the page's own markup (#184)", () => {
     assert.ok((await shown(most + 3)) === some);
   });
 
-  it("counts an attribute as it grows in either Chromium, also where its URL had characters that only one escapes", async () => {
-    // Made absolute before a later <base>, each `<` becomes `%3C`: two
-    // characters more in Chromium 114 and jsdom, which write it as it is in an
-    // attribute, and one less in Chromium 150, which wrote it as `&lt;`.
-    const name = "<".repeat(1_000);
-    for (const [tag, count] of [
-      [`<img src="${name}">`, 9_000],
-      [`<img srcset="${name} 1x">`, 9_000],
-      [`<p style="b:url(${name})"></p>`, 9_000],
+  it("counts an attribute as it grows in either Chromium, where it gains or loses characters that only one escapes", async () => {
+    // Chromium 114, like jsdom, writes `<` and `>` in an attribute as they
+    // are, and Chromium 150 as references.
+    const angles = (text: string) => text.split(/[<>]/).length - 1;
+    const written150 = (html: string) =>
+      [...html.matchAll(/="([^"]*)"/g)].reduce((sum, [, value]) => sum + 3 * angles(value), 0);
+    const full = { "Saved/full.css": `/*${"x".repeat(LIMIT - 4)}*/` };
+    const link = '<link rel="stylesheet" href="full.css">';
+    const late = '<base href="sub/">';
+    // Made absolute, each `<` becomes `%3C`: two characters more in 114, and
+    // one less in 150. Each CSS escape becomes `<` or `>`: two characters less
+    // in 114, and one more in 150. The stylesheet has taken the limit then.
+    const raw = "<".repeat(1_000);
+    const data = `data:image/svg+xml,${"\\3c".repeat(1_000)}`;
+    const fragment = `c#${"\\3e".repeat(1_000)}`;
+    for (const [what, html, files] of [
+      ["src", `<img src="${raw}">`.repeat(9_000) + late, {}],
+      ["srcset", `<img srcset="${raw} 1x">`.repeat(9_000) + late, {}],
+      ["style", `<p style="b:url(${raw})"></p>`.repeat(9_000) + late, {}],
+      ["escapes", link + `<p style="b:url(${data})"></p>`.repeat(1_000) + late, full],
+      ["located escapes", link + `<p style="b:url(${fragment})"></p>`.repeat(1_000), full],
     ] as const) {
-      const html = `${tag.repeat(count)}<base href="sub/">`;
-      const copy = await prepare(html, context({}));
-      const made = copy.split("%3C%3C").length - 1;
-      assert.ok(made > 0, tag.slice(0, 12));
-      assert.ok(copy.length <= html.length + LIMIT + 1_000, `${tag.slice(0, 12)}: ${copy.length}`);
+      const copy = await prepare(html, {
+        ...context(files),
+        exists: (path) => path === "Found/c" || path === "Saved/full.css",
+        locate: (linktext) => (linktext === "c" ? "Found/c" : null),
+      });
+      const most = html.length + LIMIT + 1_000;
+      assert.ok(copy.length <= most, `${what} in 114: ${copy.length}`);
+      const modern = copy.length + written150(copy);
+      assert.ok(modern <= most + written150(html), `${what} in 150: ${modern}`);
+      assert.ok(copy.includes("%3C%3C") || copy.includes("xxx"), `${what} took the limit`);
     }
   });
 
