@@ -570,9 +570,20 @@ function keepPlace<P>(
   /** Whether a scroll of the reader's can still be unreported. */
   let unreported = false;
   let held = false;
-  /** The window where it last reported a scroll, and the one of the reader's last input in it. */
-  let reportedIn = scroller.window();
-  let inputIn: Window | null = null;
+  let visited = scroller.window();
+  /**
+   * Whether it is alone, and has yet to show its place in the window that it
+   * moved to: the reader has not used it there, and it has reported no scroll
+   * that left it at its place.
+   */
+  let arriving = false;
+  /** Notices that it has moved to another window. */
+  const visit = (): void => {
+    const now = scroller.window();
+    if (now === null || now === visited) return;
+    visited = now;
+    arriving = scroller.alone;
+  };
   /**
    * What it shows `at` pixels down, by `placing`: up to date while that is as
    * far down as `kept`, unless `outdated`. Scrolling sideways changes nothing
@@ -670,21 +681,21 @@ function keepPlace<P>(
     () => {
       if (!scroller.laidOut()) return;
       // A scroll that it reports in the frame of the reader's input is theirs.
+      visit();
       if (held && !unreported) return;
       held = false;
       unreported = false;
-      // Alone, its first report in a window that it moved to, without input of
-      // the reader's there, is of Obsidian's or the view's putting it back, or
-      // of where that left it once the window laid it out anew before the
-      // report, with another height or by Chromium's scroll anchoring (#218).
-      const win = scroller.window();
-      const moved = scroller.alone && win !== reportedIn && win !== inputIn;
-      reportedIn = win;
-      if (moved) {
+      const now = scroller.position();
+      // Until it is at its place in a window that it moved to, its reports are
+      // of Obsidian's or the view's putting it back, or of where that left it
+      // once the window laid it out anew before the report, with another
+      // height or by Chromium's scroll anchoring (#218).
+      if (arriving) {
         goBack();
+        const { top, left } = scroller.position();
+        arriving = top !== now.top || left !== now.left;
         return;
       }
-      const now = scroller.position();
       const putBack =
         scroller.obsidianPutsBack &&
         now.left === kept.left &&
@@ -702,8 +713,9 @@ function keepPlace<P>(
   onReaderInput(
     scroller.events,
     () => {
+      visit();
+      arriving = false;
       const win = scroller.window();
-      inputIn = win;
       if (!win?.requestAnimationFrame) return;
       unreported = true;
       // Chromium reports a frame's scrolling before its animation frame callbacks.
@@ -715,12 +727,15 @@ function keepPlace<P>(
   );
   return {
     restore: () => {
+      visit();
       if (unreported || !scroller.laidOut()) return;
       const { top, left } = scroller.position();
       if (top !== 0 || left !== 0 || (kept.top === 0 && kept.left === 0)) return;
       goBack();
     },
     placed: () => {
+      visit();
+      arriving = false;
       if (!scroller.laidOut()) return;
       kept = scroller.position();
       measureWhenSettled();
@@ -777,8 +792,9 @@ function keepPlace<P>(
  *
  * With `placing`, it goes back to what the element showed, as the source does
  * with its lines (#182, #189): when the tab shows again, after a move, and
- * where Obsidian has put the element back in pixels, as the first report of
- * one that is `alone` in another window always says.
+ * where Obsidian has put the element back in pixels. One that is `alone` also
+ * does at each report in another window, until one that finds it there or the
+ * reader's input in it.
  */
 export function keepScrolling<P>(
   element: HTMLElement,
