@@ -170,6 +170,22 @@ describe("rendered view", () => {
     assert.deepEqual(state(copy()), { mode: "open", inert: true });
   });
 
+  it("keeps a <noscript>'s content as text only with scripts on (#148)", async () => {
+    const harness = await Harness.load();
+    const view = harness.newView();
+    harness.open(
+      view,
+      "page.html",
+      `<p>Text</p><noscript><a href="other.html">Other</a></noscript>`,
+    );
+    await settle();
+    const content = () => /<noscript>(.*)<\/noscript>/.exec(frame(view)?.srcdoc ?? "")?.[1];
+    assert.equal(content(), `<a href="other.html" title="other.html">Other</a>`);
+    button(view, "Scripts OFF").click();
+    await settle();
+    assert.equal(content(), `<a href="other.html">Other</a>`);
+  });
+
   it("never grants scripts together with same-origin access, nor forms, popups, or navigation", () => {
     for (const scriptsEnabled of [false, true]) {
       const tokens = sandboxValue(scriptsEnabled).split(/\s+/).filter(Boolean);

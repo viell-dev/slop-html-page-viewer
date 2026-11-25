@@ -105,6 +105,13 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   stylesheets, and its `<style>` elements without their imports
   ([#169](https://github.com/viell-dev/slop-html-page-viewer/issues/169)).
 
+  **Unreleased (#148):** with scripts on, a `<noscript>` holds text, as in browsers: the viewer
+  reads and copies nothing for it, nothing in it shows, and its stylesheets' titles name no set.
+  Version 0.6.0 prepares its content with scripts on too, so that files which the page never shows
+  take from its copy limits, and shows an image of a `<noscript>` in the `<head>`. With scripts off,
+  its content shows, as before
+  ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
+
   **Unreleased (#192):** a link is a stylesheet link only when a space, tab, line feed, or form feed
   separates `stylesheet` from the other words of its `rel`, as HTML splits it. With a no-break space
   or another space between them, the words are one, browsers load nothing, and the viewer reads
@@ -389,6 +396,15 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   and the viewer no longer does
   ([#187](https://github.com/viell-dev/slop-html-page-viewer/issues/187)).
   **Unreleased (#198):** so do the images of `background` attributes.
+
+- **Some malformed markup shows otherwise than in a browser.** The viewer parses a page, prepares
+  it, and writes it as HTML again for its frame to parse, and HTML cannot write every tree so that
+  it reads as the same one. A known case is a MathML element that the parser moved out of a table:
+  the frame can read a `<style>` inside it as markup, whose files the viewer has then not prepared
+  ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)). Version 0.6.0 also drops
+  the empty line that starts a `<pre>` or a `<textarea>`.
+
+  **Unreleased (#148):** such an empty line shows.
 
 - **With scripts on, a `<base>` that a page's script adds** does not apply in the viewer, where a
   browser resolves the URLs that the page names after it against it: the viewer's copy has a

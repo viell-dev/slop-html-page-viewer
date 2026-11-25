@@ -62,6 +62,9 @@ const RAW_TEXT_ELEMENTS = new Set([
   "xmp",
 ]);
 
+/** The same, as a parser with scripting enabled reads them. */
+const RAW_TEXT_WITH_SCRIPTING = new Set([...RAW_TEXT_ELEMENTS, "noscript"]);
+
 /** HTML's whitespace, which excludes the other spaces that `\s` matches. */
 const HTML_SPACE = /[\t\n\f\r ]/;
 
@@ -72,9 +75,14 @@ const UNQUOTED_VALUE_END = /[\t\n\f\r >]/;
 
 /**
  * Splits HTML into tokens to highlight, where HTML's tokenizer would see tags,
- * comments, and text. The tokens' texts together are exactly `html`.
+ * comments, and text. The tokens' texts together are exactly `html`. Calls
+ * `onRawText` with where the contents of each of the `rawText` elements are.
  */
-function tokenizeHtml(html: string): Token[] {
+function tokenizeHtml(
+  html: string,
+  rawText: ReadonlySet<string> = RAW_TEXT_ELEMENTS,
+  onRawText?: (name: string, start: number, end: number) => void,
+): Token[] {
   const tokens: Token[] = [];
   const push = (kind: TokenKind, text: string): void => {
     if (text === "") return;
@@ -125,8 +133,9 @@ function tokenizeHtml(html: string): Token[] {
       push("text", html.slice(cursor));
       break;
     }
-    if (RAW_TEXT_ELEMENTS.has(name)) {
+    if (rawText.has(name)) {
       const end = rawTextEnd(html, cursor, name);
+      onRawText?.(name, cursor, end);
       push("text", html.slice(cursor, end));
       cursor = end;
     }
@@ -148,6 +157,20 @@ export function startTags(html: string): StartTag[] {
     before = token.text;
   }
   return tags;
+}
+
+/**
+ * Where the contents of HTML's `<noscript>` elements are, as a parser with
+ * scripting enabled reads them: text, up to the first end tag. The source does
+ * not tell where an element stands in the page's tree, so one that HTML reads
+ * otherwise, as in SVG, is among them.
+ */
+export function noscriptContents(html: string): { start: number; end: number }[] {
+  const contents: { start: number; end: number }[] = [];
+  tokenizeHtml(html, RAW_TEXT_WITH_SCRIPTING, (name, start, end) => {
+    if (name === "noscript" && start < end) contents.push({ start, end });
+  });
+  return contents;
 }
 
 /** Where the next tag, comment, or declaration starts: a `<` that HTML reads as markup. */

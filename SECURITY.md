@@ -205,6 +205,18 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   0.6.0 copies the file of the name without it, or none. Each read and copy passes the same checks
   ([#192](https://github.com/viell-dev/slop-html-page-viewer/issues/192)).
 
+  **Unreleased (#148):** with scripts on, it reads and copies nothing for the content of a
+  `<noscript>`, which the frame then reads as text, and which the copy keeps as the page has it. A
+  `<noscript>` that the page's source does not show as one, as inside an SVG `<title>`, is still
+  prepared. Each read and copy passes the same checks
+  ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
+
+  The frame parses the copy again, and malformed markup can then hold elements that the viewer
+  never saw, such as a `<meta http-equiv="refresh">`, which it removes from every page that it
+  prepares. The sandbox and the copy's policy apply to them all the same, and with scripts off,
+  neither tested Obsidian version follows such a refresh
+  ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
+
   **Unreleased (#187):** with **Local files with scripts on**, it copies the files that the page's
   images, media, text tracks, and scripts before its `<base>` name from the page's folder, instead
   of from the `<base>`'s, as it copies the files of stylesheets there since #185. That is the

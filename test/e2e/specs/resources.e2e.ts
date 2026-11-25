@@ -2055,6 +2055,108 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with <noscript> content, and text that starts with an empty line (#148)", function () {
+    // A frame with scripts off shows a <noscript>'s content, and one with
+    // scripts on reads it as text. Each image is green, and the stylesheets'
+    // titles name the page's set: A's in the <noscript>, which is none of the
+    // page's with scripts on, then B's.
+    const image = (name: string) => `<img src="Noscript img/${name}.png" alt="">`;
+    const HEAD = `<link rel="stylesheet" title="A" href="Noscript a.css">${image("head")}`;
+    const BODY = `<p id="fallback">Fallback</p>${image("body")}`;
+    const files: Record<string, string | Buffer> = {
+      "Saved/Noscript.html": [
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Noscript</title>`,
+        `<noscript>${HEAD}</noscript><link rel="stylesheet" title="B" href="Noscript b.css"></head>`,
+        `<body><p id="text">Text</p><noscript>${BODY}</noscript>${image("page")}`,
+        `<pre>\n\nAfter an empty line</pre></body></html>`,
+      ].join(""),
+      "Saved/Noscript a.css": "#text { color: rgb(198, 40, 40) }",
+      "Saved/Noscript b.css": "#text { color: rgb(21, 101, 192) }",
+    };
+    for (const name of ["head", "body", "page"])
+      files[`Saved/Noscript img/${name}.png`] = solidPng(64, GREEN);
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths([
+        "Saved/Noscript.html",
+        "Saved/Noscript a.css",
+        "Saved/Noscript b.css",
+        "Saved/Noscript img",
+      ]);
+    });
+
+    /** What the page shows, and its <noscript> elements' content. Run inside the frame. */
+    function read() {
+      return {
+        noscript: [...document.querySelectorAll("noscript")].map(
+          (element) =>
+            element.firstElementChild?.localName ?? element.textContent.replace(/ +/g, " "),
+        ),
+        color: getComputedStyle(document.querySelector("#text")!).color,
+        images: [...document.images]
+          .filter((image) => image.naturalWidth === 64)
+          .map(
+            (image) =>
+              `${image.closest("noscript") === null ? "page" : "noscript"} ${image.src.slice(0, 5)}`,
+          ),
+        pre: document.querySelector("pre")!.textContent,
+      };
+    }
+
+    const PRE = "\nAfter an empty line";
+
+    it("is measured against what Chromium shows of the same page outside Obsidian, with scripts on", async function () {
+      expect(await inServedPage(files, "Saved/Noscript.html", () => browser.execute(read))).toEqual(
+        {
+          noscript: [HEAD, BODY],
+          color: "rgb(21, 101, 192)",
+          images: ["page http:"],
+          pre: PRE,
+        },
+      );
+    });
+
+    it("shows it with scripts off", async function () {
+      await openInActiveTab("Saved/Noscript.html");
+      await waitForPage();
+      await saveScreenshot("noscript");
+      // The parser moves the head's <img> out of its <noscript>, into the body.
+      expect(await inViewerFrame(() => browser.execute(read))).toEqual({
+        noscript: ["style", "p"],
+        color: "rgb(198, 40, 40)",
+        images: ["page app:/", "noscript app:/", "page app:/"],
+        pre: PRE,
+      });
+    });
+
+    it("keeps it as text with scripts on, and reads and copies nothing for it", async function () {
+      await copyLocalFiles(true);
+      await openInActiveTab("Saved/Noscript.html");
+      await recordReads("Saved/Noscript");
+      try {
+        await clickToolbarButton("Scripts OFF");
+        await waitForPage();
+        await saveScreenshot("noscript-scripts-on");
+        expect(await inViewerFrame(() => browser.execute(read))).toEqual({
+          noscript: [HEAD, BODY],
+          color: "rgb(21, 101, 192)",
+          images: ["page data:"],
+          pre: PRE,
+        });
+        expect(Math.round((await framePixels(GREEN)) / IMAGE_PIXELS)).toBe(1);
+        expect(await recordedReads()).toEqual(["Saved/Noscript b.css"]);
+      } finally {
+        await restoreHost();
+        await clickToolbarButton("Scripts ON");
+        await copyLocalFiles(false);
+      }
+    });
+  });
+
   describe("with a video's poster, a text track, and an SVG <use> of another file (#196)", function () {
     // With scripts off, the viewer's frame has Obsidian's origin, which no
     // vault file has. Chromium loads a text track, without a crossorigin
