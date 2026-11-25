@@ -104,6 +104,7 @@ opens each result on versions that provide the search (Obsidian 1.13 and later).
 | **Unreleased (#182):** Shown again after its pane changed width while hidden, a page shows the element at its top, and the split view's source the line at its top                 | `move.test.ts`: measured once scrolling settles for 100 ms, out of date after a scroll or a layout change, not hidden, sideways; `split.test.ts`: the source's line       | `move.e2e.ts`: narrowed while hidden, rendered, split, sideways; Readable line length and narrowing while shown; hidden mid-scroll     |
 | **Unreleased (#186):** A tab moved while hidden shows its page where it was, and the split view's sides in step; also one whose hidden frame reloads                               | `split.test.ts`: the hidden page's element for the next document, also one with no size yet, twice; a page moved while it shows                                           | `move.e2e.ts`: rendered and split, by the tab header's menu, a drop's calls, and Split down in the tab in front                        |
 | **Unreleased (#189):** The **Source** view shows the line at its top after a move, and when its tab shows again at another width                                                   | `source.test.ts`: lines that wrap otherwise, put back in pixels or at its end, its own observer, a new window; `split.test.ts`: measured at once, not without a width     | `move.e2e.ts`: narrowed while hidden; a narrower and a wider tab group; a new window; a hidden tab moved by its menu                   |
+| **Unreleased (#204):** With scripts on, the split view's source shows the line at its top after a move, and when its tab shows again at another width                              | `source.test.ts`: the **Source** view's tests of its own watch, for the split view with scripts on                                                                        | `move.e2e.ts`: narrowed while hidden; a narrower and a wider tab group; a new window; a hidden tab moved by its menu                   |
 | **Unreleased (#195):** After a move, the split view's side that led last leads: a source keeps its line, and the page follows it until it loads                                    | `move.test.ts`: the source leads, again at load, the page's scrolling passed over; `split.test.ts`: a long head, moved shown or hidden; the source held meanwhile         | `move.e2e.ts`: a long head in another tab group, a new window, and a hidden tab moved by its menu; wrapped rules, a narrower tab group |
 | Toolbar buttons and the find bar are labelled, the toggles and view modes say their state, and the match count is announced                                                        | `find.test.ts`, `reading.test.ts`, `rendered.test.ts`                                                                                                                     |                                                                                                                                        |
 | Archived pages show as the previous build showed them                                                                                                                              |                                                                                                                                                                           | `corpus.e2e.ts` and `corpus/compare.mjs`: fails if the prototype showed an image that the plugin does not                              |
@@ -773,6 +774,12 @@ source's line only once its scrolling settles, which a host test of #165 shows o
 moves within 100 ms of the scroll; and the line place, or the watch of the **Source** view, taking
 a source with no width for one that can tell.
 
+**Unreleased (#204):** With no watch of the split view's source with scripts on, its tests of a
+narrowed view and of a new window whose app.css is held back fail in `move.e2e.ts` on both versions,
+its test of a hidden tab's move by the menu now and then on 1.5.3, and seven tests of the watch in
+`source.test.ts`. The moves into a narrower and a wider tab group pass without it, since the source
+goes back to its line where Obsidian puts it back in pixels.
+
 ### Stylesheets and resources
 
 - Reading URLs and imports inside CSS strings and comments with regular expressions, as before #91:
@@ -1400,6 +1407,12 @@ both viewer tests of `style` attributes left open in `resources.e2e.ts`:
     `move.e2e.ts` holds the new window's app.css back until the view has put the source at its line
     without it, as for the split view. It also hides the tab two frames after a scroll of the
     source, within the 100 ms in which a page's scrolling settles.
+  - **Unreleased (#204):** With scripts on, the split view's source goes back to its line as the
+    **Source** view's does, by the same watch, since no page that the view can reach tells of a
+    hide or a move. `move.e2e.ts` tests it as it tests the **Source** view, apart from a hide two
+    frames after a scroll and a new window whose app.css is not held back. A split view with
+    scripts off whose page could not be prepared has no page either, and no watch: its source goes
+    back as far down as it was when its tab shows again.
   - **Unreleased (#189):** A resize of the pane while the **Source** view shows is left to
     Chromium's scroll anchoring, which keeps the source near its line but not at it. The in-depth
     review of #202 narrowed it from 1196 to 454 px wide while it showed: the source went to 75 px
