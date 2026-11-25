@@ -3131,56 +3131,95 @@ describe("A tab shown again after Obsidian hid it", function () {
   // right after the view put the page back: that is no change of what it
   // shows. With the view as 0bdf231 had it, a tab shown for less than the
   // view's settling went back in pixels the next time, at another part of
-  // a page that narrowed meanwhile.
-  it("shows the part of its page that it showed, where it showed for a moment before its view narrowed while hidden (#182)", async function () {
-    await writeParagraphsPage();
-    await openInActiveTab(PARAGRAPHS);
-    await clickToolbarButton("Theme ON");
-    await waitForPage();
-    await scrollToParagraph(30, 0.5);
-    await browser.pause(300);
-    const before = (await pageState(false))!;
-    expect(before.top).toBe(30);
+  // a page that narrowed meanwhile. The settling of the brief show goes on
+  // while the tab is hidden, and can end in the frame that shows it again,
+  // before the view puts the page back: with the view as 2c0e76a had it, it
+  // then measured the page's start, and the page went back in pixels too
+  // (#201). How long the tab shows, and in which frame the settling ends,
+  // depends on how fast Obsidian renders, so the page's animation frames,
+  // whose times the view settles by, get one time until the test lets go.
+  for (const ends of ["while the tab is hidden", "as the tab shows again"] as const) {
+    it(`shows the part of its page that it showed, where it showed for a moment, its settling ended ${ends}, and its view narrowed while hidden (#182, #201)`, async function () {
+      await writeParagraphsPage();
+      await openInActiveTab(PARAGRAPHS);
+      await clickToolbarButton("Theme ON");
+      await waitForPage();
+      await scrollToParagraph(30, 0.5);
+      await browser.pause(300);
+      const before = (await pageState(false))!;
+      expect(before.top).toBe(30);
 
-    await hideActiveTab();
-    const brief = await browser.executeObsidian(async ({ app }) => {
-      const leaf = (
-        window as unknown as {
-          e2eShownAgain: { tabHeaderEl: HTMLElement; view: { containerEl: HTMLElement } };
-        }
-      ).e2eShownAgain;
-      const front = app.workspace.getMostRecentLeaf() as unknown as { tabHeaderEl: HTMLElement };
-      const frame = (): Promise<void> =>
-        new Promise((resolve) => requestAnimationFrame(() => resolve()));
-      const task = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
-      const iframe = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe")!;
-      await task();
-      leaf.tabHeaderEl.click();
-      const shownAt = performance.now();
-      // The frame's observer puts the page back in the first frame, and the
-      // page's window then reports the showing's layout.
-      await frame();
-      await frame();
-      await task();
-      front.tabHeaderEl.click();
-      const shownFor = performance.now() - shownAt;
-      for (let count = 0; iframe.clientHeight !== 0 && count < 120; count += 1) await frame();
-      await frame();
-      const hidden = iframe.clientHeight === 0;
-      leaf.view.containerEl
-        .querySelector<HTMLElement>(".view-content")!
-        .style.setProperty("width", "500px");
-      await frame();
-      return { shownFor, hidden };
+      await hideActiveTab();
+      const brief = await browser.executeObsidian(async ({ app }, endsHidden) => {
+        const leaf = (
+          window as unknown as {
+            e2eShownAgain: { tabHeaderEl: HTMLElement; view: { containerEl: HTMLElement } };
+          }
+        ).e2eShownAgain;
+        const front = app.workspace.getMostRecentLeaf() as unknown as { tabHeaderEl: HTMLElement };
+        const frame = (): Promise<void> =>
+          new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        const task = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+        const until = async (done: () => boolean): Promise<void> => {
+          for (let count = 0; !done() && count < 120; count += 1) await frame();
+        };
+        const iframe = leaf.view.containerEl.querySelector<HTMLIFrameElement>("iframe")!;
+        const page = iframe.contentWindow!;
+        const real = page.requestAnimationFrame.bind(page);
+        let hiddenAgain = false;
+        let first: number | null = null;
+        const ended: { scrollY: number; height: number }[] = [];
+        page.requestAnimationFrame = (callback) =>
+          real((time) => {
+            first ??= time;
+            if (hiddenAgain && ended.length === 0 && (endsHidden || iframe.clientHeight !== 0))
+              ended.push({ scrollY: page.scrollY, height: iframe.clientHeight });
+            // From then on, the times are later than any settling.
+            callback(ended.length === 0 ? first : time + 1000);
+          });
+        (window as unknown as { e2eSettlingEnded: typeof ended }).e2eSettlingEnded = ended;
+
+        let reported = false;
+        page.addEventListener("scroll", () => (reported = true), { once: true });
+        await task();
+        leaf.tabHeaderEl.click();
+        // The frame's observer puts the page back in the first frame, the
+        // page's window then reports the showing's layout, and Chromium
+        // reports the going back in the next frame.
+        await until(() => reported);
+        await frame();
+        const shownAt = page.scrollY;
+        await task();
+        front.tabHeaderEl.click();
+        await until(() => iframe.clientHeight === 0);
+        hiddenAgain = iframe.clientHeight === 0;
+        if (endsHidden) await until(() => ended.length > 0);
+        await frame();
+        leaf.view.containerEl
+          .querySelector<HTMLElement>(".view-content")!
+          .style.setProperty("width", "500px");
+        await frame();
+        return { reported, shownAt, hiddenAgain };
+      }, ends === "while the tab is hidden");
+      // The premise: the page was back, and was hidden again unsettled.
+      expect(brief).toEqual({ reported: true, shownAt: before.scrollY, hiddenAgain: true });
+
+      await showHiddenTab();
+      await browser.pause(500);
+      const after = (await pageState(true))!;
+      expect(after.text).toBeLessThan(before.text - 300);
+      expect(after.top).toBe(30);
+      // The premise: the settling ended hidden, or with the page laid out and
+      // still at its start.
+      const ended = await browser.execute(
+        () =>
+          (window as unknown as { e2eSettlingEnded: { scrollY: number; height: number }[] })
+            .e2eSettlingEnded,
+      );
+      expect(ended).toHaveLength(1);
+      expect(ended[0].scrollY).toBe(0);
+      if (ends === "while the tab is hidden") expect(ended[0].height).toBe(0);
+      else expect(ended[0].height).toBeGreaterThan(0);
     });
-    // The premise: shown for less than the view's settling of 100 ms.
-    expect(brief.hidden).toBe(true);
-    expect(brief.shownFor).toBeLessThan(100);
-
-    await showHiddenTab();
-    await browser.pause(500);
-    const after = (await pageState(true))!;
-    expect(after.text).toBeLessThan(before.text - 300);
-    expect(after.top).toBe(30);
-  });
+  }
 });

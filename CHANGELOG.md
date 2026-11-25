@@ -45,6 +45,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
 - With scripts on, the split view's source shows the line that was at its top, too, when its tab
   moves to another tab group or window or shows again after its pane changed width while the tab was
   hidden, instead of going back as far down as it was scrolled, which showed other lines (#204).
+- A tab shown only for a moment, as while stepping through a tab group's tabs, and shown again soon
+  after at another width, shows the part of its page that was at its top. Now and then, it went back
+  as far down as it was scrolled instead, which showed another part (#201).
 - After a tab moves to another tab group or window, the split view's side that was scrolled last
   leads, as when Obsidian shows a hidden tab again. Where that was the source, it keeps its line
   and the page follows it, instead of the page leading, which took the source to other lines among

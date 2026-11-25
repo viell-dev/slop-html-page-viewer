@@ -250,6 +250,9 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   tab hid, or stopped less than a tenth of a second before, goes back as far down as it was, which
   can show another part there.
 
+  **Unreleased (#201):** a page that had shown only for a moment, as while stepping through a tab
+  group's tabs, shows the part that was at its top there too, however soon its tab shows again.
+
   **Unreleased (#189):** the **Source** view shows the line that was at its top there too. A
   source, unlike a page, keeps its line also where its tab hid or moved within a tenth of a second
   of a scroll; one made in the same instant as the hide or the move is not kept.
