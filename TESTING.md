@@ -1099,11 +1099,15 @@ them on by that and the `<noscript>` content:
   cannot write every tree so that it parses as the same one. An `<mglyph>` in a table in MathML's
   `<mtext>` is moved out of the table as an HTML element, and parsed as a MathML one in the copy,
   where a `<style>` inside it holds markup that preparing took for text. That was measured on both
-  hosts, as was that no protection depends on what preparing saw: with scripts off, neither follows
-  a refresh that only the frame's parse creates. The copy is not parsed again to compare the trees,
-  which would double the parsing of every page for markup that no known page has. With scripts on, a
-  `<noscript>` that the source does not show as one, as inside an SVG `<title>` or after CDATA text
-  that seems to hold one, is prepared as elements, as before #148
+  hosts, as was that with scripts off neither follows a refresh that only the frame's parse creates,
+  in a sandboxed frame without the view's listeners too; no other element that only that parse
+  creates was. The copy is not parsed again to compare the trees, which would double the parsing of
+  every page for markup that no known page has. With scripts on, a `<noscript>` that the source does
+  not show as one, as inside an SVG `<title>` or after CDATA text that seems to hold one, is prepared
+  as elements, as before #148. One after a formatting element that its paragraph left open, as in
+  `<p><b>one</p><noscript>x</noscript><p>two`, stands inside another `<b>` in the copy, with what
+  follows it, as it does in a browser that runs no scripts; and a carriage return from `&#13;` before
+  a `<pre>`'s text reads as a line feed there. The review of #209 saw both in Chrome 158
   ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
 - **Unreleased (#185):** which base a stylesheet resolves against follows where it stands in the
   prepared tree, which is taken for the order in which the HTML parser made its elements. It is not

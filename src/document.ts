@@ -2394,7 +2394,7 @@ function parsePage(
   const parse = (text: string) => new DOMParser().parseFromString(text, "text/html");
   // Random, so that nothing else in the copy can hold a comment like these.
   const key = window.crypto.randomUUID();
-  let contents = scripts ? noscriptContents(html) : [];
+  let contents = scripts && /<noscript/i.test(html) ? noscriptContents(html) : [];
   for (let attempt = 0; contents.length > 0; attempt++) {
     let text = "";
     let cursor = 0;
