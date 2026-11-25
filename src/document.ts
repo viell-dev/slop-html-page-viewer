@@ -908,7 +908,7 @@ export function linkReference(link: Element): string | null {
 
 /**
  * What a link's tooltip shows: the vault path of the file that a click opens
- * (see `openVaultPath` in main.ts), or the address of anything else. A link
+ * (see `openVaultPath` in view.ts), or the address of anything else. A link
  * within the page, such as a footnote, and a `javascript:` link show none, as
  * `linkTarget` in links.ts treats them.
  */

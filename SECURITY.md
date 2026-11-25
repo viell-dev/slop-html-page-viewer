@@ -50,8 +50,8 @@ HTML files can run scripts and load resources, so the viewer limits what a rende
   documents are never copied. Each file opened in a tab starts as the **Scripts when a page opens**
   setting says: with scripts off, unless it is on.
 - **Never both.** Scripts and same-origin access are never granted together, because a page with
-  both could reach Obsidian, and through it the vault and the computer. `sandboxValue` in
-  `src/main.ts` is the one place that computes the sandbox, and tests cover it.
+  both could reach Obsidian, and through it the vault and the computer. The function `sandboxValue`
+  is the one place that computes the sandbox, and tests cover it.
 - **Only the vault's files.** The copy carries its own Content Security Policy, which the browser
   enforces together with Obsidian's. Obsidian's file URLs load only from inside the vault, so a page
   cannot show a file elsewhere on the computer by referring to it, and `<object>` content is
