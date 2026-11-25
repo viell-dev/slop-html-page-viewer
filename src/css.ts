@@ -1,6 +1,8 @@
 // Partial CSS Syntax 3 scanner for resource references and source spans.
 // It preserves unrelated text; it does not parse declarations or evaluate CSS.
 
+import { finish, type Steps } from "./turns";
+
 /**
  * A CSS escape: up to six hexadecimal digits with one whitespace after them,
  * or any other character but a newline, or nothing at the end. A backslash
@@ -238,8 +240,16 @@ function consumeUrl(
     : { end: i, kind: "other", value: "", open: !closed };
 }
 
-/** A forward-only scanner: no recursion or backtracking on page-controlled text. */
+/** How many tokens a scan in steps handles in each. */
+const STEP = 1024;
+
+/** All of `scanTokens` at once. */
 export function cssTokens(css: string): CssToken[] {
+  return finish(scanTokens(css));
+}
+
+/** A forward-only scanner: no recursion or backtracking on page-controlled text. */
+export function* scanTokens(css: string): Steps<CssToken[]> {
   const tokens: CssToken[] = [];
   let i = 0;
   while (i < css.length) {
@@ -295,6 +305,7 @@ export function cssTokens(css: string): CssToken[] {
       value = css[i++];
     }
     tokens.push(open ? { start, end: i, kind, value, open: true } : { start, end: i, kind, value });
+    if (tokens.length % STEP === 0) yield STEP;
   }
   return tokens;
 }
@@ -328,6 +339,11 @@ function nest(blocks: string[], token: CssToken): void {
  */
 const URL_STRING_FUNCTIONS = ["image-set", "-webkit-image-set"];
 
+/** All of `scanReferences` at once. */
+export function cssReferences(tokens: readonly CssToken[]): CssToken[] {
+  return finish(scanReferences(tokens));
+}
+
 /**
  * The tokens that name resources (#179): every URL token, and each string
  * that is an argument of a function that takes URL strings
@@ -340,12 +356,13 @@ const URL_STRING_FUNCTIONS = ["image-set", "-webkit-image-set"];
  * tokens, these are found whether or not the declaration around them is
  * valid: telling that would mean evaluating CSS.
  */
-export function cssReferences(tokens: readonly CssToken[]): CssToken[] {
+export function* scanReferences(tokens: readonly CssToken[]): Steps<CssToken[]> {
   const references: CssToken[] = [];
   // The closer of each open block, as `nest` follows them, and whether it
   // is that of a function that takes URL strings.
   const blocks: { closer: string; urls: boolean }[] = [];
   for (let i = 0; i < tokens.length; i++) {
+    if (i % STEP === STEP - 1) yield STEP;
     const token = tokens[i];
     if (token.kind === "url") references.push(token);
     else if (token.kind === "string") {

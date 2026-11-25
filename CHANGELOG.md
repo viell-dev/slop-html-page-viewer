@@ -118,6 +118,9 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   that HTML does not split on, which browsers do not load, no longer has its stylesheet read and
   applied. With **Local files with scripts on**, a file whose URL starts or ends with such a space,
   or holds one in a `srcset`, is copied by that name, not by the name without the space (#192).
+- Obsidian responds while the viewer prepares a page with large stylesheets or many images and
+  links, instead of only once it is prepared, such a page opens sooner, and the viewer stops
+  preparing a page once its tab closes or shows something else (#158).
 - With scripts on, the content of a page's `<noscript>` elements stays text, as in browsers: the
   viewer no longer reads and copies files for it, which took from the limits of what the page
   shows, no longer shows an image of a `<noscript>` in the `<head>`, and applies the stylesheets

@@ -1112,6 +1112,140 @@ describe("A page's local files in Obsidian", function () {
     });
   });
 
+  describe("with a large stylesheet (#158)", function () {
+    const GREEN_TEXT = "rgb(46, 125, 50)";
+    // Eight million characters of ordinary rules with a url() each: half of
+    // what a page may have, as the file has them, and nearly all of it with
+    // their URLs made absolute.
+    const rule = `.card:hover > .label { color: red; background: url(img.png); content: "text" }\n`;
+    const rules = rule.repeat(Math.ceil(8_000_000 / rule.length));
+    const files = {
+      "Large stylesheet.html": `<link rel="stylesheet" href="Large stylesheet.css"><p id="styled">Styled</p>`,
+      "Large stylesheet.css": `${rules}#styled { color: ${GREEN_TEXT} }`,
+    };
+
+    before(async function () {
+      await createVaultFiles(files);
+    });
+
+    after(async function () {
+      await deleteVaultPaths(Object.keys(files));
+    });
+
+    /** Sets whether pages open with scripts on, for the pages that open next, without saving it. */
+    async function openWithScripts(on: boolean): Promise<void> {
+      await browser.executeObsidian(
+        ({ app }, id, on) => {
+          const { plugins } = (app as unknown as { plugins: { plugins: Record<string, unknown> } })
+            .plugins;
+          (plugins[id] as { settings: { scriptsOn: boolean } }).settings.scriptsOn = on;
+        },
+        PLUGIN_ID,
+        on,
+      );
+    }
+
+    /** Notes when timers run in Obsidian's window, and when a frame gets its copy. */
+    async function noteTurns(): Promise<void> {
+      await browser.execute(() => {
+        const ticks: number[] = [];
+        let timer = 0;
+        const tick = () => {
+          ticks.push(performance.now());
+          timer = window.setTimeout(tick, 5);
+        };
+        tick();
+        const shown: number[] = [];
+        const observer = new MutationObserver(() => shown.push(performance.now()));
+        observer.observe(document.body, { subtree: true, attributeFilter: ["srcdoc"] });
+        (window as unknown as { e2eTurns?: () => number[] }).e2eTurns = () => {
+          clearTimeout(timer);
+          observer.disconnect();
+          const copied = shown.at(-1) ?? 0;
+          const before = [...ticks.filter((tick) => tick < copied), copied];
+          return before.slice(1).map((tick, i) => Math.round(tick - before[i]));
+        };
+      });
+    }
+
+    /** The times between the timers that ran until the frame got its copy, in ms, longest first. */
+    async function notedTurns(): Promise<number[]> {
+      const gaps = await browser.execute(() =>
+        (window as unknown as { e2eTurns: () => number[] }).e2eTurns(),
+      );
+      return gaps.sort((a, b) => b - a);
+    }
+
+    for (const scriptsOn of [false, true])
+      it(`keeps the window responding while preparing it${scriptsOn ? " and copying files, with scripts on" : ""}`, async function () {
+        await openInActiveTab("Saved/Example article.html");
+        await waitForPage();
+        await copyLocalFiles(scriptsOn);
+        await openWithScripts(scriptsOn);
+        try {
+          await noteTurns();
+          await openInActiveTab("Large stylesheet.html");
+          await waitForPage();
+          const gaps = await notedTurns();
+          // At most 0.2 s on a busy host, against 2.3 s in one task without turns,
+          // and 1 s with them where the copy's <style> is put in a document.
+          expect(gaps[0]).toBeLessThan(600);
+          expect(gaps.length).toBeGreaterThan(10);
+          const color = () => getComputedStyle(document.querySelector("#styled")!).color;
+          expect(await inViewerFrame(() => browser.execute(color))).toBe(GREEN_TEXT);
+        } finally {
+          await openWithScripts(false);
+          await copyLocalFiles(false);
+        }
+      });
+  });
+
+  it("stops preparing a page once its tab closes (#158)", async function () {
+    const files = {
+      "Closed page.html": [
+        `<link rel="stylesheet" href="Closed page one.css">`,
+        `<link rel="stylesheet" href="Closed page two.css"><p>Closed</p>`,
+      ].join(""),
+      "Closed page one.css": "p { color: green }",
+      "Closed page two.css": "p { color: green }",
+    };
+    await createVaultFiles(files);
+    await recordReads("Closed page");
+    const readsAfter = async (close: boolean) =>
+      browser.executeObsidian(async ({ app }, close) => {
+        const vault = app.vault as unknown as {
+          cachedRead(file: { path: string }): Promise<string>;
+        };
+        const reads = (window as unknown as { e2eReads: string[] }).e2eReads;
+        reads.length = 0;
+        const read = vault.cachedRead;
+        let release = () => undefined as void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        vault.cachedRead = async (file) => {
+          if (file.path === "Closed page one.css") await held;
+          return read.call(vault, file);
+        };
+        try {
+          const leaf = app.workspace.getLeaf("tab");
+          await leaf.openFile(app.vault.getAbstractFileByPath("Closed page.html") as never);
+          if (close) leaf.detach();
+          release();
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          if (!close) leaf.detach();
+        } finally {
+          vault.cachedRead = read;
+        }
+        return [...reads];
+      }, close);
+    try {
+      expect(await readsAfter(false)).toContain("Closed page two.css");
+      expect(await readsAfter(true)).toEqual(["Closed page one.css"]);
+    } finally {
+      await restoreHost();
+      await deleteVaultPaths(Object.keys(files));
+    }
+  });
+
   before(async function () {
     // An image just outside the vault, which a page must not be able to show.
     const outside = path.join(path.dirname(await vaultFolder()), "outside.png");

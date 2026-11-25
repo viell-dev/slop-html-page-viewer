@@ -20,6 +20,8 @@ import {
   cssReferences,
   cssTokens,
   importStop,
+  scanReferences,
+  scanTokens,
   type CssImport,
   type CssToken,
   type ImportConditions,
@@ -27,6 +29,7 @@ import {
 } from "./css";
 import { READING_STYLE_ID } from "./reading";
 import { noscriptContents } from "./source";
+import { finish, type Steps, Turns } from "./turns";
 
 /** What the view knows about the page and its vault. */
 export interface PageContext {
@@ -84,9 +87,10 @@ const MAX_IMPORT_DEPTH = 8;
  * the work and the copy would grow with that number raised to the depth
  * (#154). Web pages load a median of 7 stylesheets with 68 KB of CSS, and 22
  * with 256 KB at the 90th percentile (HTTP Archive's Web Almanac, 2022).
- * Preparing a copy keeps Obsidian from responding until it ends: there, 16
- * million characters of stylesheets took 5 to 12 s, and 1,000 small ones with
- * ten imports each 0.1 to 0.85 s, but 10,000 of them 3 to 8 s.
+ * Preparing a copy in Obsidian took 5 to 12 s for 16 million characters of
+ * stylesheets, and 0.1 to 0.85 s for 1,000 small ones with ten imports each,
+ * but 3 to 8 s for 10,000 of them. Obsidian responds meanwhile (`Turns`), but
+ * not while the frame then parses each `<style>` of the copy.
  */
 export const STYLESHEET_COUNT_LIMIT = 1_000;
 export const STYLESHEET_TEXT_LIMIT = 16_000_000;
@@ -661,17 +665,24 @@ function referenceText(token: CssToken, url: string): string {
 }
 
 /**
+ * How much work resolving a reference counts as, with looking for its file
+ * (`Steps`): tens of tokens.
+ */
+const RESOLVING = 32;
+
+/**
  * Rewrites the spans of the tokens that name resources (`cssReferences`),
  * preserving all other source text.
  */
-function rewriteCssUrls(
+function* rewriteCssUrls(
   css: string,
   replace: (written: string, token: CssToken) => string,
-  tokens: readonly CssToken[] = cssTokens(css),
-): string {
+  tokens: readonly CssToken[],
+): Steps<string> {
   let result = "";
   let cursor = 0;
-  for (const token of cssReferences(tokens)) {
+  for (const token of yield* scanReferences(tokens)) {
+    yield RESOLVING;
     result += css.slice(cursor, token.start) + replace(css.slice(token.start, token.end), token);
     cursor = token.end;
   }
@@ -707,10 +718,8 @@ export function absoluteUrls(
   context?: PageContext,
   tokens: readonly CssToken[] = cssTokens(css),
 ): string {
-  return rewriteCssUrls(
-    css,
-    (written, token) => absoluteUrl(written, token, sheetUrl, context),
-    tokens,
+  return finish(
+    rewriteCssUrls(css, (written, token) => absoluteUrl(written, token, sheetUrl, context), tokens),
   );
 }
 
@@ -737,8 +746,8 @@ function locateCssUrls(
   css: string,
   baseUrl: string,
   context: PageContext,
-  tokens: readonly CssToken[] = cssTokens(css),
-): string {
+  tokens: readonly CssToken[],
+): Steps<string> {
   return rewriteCssUrls(
     css,
     (written, token) => locatedToken(written, token, baseUrl, context),
@@ -960,8 +969,9 @@ function keepsSvgLink(link: Element): boolean {
  * stay. An SVG link gets the tooltip as its `xlink:title`, which Chromium
  * shows, only when nothing inside it may name it (`keepsSvgLink`).
  */
-function addTooltips(root: ParentNode, baseUrl: string, context: PageContext): void {
+function* addTooltips(root: ParentNode, baseUrl: string, context: PageContext): Steps<void> {
   for (const link of root.querySelectorAll("a, area")) {
+    yield RESOLVING;
     const svg = link.namespaceURI === SVG_NAMESPACE;
     if (svg ? keepsSvgLink(link) : link.hasAttribute("title")) continue;
     const reference = linkReference(link);
@@ -1000,13 +1010,14 @@ function addTooltips(root: ParentNode, baseUrl: string, context: PageContext): v
  * and `<object>` anyway (`pagePolicy`). The `style` attributes are prepared
  * with the stylesheets (`prepareStyleAttributes`).
  */
-function prepareReferences(
+function* prepareReferences(
   root: ParentNode,
   parsedBase: (element: Element) => string,
   baseUrl: string,
   context: PageContext,
-): void {
+): Steps<void> {
   for (const [element, names] of RESOURCE_ATTRIBUTES.elements(root)) {
+    yield RESOLVING;
     // Found only for an element with such an attribute: most table cells have none.
     let base: string | undefined;
     for (const name of names) {
@@ -1031,8 +1042,11 @@ function prepareReferences(
  * one whose `href` does not resolve does here (#185). A later `<base>` never
  * applies. The content of templates is not in the document's tree.
  */
-function documentBase(doc: Document, pageUrl: string): { url: string; element: Element | null } {
-  const element = [...doc.querySelectorAll("base[href]")].find(
+function documentBase(
+  tree: DocumentFragment,
+  pageUrl: string,
+): { url: string; element: Element | null } {
+  const element = [...tree.querySelectorAll("base[href]")].find(
     (base) => base.namespaceURI === HTML_NAMESPACE,
   );
   const url = element === undefined ? null : resolve(element.getAttribute("href") ?? "", pageUrl);
@@ -1058,7 +1072,7 @@ function documentBase(doc: Document, pageUrl: string): { url: string; element: E
  * the document's base URL too.
  */
 function parsedBases(
-  doc: Document,
+  tree: DocumentFragment,
   found: readonly HTMLTemplateElement[],
   base: Element | null,
   pageUrl: string,
@@ -1071,7 +1085,7 @@ function parsedBases(
   // the table, which it made first, and a second <body> tag's attributes go
   // on the first <body>, after the <base> before them (TESTING.md's limits).
   const before = new Set<Node>();
-  const walker = doc.createTreeWalker(doc, NodeFilter.SHOW_ELEMENT);
+  const walker = tree.ownerDocument.createTreeWalker(tree, NodeFilter.SHOW_ELEMENT);
   for (let node = walker.nextNode(); node !== null && node !== base; node = walker.nextNode())
     before.add(node);
   const owners = new Map<Node, HTMLTemplateElement>(
@@ -1082,7 +1096,7 @@ function parsedBases(
   const contents = new Map<Node, boolean>();
   const parsedBefore = (element: Element): boolean => {
     const root = element.getRootNode();
-    if (root === doc) return before.has(element);
+    if (root === tree) return before.has(element);
     let known = contents.get(root);
     if (known === undefined) {
       const owner = owners.get(root);
@@ -1147,14 +1161,15 @@ function absoluteDeclarations(
  * written, apart from those found by name, which the copy's `<base>` then
  * resolves.
  */
-function prepareStyleAttributes(
+function* prepareStyleAttributes(
   root: ParentNode,
   parsedBase: (element: Element) => string,
   baseUrl: string,
   context: PageContext,
   budget: StylesheetBudget,
-): void {
+): Steps<void> {
   for (const element of root.querySelectorAll("[style]")) {
+    yield RESOLVING;
     const style = element.getAttribute("style") ?? "";
     const base = parsedBase(element);
     const tokens = declarationTokens(style);
@@ -1164,7 +1179,7 @@ function prepareStyleAttributes(
       if (absolute !== null && budget.add(absolute.added)) replaced = absolute.text;
     }
     if (replaced === null && context.exists && context.locate)
-      replaced = locateCssUrls(style, base, context, tokens);
+      replaced = yield* locateCssUrls(style, base, context, tokens);
     if (replaced !== null && replaced !== style) element.setAttribute("style", replaced);
   }
 }
@@ -1183,18 +1198,18 @@ function prepareStyleAttributes(
  * text where the property is used, so a use with more text after it can
  * compute differently, as with `--x: (1px + 2px` in `calc(var(--x) * 2)`.
  */
-function closedSheet(css: string): {
+function* closedSheet(css: string): Steps<{
   text: string;
   tokens: CssToken[];
   strayCloser: boolean;
   markers: CssToken[];
-} {
-  const tokens = cssTokens(css);
+}> {
+  const tokens = yield* scanTokens(css);
   const { closers, strayCloser, markers } = cssEnd(css, tokens);
   if (closers === "") return { text: css, tokens, strayCloser, markers };
   const text = css + closers;
   // The markers keep their places: the closers only follow the text.
-  return { text, tokens: cssTokens(text), strayCloser, markers };
+  return { text, tokens: yield* scanTokens(text), strayCloser, markers };
 }
 
 /**
@@ -1218,13 +1233,14 @@ export async function inlineStylesheet(
   context: PageContext,
 ): Promise<string[]> {
   const budget = new StylesheetBudget(context);
-  const { text, tokens } = closedSheet(css);
-  const sheet = await inlineImports(text, sheetUrl, context, budget, {
+  const turns = new Turns();
+  const { text, tokens } = await turns.run(closedSheet(css));
+  const sheet = await inlineImports(text, sheetUrl, context, budget, turns, {
     seen: new Set(),
     tokens,
     own: { length: 0, absolute: true },
   });
-  if (sheet === null) return [locateCssUrls(text, sheetUrl, context, tokens)];
+  if (sheet === null) return [await turns.run(locateCssUrls(text, sheetUrl, context, tokens))];
   return stylesheetTexts(sheet.parts, () => budget.addStyle(0));
 }
 
@@ -1253,11 +1269,13 @@ async function fileSheet(
   context: PageContext,
   seen: ReadonlySet<string>,
   budget: StylesheetBudget,
+  turns: Turns,
 ): Promise<PreparedSheet | null> {
+  await turns.step(RESOLVING);
   const read = await budget.take(path, sheetUrl);
   if (read === null) return null;
-  const sheet = closedSheet(read);
-  const inner = await inlineImports(sheet.text, sheetUrl, context, budget, {
+  const sheet = await turns.run(closedSheet(read));
+  const inner = await inlineImports(sheet.text, sheetUrl, context, budget, turns, {
     seen: new Set([...seen, path]),
     tokens: sheet.tokens,
     markers: sheet.markers,
@@ -1354,14 +1372,14 @@ interface OwnText {
  * reference does, gives nothing back, as the text limit never does. Each
  * rewrite is made once, and the copy uses the text that was measured.
  */
-function ownRewrites(
+function* ownRewrites(
   css: string,
   sheetUrl: string,
   context: PageContext,
   tokens: readonly CssToken[],
   own: OwnText,
   budget: StylesheetBudget,
-): { imports: ImportEntry[]; rewrites: Rewrite[] } | null {
+): Steps<{ imports: ImportEntry[]; rewrites: Rewrite[] } | null> {
   const room = budget.rewriteRoom;
   /** How long the text is so far as the copy would have it, which is discarded if it does not fit. */
   let added = own.length;
@@ -1372,6 +1390,7 @@ function ownRewrites(
   if (added > room) return refuse();
   const imports: ImportEntry[] = [];
   for (const match of cssImports(css, tokens)) {
+    yield RESOLVING;
     const entry = importEntry(match, css, sheetUrl, context);
     added += Math.max(0, entry.kept.text.length - (match.end - match.start));
     if (added > room) return refuse();
@@ -1380,7 +1399,8 @@ function ownRewrites(
   // Imports and URLs share the same scan; never rescan each intervening segment.
   const rewrites: Rewrite[] = [];
   let next = 0;
-  for (const token of cssReferences(tokens)) {
+  for (const token of yield* scanReferences(tokens)) {
+    yield RESOLVING;
     // A URL inside an import rule, as in `@import url(...)`, is part of the
     // rule's replacement. Rules and tokens both come in order.
     while (next < imports.length && imports[next].match.end <= token.start) next++;
@@ -1425,10 +1445,11 @@ async function inlineImports(
   sheetUrl: string,
   context: PageContext,
   budget: StylesheetBudget,
+  turns: Turns,
   { seen, tokens, markers = [], own }: SheetText,
 ): Promise<PreparedSheet | null> {
   const importSupports = context.importSupports ?? hostImportSupports();
-  const rewritten = ownRewrites(css, sheetUrl, context, tokens, own, budget);
+  const rewritten = await turns.run(ownRewrites(css, sheetUrl, context, tokens, own, budget));
   if (rewritten === null) return null;
   let strayCloser = false;
   const rewrites: Rewrite[] = rewritten.rewrites;
@@ -1467,7 +1488,7 @@ async function inlineImports(
       path !== null && isStylesheetFile(path) && !seen.has(path) && seen.size < MAX_IMPORT_DEPTH;
     let sheet: PreparedSheet | null = null;
     if (target !== null && path !== null && readable && conditions !== null) {
-      const prepare = () => fileSheet(path, target, context, seen, budget);
+      const prepare = () => fileSheet(path, target, context, seen, budget, turns);
       // An import in a page's own <style> is prepared the same way each time,
       // as a link of the same URL is.
       sheet = seen.size === 0 ? await budget.sheet(target, prepare) : await prepare();
@@ -1625,8 +1646,11 @@ function stripSpaces(value: string): string {
  * nothing names a set: then only untitled stylesheets apply. Titles compare
  * exactly, their case and spaces included.
  */
-function preferredSet(doc: Document, parsedBase: (element: Element) => string): string | null {
-  for (const element of doc.querySelectorAll("meta, style, link")) {
+function preferredSet(
+  tree: DocumentFragment,
+  parsedBase: (element: Element) => string,
+): string | null {
+  for (const element of tree.querySelectorAll("meta, style, link")) {
     let name = "";
     if (element.localName === "meta") {
       const equiv = element.getAttribute("http-equiv");
@@ -1772,6 +1796,7 @@ async function inlineStylesheets(
   baseUrl: string,
   context: PageContext,
   budget: StylesheetBudget,
+  turns: Turns,
 ): Promise<void> {
   // The <style> elements that links become have their imports inlined
   // already. Preparing them again would take their imports from the page's
@@ -1784,7 +1809,7 @@ async function inlineStylesheets(
     const path = sheetUrl === null ? null : vaultPath(sheetUrl, context.vaultUrl);
     if (sheetUrl === null || path === null || !isStylesheetFile(path)) continue;
     const sheet = await budget.sheet(sheetUrl, () =>
-      fileSheet(path, sheetUrl, context, new Set(), budget),
+      fileSheet(path, sheetUrl, context, new Set(), budget, turns),
     );
     if (sheet === null) continue;
     const texts = stylesheetTexts(sheet.parts, () =>
@@ -1800,7 +1825,7 @@ async function inlineStylesheets(
     // Closed as a stylesheet file is, so that its last import and URL read as
     // CSS reads them there. The copy keeps the closed text, which the copying
     // of files then reads as well.
-    const { text: css, tokens } = closedSheet(own);
+    const { text: css, tokens } = await turns.run(closedSheet(own));
     // Its own text is the page's, which the text limit does not count. Where
     // the copy's <base> resolves it as the page does, its URLs keep their
     // text, apart from those found by name, as without imports, and what the
@@ -1812,7 +1837,7 @@ async function inlineStylesheets(
     const absolute = base !== baseUrl;
     const inlined =
       absolute || cssImports(css, tokens).length > 0
-        ? await inlineImports(css, base, context, budget, {
+        ? await inlineImports(css, base, context, budget, turns, {
             seen: new Set(),
             tokens,
             own: { length: 0, absolute },
@@ -1820,7 +1845,7 @@ async function inlineStylesheets(
         : null;
     const texts =
       inlined === null
-        ? [locateCssUrls(css, base, context, tokens)]
+        ? [await turns.run(locateCssUrls(css, base, context, tokens))]
         : stylesheetTexts(inlined.parts, () =>
             budget.addStyle(copiedLength(style, STYLE_ATTRIBUTES)),
           );
@@ -1832,7 +1857,7 @@ async function inlineStylesheets(
     // Escaped before comparing, so that a style whose text needs only the escape is written too.
     if (text !== own) setStyleText(style, text);
   }
-  prepareStyleAttributes(root, parsedBase, baseUrl, context, budget);
+  await turns.run(prepareStyleAttributes(root, parsedBase, baseUrl, context, budget));
 }
 
 /**
@@ -2088,11 +2113,13 @@ async function visitCssUrls(
   css: string,
   baseUrl: string,
   visit: Visit,
+  turns: Turns,
   references: readonly CssToken[],
 ): Promise<string> {
   let result = "";
   let cursor = 0;
   for (const match of references) {
+    await turns.step(RESOLVING);
     const written = css.slice(match.start, match.end);
     const reference = match.value;
     const absolute =
@@ -2107,10 +2134,16 @@ async function visitCssUrls(
 }
 
 /** Visits each URL of a `srcset`, keeping its descriptors. */
-async function visitSrcset(srcset: string, baseUrl: string, visit: Visit): Promise<string> {
+async function visitSrcset(
+  srcset: string,
+  baseUrl: string,
+  visit: Visit,
+  turns: Turns,
+): Promise<string> {
   let result = "";
   let cursor = 0;
   for (const match of srcset.matchAll(SRCSET_URL)) {
+    await turns.step(RESOLVING);
     const [whole, comma, space, url] = match;
     const absolute = resolve(url, baseUrl);
     const replaced = absolute === null ? null : await visit(absolute);
@@ -2145,27 +2178,30 @@ async function visitFileReferences(
   { node: root, parsedBase, preferred }: PageRoot,
   baseUrl: string,
   visit: Visit,
+  turns: Turns,
   scans: ReferenceScans,
 ): Promise<void> {
   // Both passes visit the same references, and only those are kept between
   // them: a whole scan holds an object for every few bytes of CSS.
-  const urls = (css: string, declarations: boolean): readonly CssToken[] => {
+  const urls = async (css: string, declarations: boolean): Promise<readonly CssToken[]> => {
     const kept = declarations ? scans.declarations : scans.sheets;
     let found = kept.get(css);
     if (!found) {
-      found = cssReferences(declarations ? declarationTokens(css) : cssTokens(css));
+      const tokens = declarations ? declarationTokens(css) : await turns.run(scanTokens(css));
+      found = await turns.run(scanReferences(tokens));
       kept.set(css, found);
     }
     return found;
   };
   for (const [element, names] of COPIED_ATTRIBUTES.elements(root)) {
+    await turns.step(RESOLVING);
     for (const name of names) {
       const value = element.getAttribute(name);
       if (value === null) continue;
       const reference = stripSpaces(value);
       if (reference === "") continue;
       if (name === "srcset") {
-        const replaced = await visitSrcset(value, baseUrl, visit);
+        const replaced = await visitSrcset(value, baseUrl, visit, turns);
         if (replaced !== value) element.setAttribute(name, replaced);
         continue;
       }
@@ -2176,12 +2212,15 @@ async function visitFileReferences(
   }
   for (const style of styleElements(root, preferred)) {
     const css = styleText(style);
-    const replaced = await visitCssUrls(css, parsedBase(style), visit, urls(css, false));
+    const references = await urls(css, false);
+    const replaced = await visitCssUrls(css, parsedBase(style), visit, turns, references);
     if (replaced !== css) setStyleText(style, replaced);
   }
   for (const element of root.querySelectorAll("[style]")) {
+    await turns.step(RESOLVING);
     const css = element.getAttribute("style") ?? "";
-    const replaced = await visitCssUrls(css, parsedBase(element), visit, urls(css, true));
+    const references = await urls(css, true);
+    const replaced = await visitCssUrls(css, parsedBase(element), visit, turns, references);
     if (replaced !== css) element.setAttribute("style", replaced);
   }
 }
@@ -2198,12 +2237,13 @@ async function copyReferencedFiles(
   baseUrl: string,
   files: LocalFiles,
   vaultUrl: string,
+  turns: Turns,
 ): Promise<CopiedFiles> {
   const copier = new FileCopier(files, vaultUrl);
   const scans: ReferenceScans = { sheets: new Map(), declarations: new Map() };
-  for (const root of roots) await visitFileReferences(root, baseUrl, copier.note, scans);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.note, turns, scans);
   copier.plan();
-  for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy, scans);
+  for (const root of roots) await visitFileReferences(root, baseUrl, copier.copy, turns, scans);
   return copier.result;
 }
 
@@ -2238,6 +2278,12 @@ export interface PageOptions {
    * protection: the view watches each new document as soon as it exists.
    */
   readonly inertUntilWatched?: boolean;
+  /**
+   * Whether the copy is no longer wanted, as when its view has closed:
+   * preparing it then ends with a `StoppedError`, at its next turn or before
+   * it reads another file.
+   */
+  readonly stopped?: () => boolean;
 }
 
 export interface PreparedPage {
@@ -2425,8 +2471,8 @@ function parsePage(
  * applies (`preferredSet`). A page whose only ones do not apply shows as it
  * would without them.
  */
-function hasOwnStyles(doc: Document, preferred: string | null): boolean {
-  return styleElements(doc, preferred).length > 0 || stylesheetLinks(doc, preferred).length > 0;
+function hasOwnStyles(tree: DocumentFragment, preferred: string | null): boolean {
+  return styleElements(tree, preferred).length > 0 || stylesheetLinks(tree, preferred).length > 0;
 }
 
 /**
@@ -2448,19 +2494,31 @@ interface PageRoot {
   readonly preferred: StylesheetSet;
 }
 
-/** Prepares the copy of a page that the rendered view shows. */
+/**
+ * Prepares the copy of a page that the rendered view shows. The work on its
+ * references and stylesheets gives the window turns (`Turns`); what Chromium
+ * does as a whole, parsing the page and serializing the copy, does not.
+ */
 export async function preparePage(
   html: string,
   context: PageContext,
   options: PageOptions = {},
 ): Promise<PreparedPage> {
+  const turns = new Turns(options.stopped);
   const { doc, restore } = parsePage(html, options.scripts === true);
+  const { doctype, documentElement: root, head } = doc;
+  // The page's tree is prepared outside its document. In one, also in one
+  // that nothing shows, Chromium parses the stylesheet of a <style> that is
+  // put there, at once: over a second for 15 million characters, for nothing,
+  // as the frame parses the copy again (#158).
+  const tree = doc.createDocumentFragment();
+  tree.append(root);
 
   // The page's base URL, which the copy's <base> gives every reference that
   // resolves once the page is parsed. The page's own <base>, if any, is
   // resolved against the file's location, as a browser opening the file
   // would.
-  const base = documentBase(doc, context.pageUrl);
+  const base = documentBase(tree, context.pageUrl);
   const baseUrl = base.url;
 
   // A template's content is outside the document's tree, and the shadow roots
@@ -2468,37 +2526,37 @@ export async function preparePage(
   // prepared as the document is. Their references resolve against the
   // document's base, as the frame resolves them. Content without elements has
   // nothing to prepare.
-  const found = templates(doc);
+  const found = templates(tree);
   // The stylesheets and resource attributes that Chromium parses before a
   // <base> resolve against the page's address instead.
-  const parsedBase = parsedBases(doc, found, base.element, context.pageUrl, baseUrl);
+  const parsedBase = parsedBases(tree, found, base.element, context.pageUrl, baseUrl);
   // Which of the document's titled stylesheets apply, as preparing leaves its
   // titles and the elements that name its set where they are. Nothing above
   // changes the document.
-  const preferred = preferredSet(doc, parsedBase);
-  const ownStyles = hasOwnStyles(doc, preferred);
-  const roots: PageRoot[] = [{ node: doc, parsedBase, preferred }];
+  const preferred = preferredSet(tree, parsedBase);
+  const ownStyles = hasOwnStyles(tree, preferred);
+  const roots: PageRoot[] = [{ node: tree, parsedBase, preferred }];
   for (const { content } of found)
     if (content.firstElementChild !== null)
       roots.push({ node: content, parsedBase, preferred: EVERY_SET });
   // The roots share the page's stylesheet limits, in their order, as they
   // share its copy limits.
   const budget = new StylesheetBudget(context);
-  for (const root of roots) {
-    prepareReferences(root.node, root.parsedBase, baseUrl, context);
-    addTooltips(root.node, baseUrl, context);
-    await inlineStylesheets(root, baseUrl, context, budget);
+  for (const part of roots) {
+    await turns.run(prepareReferences(part.node, part.parsedBase, baseUrl, context));
+    await turns.run(addTooltips(part.node, baseUrl, context));
+    await inlineStylesheets(part, baseUrl, context, budget, turns);
   }
 
   // After locating and copying, so that the references are final.
   const copiedFiles = options.copyFiles
-    ? await copyReferencedFiles(roots, baseUrl, options.copyFiles, context.vaultUrl)
+    ? await copyReferencedFiles(roots, baseUrl, options.copyFiles, context.vaultUrl, turns)
     : undefined;
 
   // A refresh would navigate the frame away from the copy, past the policy
   // below, which governs what the page loads but not where it navigates.
   // Chromium acts on one only in the document's tree, not in a shadow root.
-  for (const refresh of doc.querySelectorAll("meta[http-equiv]")) {
+  for (const refresh of tree.querySelectorAll("meta[http-equiv]")) {
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
   for (const { node } of roots) keepFirstLineFeeds(node);
@@ -2508,7 +2566,6 @@ export async function preparePage(
     if (html.includes(SHADOW_ROOT_MARK)) changeMarkComments(roots.map(({ node }) => node));
     openShadowRoots(found);
   }
-  const root = doc.documentElement;
   const madeInert = options.inertUntilWatched === true && !root.hasAttribute("inert");
   if (madeInert) root.setAttribute("inert", "");
 
@@ -2517,7 +2574,7 @@ export async function preparePage(
   policy.setAttribute("content", pagePolicy(context.vaultUrl));
   const copyBase = doc.createElement("base");
   copyBase.setAttribute("href", baseUrl);
-  doc.head.prepend(policy, copyBase);
+  head.prepend(policy, copyBase);
 
   if (!ownStyles && options.readingStyle !== undefined) {
     const reading = doc.createElement("style");
@@ -2526,6 +2583,6 @@ export async function preparePage(
     copyBase.after(reading);
   }
 
-  const doctype = doc.doctype ? `${new XMLSerializer().serializeToString(doc.doctype)}\n` : "";
-  return { html: doctype + restore(root.outerHTML), ownStyles, copiedFiles, madeInert };
+  const start = doctype === null ? "" : `${new XMLSerializer().serializeToString(doctype)}\n`;
+  return { html: start + restore(root.outerHTML), ownStyles, copiedFiles, madeInert };
 }

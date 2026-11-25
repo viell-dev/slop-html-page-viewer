@@ -52,6 +52,7 @@ import {
   syncPoints,
   topOfLine,
 } from "./split";
+import { StoppedError } from "./turns";
 
 export const VIEW_TYPE_HTML_PAGE_VIEWER = "html-page-viewer";
 /** The workspace event that tells open views the settings changed. */
@@ -323,6 +324,16 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
   override requestSave = (): void => {
     // Nothing to save: see `save`.
   };
+
+  /**
+   * Closes the view, as when its tab closes or shows another view: what it
+   * still prepares or reads is not wanted anymore.
+   */
+  override async onClose(): Promise<void> {
+    this.iframe = null;
+    this.contentsVersion += 1;
+    await super.onClose();
+  }
 
   clear(): void {
     // A refresh still pending for what this view showed no longer owns it.
@@ -697,6 +708,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
           scripts: this.scriptsEnabled,
           openShadowRoots: !this.scriptsEnabled,
           inertUntilWatched: !this.scriptsEnabled,
+          stopped: () => this.iframe !== iframe,
         },
       );
       page = prepared.html;
@@ -706,6 +718,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
       // preparePage adds the reading style only to pages without styles.
       shownStyle = ownStyles ? null : (readingStyle ?? null);
     } catch (error) {
+      if (error instanceof StoppedError) return;
       console.error("HTML Page Viewer: could not prepare the page", error);
       if (this.iframe === iframe) this.showPreparationError(iframe, error);
       return;
