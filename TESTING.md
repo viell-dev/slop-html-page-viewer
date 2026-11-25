@@ -525,6 +525,20 @@ the images of the names with U+00A0. In the viewer, the copy applies and reads t
 ASCII whitespace, and with scripts on and files copied, it shows those images, not the files of the
 names without U+00A0.
 
+**Unreleased (#148):** `document.test.ts` parses the copy of a page with scripts on as a frame that
+runs scripts does, in a jsdom window that runs them. The content of a `<noscript>`, in the head, in
+a paragraph, in a table, in a shadow root, and left open by the end of the file, is the source's
+text, nothing is read or copied for it, nothing moves out of one in the head, and a title in it names
+no stylesheet set. Without scripts it is prepared as elements. In SVG, a `<noscript>` is prepared as
+the element that it is, and the text `<noscript>` in comments, raw text, and attributes is no
+element; after CDATA text that seems to hold one, a `<noscript>` is prepared as elements. The copy
+keeps the empty line that starts a `<pre>`, a `<textarea>`, or a `<listing>`, with scripts off and
+on. `rendered.test.ts` checks that the view asks for either by whether scripts are on.
+`resources.e2e.ts` checks in Obsidian 1.5.3 and the latest that a page with a `<noscript>` in its
+head and in its body shows with scripts on what the same page shows when served outside Obsidian,
+from its first stylesheet's title to its images, and reads and copies only what it shows; that it
+shows them with scripts off; and that a `<pre>` keeps its empty line.
+
 **Unreleased (#199):** `document.test.ts` checks that a link's tooltip names the file that its
 `href` resolves to with only ASCII whitespace stripped from its ends: with a no-break space before
 its name, the file of the name with it, also where only the name without it would be found by
@@ -1027,6 +1041,18 @@ both viewer tests of `style` attributes left open in `resources.e2e.ts`:
   `document.test.ts`.
 - Closing an attribute as a stylesheet, with a rule's `{}`: the test of closers in `css.test.ts`.
 
+**Unreleased (#148):** Each of these fails the check named; the preparation before #148 also fails
+the viewer tests of `<noscript>` in `resources.e2e.ts`, with scripts off by the empty line and with
+them on by that and the `<noscript>` content:
+
+- Preparing the content of a `<noscript>` with scripts on, or a view that does not say that scripts
+  are on: the tests of `<noscript>` in `document.test.ts`, or `rendered.test.ts`.
+- Putting the content back by a string whose `$&` is replaced: the test of the source's text.
+- Taking the content out wherever the source seems to have a `<noscript>`, without looking where the
+  comment went: the tests of SVG and of CDATA.
+- Parsing again with every content as written, not only the misplaced ones: the test of SVG.
+- Keeping no line feed, or one in SVG too: the test of empty lines.
+
 ### The test harness
 
 - Not refusing a finished test's late WebDriver requests: `harness.e2e.ts`. Running tests outside
@@ -1067,12 +1093,22 @@ both viewer tests of `style` attributes left open in `resources.e2e.ts`:
   as Obsidian's policy refuses a link, and its `<style>` elements without their imports, whose URLs
   resolve as written. A titled stylesheet in a template's content is prepared, though a script that
   puts it in the page itself would have its title decide whether it applies, and a `<meta>` or a
-  title that a script adds names no set here. A titled stylesheet inside `<noscript>`, which
-  preparing parses as elements, names the set there and in a frame with scripts off, but a frame
-  with scripts on reads `<noscript>` as text: there, the next title names the set, and with
-  `<noscript><link title="A"></noscript><link title="B">`, B's link stays a link that Obsidian's
-  policy refuses, where Chromium applies it. The review of #188 saw that on both hosts; it is #148's
-  first case ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
+  title that a script adds names no set here. A titled stylesheet inside `<noscript>` names the
+  set with scripts off, as in a browser that runs none.
+- **Unreleased (#148):** the frame parses the copy, not the tree that preparing made, and HTML
+  cannot write every tree so that it parses as the same one. An `<mglyph>` in a table in MathML's
+  `<mtext>` is moved out of the table as an HTML element, and parsed as a MathML one in the copy,
+  where a `<style>` inside it holds markup that preparing took for text. That was measured on both
+  hosts, as was that with scripts off neither follows a refresh that only the frame's parse creates,
+  in a sandboxed frame without the view's listeners too; no other element that only that parse
+  creates was. The copy is not parsed again to compare the trees, which would double the parsing of
+  every page for markup that no known page has. With scripts on, a `<noscript>` that the source does
+  not show as one, as inside an SVG `<title>` or after CDATA text that seems to hold one, is prepared
+  as elements, as before #148. One after a formatting element that its paragraph left open, as in
+  `<p><b>one</p><noscript>x</noscript><p>two`, stands inside another `<b>` in the copy, with what
+  follows it, as it does in a browser that runs no scripts; and a carriage return from `&#13;` before
+  a `<pre>`'s text reads as a line feed there. The review of #209 saw both in Chrome 158
+  ([#148](https://github.com/viell-dev/slop-html-page-viewer/issues/148)).
 - **Unreleased (#185):** which base a stylesheet resolves against follows where it stands in the
   prepared tree, which is taken for the order in which the HTML parser made its elements. It is not
   always that order: the parser puts a `<base>` inside a `<table>` before the table, which it made

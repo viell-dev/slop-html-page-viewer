@@ -691,6 +691,7 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
         {
           readingStyle,
           copyFiles,
+          scripts: this.scriptsEnabled,
           openShadowRoots: !this.scriptsEnabled,
           inertUntilWatched: !this.scriptsEnabled,
         },

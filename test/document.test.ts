@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { JSDOM } from "jsdom";
 import "./support/dom";
 import {
   absoluteUrls,
@@ -2989,6 +2990,156 @@ describe("a string or url( left open at the end of a style attribute (#194)", ()
       `b: url("${found("c")}")`,
       `b: url("${found("d")}")`,
     ]);
+  });
+});
+
+describe("what the frame's own parse of the copy makes of it (#148)", () => {
+  /** HTML as a frame with scripts on parses it: jsdom enables scripting only where scripts run. */
+  function parseWithScripts(html: string): Document {
+    return new JSDOM(html, { runScripts: "dangerously" }).window.document;
+  }
+
+  /** The page's copy for a frame with scripts on, its reads and copies, and what its parse makes of it. */
+  async function withScripts(html: string, files: Record<string, string> = {}) {
+    const ctx = context(files);
+    const copied: string[] = [];
+    const prepared = await preparePage(html, ctx, {
+      scripts: true,
+      copyFiles: {
+        size: () => 1,
+        async readBinary(path) {
+          copied.push(path);
+          return new Uint8Array([1]).buffer;
+        },
+      },
+    });
+    return {
+      ...prepared,
+      reads: ctx.reads,
+      copied: copied.sort(),
+      frame: parseWithScripts(prepared.html),
+    };
+  }
+
+  const texts = (doc: ParentNode) =>
+    [...doc.querySelectorAll("noscript")].map((element) => element.textContent);
+
+  it("keeps a <noscript>'s content the source's text with scripts on, and reads nothing for it", async () => {
+    // In a head, a parser without scripting ends the <noscript> at the <img>.
+    const head = `\n<link rel="stylesheet" title="A" href="a.css"><img id="h" src="h.png" alt="$& <b>&amp;">\n`;
+    const body = `<style>p { b: url(n.png) }</style><link rel="stylesheet" href="n.css"><img src="m.png"></p>`;
+    const shadow = `<img src="s.png">`;
+    const html = [
+      `<!doctype html><html><head><noscript>${head}</noscript>`,
+      `<link rel="stylesheet" title="B" href="b.css"></head>`,
+      `<body><p>One<noscript class="x">${body}</noscript>two</p><noscript></noscript>`,
+      `<div><template shadowrootmode="open"><noscript>${shadow}</noscript></template></div>`,
+      `<table><tr><td>Cell</td></tr><NoScript>row</NOSCRIPT ></table><img src="shown.png"></body></html>`,
+    ].join("");
+    const files = { "Saved/a.css": "a{}", "Saved/b.css": "b{}", "Saved/n.css": "n{}" };
+    const { frame, reads, copied } = await withScripts(html, files);
+    assert.deepEqual(
+      reads,
+      ["Saved/b.css"],
+      "B names the stylesheet set of a page with scripts on",
+    );
+    assert.deepEqual(copied, ["Saved/shown.png"]);
+    assert.deepEqual(texts(frame), [head, body, "", "row"]);
+    assert.deepEqual(texts(frame.querySelector("template")!.content), [shadow]);
+    assert.equal(frame.querySelector("#h"), null, "nothing moves out of the head's <noscript>");
+    assert.equal(frame.querySelector("p")?.textContent, `One${body}two`);
+    assert.ok(frame.querySelector("style")?.textContent.includes("b{}"));
+
+    // A frame with scripts off shows it, so it is prepared as the rest of the page.
+    const ctx = context(files);
+    const off = parse(await prepare(html, ctx));
+    assert.deepEqual(ctx.reads, ["Saved/a.css", "Saved/n.css"]);
+    assert.equal(off.querySelector("noscript.x img")?.getAttribute("src"), "m.png");
+    assert.equal(off.querySelector("#h")?.parentElement?.localName, "body");
+  });
+
+  it("leaves a <noscript> that HTML reads as an element like any other so, with scripts on too", async () => {
+    const image = (name: string) => `<img src="${name}.png">`;
+    for (const [what, html, expected, copied] of [
+      [
+        "in SVG, whose <foreignObject> holds HTML again",
+        `<svg><noscript><image href="svg.png"/></noscript><foreignObject><noscript>${image("fo")}</noscript></foreignObject></svg><noscript>${image("html")}</noscript>`,
+        [image("fo"), image("html")],
+        ["svg"],
+      ],
+      [
+        "in comments, raw text, and attributes",
+        `<!-- <noscript> -->${image("one")}<textarea><noscript></textarea><p title="<noscript>">${image("two")}</p><script>"<noscript>"</script>${image("three")}`,
+        [],
+        ["one", "three", "two"],
+      ],
+    ] as const) {
+      const result = await withScripts(html);
+      const inHtml = [...result.frame.querySelectorAll("noscript")].filter(
+        (element) => element.namespaceURI === "http://www.w3.org/1999/xhtml",
+      );
+      // The frame reads the same text as it would in the page itself.
+      assert.deepEqual(
+        inHtml.map((element) => element.textContent),
+        texts(parseWithScripts(html)).filter((text) => text !== ""),
+        what,
+      );
+      assert.deepEqual(
+        result.copied,
+        copied.map((name) => `Saved/${name}.png`),
+        what,
+      );
+      for (const text of expected)
+        assert.ok(
+          inHtml.some((element) => element.textContent === text),
+          `${what}: ${text}`,
+        );
+    }
+  });
+
+  it("prepares as elements a <noscript> whose start the source's text only seems to have", async () => {
+    // HTML reads CDATA in SVG as text up to its end, which the source's
+    // tokenizer takes to end at the first ">". The text's "<noscript>" then
+    // seems to reach the real one's end tag.
+    const image = (name: string) => `<img src="${name}.png">`;
+    const cdata = "<svg><text><![CDATA[a > b <noscript> ]]></text></svg>";
+    const html = `${cdata}${image("between")}<noscript>${image("n")}</noscript>${image("after")}`;
+    const { frame, copied } = await withScripts(`<noscript>${image("first")}</noscript>${html}`);
+    assert.deepEqual(copied, ["Saved/after.png", "Saved/between.png", "Saved/n.png"]);
+    assert.deepEqual(texts(frame).slice(0, 1), [image("first")]);
+    assert.equal(frame.querySelector("text")?.textContent, "a > b <noscript> ");
+    assert.equal(frame.images.length, 2);
+  });
+
+  it("keeps a <noscript> that the end of the file leaves open, as a frame with scripts on reads it", async () => {
+    for (const rest of [`<img src="m.png"></body></html>`, "<p>text</noscript", "</noscripts>x"]) {
+      const { frame, copied } = await withScripts(`<p>One</p><noscript>${rest}`);
+      assert.deepEqual(texts(frame), [rest]);
+      assert.deepEqual(copied, []);
+    }
+  });
+
+  it("keeps the empty line that starts a <pre>, a <textarea>, or a <listing>", async () => {
+    const text = (doc: ParentNode, names: string) =>
+      [...doc.querySelectorAll(names)].map((element) => element.textContent);
+    const names = "pre, textarea, listing";
+    for (const name of names.split(", ")) {
+      const tag = (content: string) => `<${name}>${content}</${name}>`;
+      const tree = ["x", "\nx", "\n\nx", "\n\n\nx", "", "\n"].map(tag).join("");
+      const html = `${tree}<div><template shadowrootmode="open">${tree}</template></div>`;
+      const page = parse(html);
+      const shown = [text(page, name), text(page.querySelector("template")!.content, name)];
+      for (const scripts of [false, true]) {
+        const copy = parse((await preparePage(html, context({}), { scripts })).html);
+        assert.deepEqual(
+          [text(copy, name), text(copy.querySelector("template")!.content, name)],
+          shown,
+        );
+      }
+    }
+    // SVG has no such element, so the parser drops nothing after its tag.
+    const svg = "<svg><textarea>\n\nx</textarea></svg>";
+    assert.deepEqual(text(parse(await prepare(svg, context({}))), names), ["\n\nx"]);
   });
 });
 

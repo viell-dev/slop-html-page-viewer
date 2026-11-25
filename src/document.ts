@@ -26,6 +26,7 @@ import {
   type ImportStop,
 } from "./css";
 import { READING_STYLE_ID } from "./reading";
+import { noscriptContents } from "./source";
 
 /** What the view knows about the page and its vault. */
 export interface PageContext {
@@ -2215,6 +2216,11 @@ export interface PageOptions {
    */
   readonly copyFiles?: LocalFiles;
   /**
+   * Whether the frame runs scripts: its parser then reads the content of a
+   * `<noscript>` as text (`parsePage`).
+   */
+  readonly scripts?: boolean;
+  /**
    * Declares the page's shadow roots open, so that the view's link listeners
    * see the links inside them, and marks where each is declared, so that the
    * split view finds its source lines (`SHADOW_ROOT_MARK`), for a page with
@@ -2326,6 +2332,94 @@ function openShadowRoots(found: readonly HTMLTemplateElement[]): void {
 }
 
 /**
+ * Keeps the line feed that starts the text of a `<pre>`, `<textarea>`, or
+ * `<listing>`, as where an empty line follows its tag. HTML's parser drops one
+ * line feed after such a tag, and serializing adds none, so without another
+ * one the frame's parse of the copy would drop the text's own (#148).
+ */
+function keepFirstLineFeeds(root: ParentNode): void {
+  for (const element of root.querySelectorAll("pre, textarea, listing")) {
+    if (element.namespaceURI !== HTML_NAMESPACE) continue;
+    const first = element.firstChild;
+    if (first?.nodeType !== Node.TEXT_NODE) continue;
+    const text = first as Text;
+    if (text.data.startsWith("\n")) text.data = `\n${text.data}`;
+  }
+}
+
+/**
+ * Which of the comments that `parsePage` puts in a page are the only child of
+ * an HTML `<noscript>`, by their numbers.
+ */
+function placedComments(doc: Document, key: string): Set<number> {
+  const placed = new Set<number>();
+  for (const root of [doc, ...templates(doc).map(({ content }) => content)]) {
+    const comments = (root.ownerDocument ?? doc).createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+    for (let node = comments.nextNode(); node !== null; node = comments.nextNode()) {
+      const { data, parentElement: parent } = node as Comment;
+      if (
+        data.startsWith(`${key} `) &&
+        parent?.localName === "noscript" &&
+        parent.namespaceURI === HTML_NAMESPACE &&
+        parent.childNodes.length === 1
+      )
+        placed.add(Number(data.slice(key.length + 1)));
+    }
+  }
+  return placed;
+}
+
+/**
+ * A page's tree as its frame builds it, with what puts back the text that the
+ * tree leaves out. `DOMParser` parses with scripting disabled, as a frame with
+ * scripts off does: a `<noscript>` holds elements, and one in a `<head>` ends
+ * at the first that it may not hold. A frame with scripts on reads its content
+ * as text, which loads and applies nothing (#148). So for such a frame, a
+ * comment stands for each content while the page is parsed, prepared, and
+ * serialized, and `restore` puts the source's text in its place in the copy.
+ *
+ * The contents are found in the source (`noscriptContents`), before the page's
+ * tree is known. A comment that is then not the only child of an HTML
+ * `<noscript>`, as in SVG, where one is an element like any other, stands for
+ * markup that the frame reads as such. So the page is parsed again with that
+ * content as written, and, if another comment is misplaced then, with all of
+ * them, so that a page is parsed at most three times. A `<noscript>` inside
+ * content that is put back so, or that the source does not show as one, as in
+ * an SVG `<title>`, is prepared as with scripts off.
+ */
+function parsePage(
+  html: string,
+  scripts: boolean,
+): { doc: Document; restore: (copy: string) => string } {
+  const parse = (text: string) => new DOMParser().parseFromString(text, "text/html");
+  // Random, so that nothing else in the copy can hold a comment like these.
+  const key = window.crypto.randomUUID();
+  let contents = scripts && /<noscript/i.test(html) ? noscriptContents(html) : [];
+  for (let attempt = 0; contents.length > 0; attempt++) {
+    let text = "";
+    let cursor = 0;
+    for (const [index, { start, end }] of contents.entries()) {
+      text += `${html.slice(cursor, start)}<!--${key} ${index}-->`;
+      cursor = end;
+    }
+    const doc = parse(text + html.slice(cursor));
+    const placed = placedComments(doc, key);
+    if (placed.size === contents.length) {
+      const taken = contents;
+      const comment = new RegExp(`<!--${key} (\\d+)-->`, "g");
+      const restore = (copy: string) =>
+        copy.replace(comment, (_, index: string) => {
+          const { start, end } = taken[Number(index)];
+          return html.slice(start, end);
+        });
+      return { doc, restore };
+    }
+    contents = attempt === 0 ? contents.filter((_, index) => placed.has(index)) : [];
+  }
+  return { doc: parse(html), restore: (copy) => copy };
+}
+
+/**
  * Whether a page has a stylesheet of its own that Chromium applies: a <style>
  * or a stylesheet link, as preparation finds them, of the stylesheet set that
  * applies (`preferredSet`). A page whose only ones do not apply shows as it
@@ -2360,7 +2454,7 @@ export async function preparePage(
   context: PageContext,
   options: PageOptions = {},
 ): Promise<PreparedPage> {
-  const doc = new DOMParser().parseFromString(html, "text/html");
+  const { doc, restore } = parsePage(html, options.scripts === true);
 
   // The page's base URL, which the copy's <base> gives every reference that
   // resolves once the page is parsed. The page's own <base>, if any, is
@@ -2407,6 +2501,7 @@ export async function preparePage(
   for (const refresh of doc.querySelectorAll("meta[http-equiv]")) {
     if (refresh.getAttribute("http-equiv")?.trim().toLowerCase() === "refresh") refresh.remove();
   }
+  for (const { node } of roots) keepFirstLineFeeds(node);
   if (options.openShadowRoots) {
     // A comment's text is in the source as it is, so only a page whose source
     // has the mark's text can have a comment with it.
@@ -2435,5 +2530,5 @@ export async function preparePage(
   }
 
   const doctype = doc.doctype ? `${new XMLSerializer().serializeToString(doc.doctype)}\n` : "";
-  return { html: doctype + root.outerHTML, ownStyles, copiedFiles, madeInert };
+  return { html: doctype + restore(root.outerHTML), ownStyles, copiedFiles, madeInert };
 }
