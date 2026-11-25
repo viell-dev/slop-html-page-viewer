@@ -288,11 +288,15 @@ describe("the source view's place after its tab moves (#135)", () => {
    * Chromium shows an element that Obsidian took out of the page and inserted
    * again. A source 0 pixels high is not laid out, and has no width either.
    * With `observers`, the view's window has ResizeObservers, which `report`
-   * runs.
+   * runs. With `scriptsOn`, pages open with scripts on.
    */
   async function movedSource(
     mode = "Source",
-    { data = SHORT, observers = false }: { data?: string; observers?: boolean } = {},
+    {
+      data = SHORT,
+      observers = false,
+      scriptsOn = false,
+    }: { data?: string; observers?: boolean; scriptsOn?: boolean } = {},
   ): Promise<{
     harness: Harness;
     view: HtmlView & { onResize(): void };
@@ -308,7 +312,7 @@ describe("the source view's place after its tab moves (#135)", () => {
     observed: ReturnType<typeof resizeObservers>["observers"];
   }> {
     const observing = observers ? resizeObservers(window) : null;
-    const harness = await Harness.load();
+    const harness = await Harness.load({ scriptsOn });
     const view = harness.newView() as HtmlView & { onResize(): void };
     document.body.append(view.contentEl);
     harness.open(view, "page.html", data);
@@ -654,224 +658,233 @@ describe("the source view's place after its tab moves (#135)", () => {
     assert.deepEqual(scrolledTo, []);
   });
 
-  // Chromium lays the source out again as far down as it was when its tab
-  // shows again, which shows other lines where its pane changed width, and
-  // reports no scroll for that.
-  it("goes back to its line when its tab shows again after its pane changed width while hidden (#189)", async () => {
-    const shown = await movedSource("Source", { data: LONG, observers: true });
-    try {
-      const { lines, scroll, jump, resize, scrolledTo, report, observed, source } = shown;
-      assert.equal(observed.length, 1, "an observer of its window");
-      assert.deepEqual(observed[0].observed, [source]);
-      // A window's first report gives the size that the source has then.
-      report();
-      scroll(300);
-      resize(0);
-      report();
-      // Chromium scrolls a hidden element to its start, and reports nothing.
-      jump(0, 0);
-      lines.height = 40;
-      jump(300, 0);
-      resize(400);
-      report();
-      assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }]);
-      // A resize while it shows is no showing again: Chromium's scroll
-      // anchoring keeps its lines there.
-      resize(380);
-      report();
-      assert.equal(scrolledTo.length, 1);
-    } finally {
-      endObservers();
-    }
-  });
+  // The split view with scripts on has no page that the view can reach, so its
+  // source goes back as the Source view's does (#204).
+  for (const mode of ["Source", "Split"]) {
+    const scriptsOn = mode === "Split";
+    const issue = scriptsOn ? "with scripts on, #204" : "#189";
+    const options = { data: LONG, observers: true, scriptsOn };
 
-  // In a new window, Obsidian 1.5.3 first lays the view out with no width,
-  // where each line is as high as its characters are many.
-  it("takes its source for shown only once it has a width (#189)", async () => {
-    const shown = await movedSource("Source", { data: LONG, observers: true });
-    try {
-      const { lines, scroll, jump, resize, widen, scrolledTo, report } = shown;
-      report();
-      scroll(300);
-      resize(0);
-      report();
-      widen(0);
-      lines.height = 900;
-      jump(0, 0);
-      resize(400);
-      report();
-      widen(600);
-      lines.height = 40;
-      jump(300, 0);
-      report();
-      assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }]);
-    } finally {
-      endObservers();
-    }
-  });
+    // Chromium lays the source out again as far down as it was when its tab
+    // shows again, which shows other lines where its pane changed width, and
+    // reports no scroll for that.
+    it(`goes back to its line when its tab shows again after its pane changed width while hidden (${issue})`, async () => {
+      const shown = await movedSource(mode, options);
+      try {
+        const { lines, scroll, jump, resize, scrolledTo, report, observed, source } = shown;
+        assert.equal(observed.length, 1, "an observer of its window");
+        assert.deepEqual(observed[0].observed, [source]);
+        // A window's first report gives the size that the source has then.
+        report();
+        scroll(300);
+        resize(0);
+        report();
+        // Chromium scrolls a hidden element to its start, and reports nothing.
+        jump(0, 0);
+        lines.height = 40;
+        jump(300, 0);
+        resize(400);
+        report();
+        assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }]);
+        // A resize while it shows is no showing again: Chromium's scroll
+        // anchoring keeps its lines there.
+        resize(380);
+        report();
+        assert.equal(scrolledTo.length, 1);
+      } finally {
+        endObservers();
+      }
+    });
 
-  it("keeps no scroll that its source reports while hidden (#189)", async () => {
-    const shown = await movedSource("Source", { data: LONG, observers: true });
-    try {
-      const { scroll, jump, resize, scrolledTo, report } = shown;
-      report();
-      scroll(300);
-      resize(0);
-      report();
-      // As Chromium lays it out somewhere as the tab shows, and reports that
-      // before the observer reports.
-      resize(400);
-      scroll(40);
-      report();
-      assert.deepEqual(scrolledTo, [{ top: 300, left: 0, behavior: "instant" }]);
-      jump(300, 0);
-    } finally {
-      endObservers();
-    }
-  });
+    // In a new window, Obsidian 1.5.3 first lays the view out with no width,
+    // where each line is as high as its characters are many.
+    it(`takes its source for shown only once it has a width (${issue})`, async () => {
+      const shown = await movedSource(mode, options);
+      try {
+        const { lines, scroll, jump, resize, widen, scrolledTo, report } = shown;
+        report();
+        scroll(300);
+        resize(0);
+        report();
+        widen(0);
+        lines.height = 900;
+        jump(0, 0);
+        resize(400);
+        report();
+        widen(600);
+        lines.height = 40;
+        jump(300, 0);
+        report();
+        assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }]);
+      } finally {
+        endObservers();
+      }
+    });
 
-  it("watches its source in the window that its tab moved to, at the layout change there (#189)", async () => {
-    const shown = await movedSource("Source", { data: LONG, observers: true });
-    const popout = new JSDOM("<!doctype html><html><body></body></html>")
-      .window as unknown as Window;
-    try {
-      const { harness, view, lines, scroll, resize, scrolledTo, report, observed, source } = shown;
-      const moved = resizeObservers(popout);
-      report();
-      scroll(300);
-      // A layout change in the window that it shows in watches no lines.
-      harness.app.workspace.trigger("layout-change");
-      assert.equal(observed.length, 1);
-      popout.document.body.append(popout.document.adoptNode(view.contentEl));
-      harness.app.workspace.trigger("layout-change");
-      assert.equal(observed[0].connected, false, "not by its first window");
-      // One observes the source, and one its lines, for Obsidian's styles.
-      assert.deepEqual(
-        moved.observers.map((observer) => observer.observed),
-        [[source], [source.querySelector("pre")]],
-      );
-      resize(0);
-      moved.report();
-      lines.height = 40;
-      resize(400);
-      moved.report();
-      assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }]);
-    } finally {
-      endObservers();
-      (popout as unknown as { close(): void }).close();
-    }
-  });
+    it(`keeps no scroll that its source reports while hidden (${issue})`, async () => {
+      const shown = await movedSource(mode, options);
+      try {
+        const { scroll, jump, resize, scrolledTo, report } = shown;
+        report();
+        scroll(300);
+        resize(0);
+        report();
+        // As Chromium lays it out somewhere as the tab shows, and reports that
+        // before the observer reports.
+        resize(400);
+        scroll(40);
+        report();
+        assert.deepEqual(scrolledTo, [{ top: 300, left: 0, behavior: "instant" }]);
+        jump(300, 0);
+      } finally {
+        endObservers();
+      }
+    });
 
-  it("tells the layout change a showing that its first window's watch did not report, after a move (#189)", async () => {
-    const shown = await movedSource("Source", { data: LONG, observers: true });
-    const popout = new JSDOM("<!doctype html><html><body></body></html>")
-      .window as unknown as Window;
-    try {
-      const { harness, view, lines, scroll, resize, scrolledTo, report } = shown;
-      resizeObservers(popout);
-      report();
-      scroll(300);
-      // Its tab hides, and moves to a new window, where it shows again before
-      // anything observes it there.
-      resize(0);
-      report();
-      popout.document.body.append(popout.document.adoptNode(view.contentEl));
-      lines.height = 40;
-      resize(400);
-      harness.app.workspace.trigger("layout-change");
-      assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }]);
-    } finally {
-      endObservers();
-      (popout as unknown as { close(): void }).close();
-    }
-  });
+    it(`watches its source in the window that its tab moved to, at the layout change there (${issue})`, async () => {
+      const shown = await movedSource(mode, options);
+      const popout = new JSDOM("<!doctype html><html><body></body></html>")
+        .window as unknown as Window;
+      try {
+        const { harness, view, lines, scroll, resize, scrolledTo, report, observed, source } =
+          shown;
+        const moved = resizeObservers(popout);
+        report();
+        scroll(300);
+        // A layout change in the window that it shows in watches no lines.
+        harness.app.workspace.trigger("layout-change");
+        assert.equal(observed.length, 1);
+        popout.document.body.append(popout.document.adoptNode(view.contentEl));
+        harness.app.workspace.trigger("layout-change");
+        assert.equal(observed[0].connected, false, "not by its first window");
+        // One observes the source, and one its lines, for Obsidian's styles.
+        assert.deepEqual(
+          moved.observers.map((observer) => observer.observed),
+          [[source], [source.querySelector("pre")]],
+        );
+        resize(0);
+        moved.report();
+        lines.height = 40;
+        resize(400);
+        moved.report();
+        assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }]);
+      } finally {
+        endObservers();
+        (popout as unknown as { close(): void }).close();
+      }
+    });
 
-  // Obsidian 1.5.3 lays a new window's elements out before its styles arrive
-  // there, and the source's lines then take other heights under it (#165).
-  it("goes back to its line when the lines of its source change size soon after a move to a new window (#189)", async () => {
-    const shown = await movedSource("Source", { data: LONG, observers: true });
-    const popout = new JSDOM("<!doctype html><html><body></body></html>")
-      .window as unknown as Window;
-    try {
-      const { harness, view, source, lines, scroll, scrolledTo, report } = shown;
-      const moved = resizeObservers(popout);
-      const pre = source.querySelector("pre")!;
-      Object.defineProperties(pre, {
-        offsetWidth: { configurable: true, value: 600 },
-        offsetHeight: { configurable: true, get: () => 20 + 80 * lines.height },
-      });
-      report();
-      scroll(300);
-      popout.document.body.append(popout.document.adoptNode(view.contentEl));
-      harness.app.workspace.trigger("layout-change");
-      // A window's first report gives the sizes that the elements have then.
-      moved.report();
-      assert.deepEqual(scrolledTo, []);
-      lines.height = 40;
-      moved.report();
-      assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }], "line 15");
-      // Where the reader scrolls it then, to line 18, it keeps their line.
-      scroll(700);
-      lines.height = 20;
-      moved.report();
-      assert.deepEqual(scrolledTo.at(-1), { top: 355, left: 0, behavior: "instant" });
-      // In the window that it was in, nothing watches its lines.
-      shown.observed[0].callback();
-      assert.equal(scrolledTo.length, 2);
-    } finally {
-      endObservers();
-      (popout as unknown as { close(): void }).close();
-    }
-  });
+    it(`tells the layout change a showing that its first window's watch did not report, after a move (${issue})`, async () => {
+      const shown = await movedSource(mode, options);
+      const popout = new JSDOM("<!doctype html><html><body></body></html>")
+        .window as unknown as Window;
+      try {
+        const { harness, view, lines, scroll, resize, scrolledTo, report } = shown;
+        resizeObservers(popout);
+        report();
+        scroll(300);
+        // Its tab hides, and moves to a new window, where it shows again before
+        // anything observes it there.
+        resize(0);
+        report();
+        popout.document.body.append(popout.document.adoptNode(view.contentEl));
+        lines.height = 40;
+        resize(400);
+        harness.app.workspace.trigger("layout-change");
+        assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }]);
+      } finally {
+        endObservers();
+        (popout as unknown as { close(): void }).close();
+      }
+    });
 
-  // A scroll that the reader has made and that Chromium has yet to report
-  // is theirs, also where the lines change size meanwhile.
-  it("leaves its source where the reader's input in it can still be unreported, when its lines change size after a move to a new window (#189)", async () => {
-    const shown = await movedSource("Source", { data: LONG, observers: true });
-    const popout = new JSDOM("<!doctype html><html><body></body></html>")
-      .window as unknown as Window;
-    try {
-      const { harness, view, source, lines, scroll, scrolledTo, report } = shown;
-      const moved = resizeObservers(popout);
-      // Frames that never run, so that the input stays unreported.
-      Object.defineProperty(popout, "requestAnimationFrame", {
-        configurable: true,
-        value: () => 0,
-      });
-      const pre = source.querySelector("pre")!;
-      Object.defineProperties(pre, {
-        offsetWidth: { configurable: true, value: 600 },
-        offsetHeight: { configurable: true, get: () => 20 + 80 * lines.height },
-      });
-      report();
-      scroll(300);
-      popout.document.body.append(popout.document.adoptNode(view.contentEl));
-      harness.app.workspace.trigger("layout-change");
-      moved.report();
-      const inPopout = popout as unknown as typeof globalThis;
-      source.dispatchEvent(new inPopout.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
-      lines.height = 40;
-      moved.report();
-      assert.deepEqual(scrolledTo, []);
-    } finally {
-      endObservers();
-      (popout as unknown as { close(): void }).close();
-    }
-  });
+    // Obsidian 1.5.3 lays a new window's elements out before its styles arrive
+    // there, and the source's lines then take other heights under it (#165).
+    it(`goes back to its line when the lines of its source change size soon after a move to a new window (${issue})`, async () => {
+      const shown = await movedSource(mode, options);
+      const popout = new JSDOM("<!doctype html><html><body></body></html>")
+        .window as unknown as Window;
+      try {
+        const { harness, view, source, lines, scroll, scrolledTo, report } = shown;
+        const moved = resizeObservers(popout);
+        const pre = source.querySelector("pre")!;
+        Object.defineProperties(pre, {
+          offsetWidth: { configurable: true, value: 600 },
+          offsetHeight: { configurable: true, get: () => 20 + 80 * lines.height },
+        });
+        report();
+        scroll(300);
+        popout.document.body.append(popout.document.adoptNode(view.contentEl));
+        harness.app.workspace.trigger("layout-change");
+        // A window's first report gives the sizes that the elements have then.
+        moved.report();
+        assert.deepEqual(scrolledTo, []);
+        lines.height = 40;
+        moved.report();
+        assert.deepEqual(scrolledTo, [{ top: 590, left: 0, behavior: "instant" }], "line 15");
+        // Where the reader scrolls it then, to line 18, it keeps their line.
+        scroll(700);
+        lines.height = 20;
+        moved.report();
+        assert.deepEqual(scrolledTo.at(-1), { top: 355, left: 0, behavior: "instant" });
+        // In the window that it was in, nothing watches its lines.
+        shown.observed[0].callback();
+        assert.equal(scrolledTo.length, 2);
+      } finally {
+        endObservers();
+        (popout as unknown as { close(): void }).close();
+      }
+    });
 
-  it("stops watching its source when the view shows another source or none (#189)", async () => {
-    const shown = await movedSource("Source", { data: LONG, observers: true });
-    try {
-      const { view, observed } = shown;
-      button(view, "Rendered").click();
-      assert.equal(observed[0].connected, false);
-      button(view, "Source").click();
-      assert.deepEqual(
-        observed.map((observer) => observer.connected),
-        [false, true],
-      );
-    } finally {
-      endObservers();
-    }
-  });
+    // A scroll that the reader has made and that Chromium has yet to report
+    // is theirs, also where the lines change size meanwhile.
+    it(`leaves its source where the reader's input in it can still be unreported, when its lines change size after a move to a new window (${issue})`, async () => {
+      const shown = await movedSource(mode, options);
+      const popout = new JSDOM("<!doctype html><html><body></body></html>")
+        .window as unknown as Window;
+      try {
+        const { harness, view, source, lines, scroll, scrolledTo, report } = shown;
+        const moved = resizeObservers(popout);
+        // Frames that never run, so that the input stays unreported.
+        Object.defineProperty(popout, "requestAnimationFrame", {
+          configurable: true,
+          value: () => 0,
+        });
+        const pre = source.querySelector("pre")!;
+        Object.defineProperties(pre, {
+          offsetWidth: { configurable: true, value: 600 },
+          offsetHeight: { configurable: true, get: () => 20 + 80 * lines.height },
+        });
+        report();
+        scroll(300);
+        popout.document.body.append(popout.document.adoptNode(view.contentEl));
+        harness.app.workspace.trigger("layout-change");
+        moved.report();
+        const inPopout = popout as unknown as typeof globalThis;
+        source.dispatchEvent(new inPopout.WheelEvent("wheel", { bubbles: true, deltaY: 200 }));
+        lines.height = 40;
+        moved.report();
+        assert.deepEqual(scrolledTo, []);
+      } finally {
+        endObservers();
+        (popout as unknown as { close(): void }).close();
+      }
+    });
+
+    it(`stops watching its source when the view shows another source or none (${issue})`, async () => {
+      const shown = await movedSource(mode, options);
+      try {
+        const { view, observed } = shown;
+        button(view, "Rendered").click();
+        assert.equal(observed[0].connected, false);
+        button(view, mode).click();
+        assert.deepEqual(
+          observed.map((observer) => observer.connected),
+          [false, true],
+        );
+      } finally {
+        endObservers();
+      }
+    });
+  }
 });

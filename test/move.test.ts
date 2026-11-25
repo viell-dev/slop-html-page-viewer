@@ -703,8 +703,8 @@ describe("showing the frame's next document after a move (#126, #157)", () => {
  * has no size, its page has no boxes, and it goes to its start and reports
  * that; then the windows' observers report. `show` lays the frame out
  * again, and they report. The page has animation frames, which run when
- * `nextFrame` says, each 1000 / 60 ms after the one before; `settle` runs
- * those of 150 ms.
+ * `nextFrame` says, each 1000 / 60 ms after the one before, or as long after
+ * it as `nextFrame` is given; `settle` runs those of 150 ms.
  */
 function framedPage() {
   const owner = new JSDOM("<!doctype html><html><body></body></html>").window;
@@ -755,8 +755,8 @@ function framedPage() {
   const callbacks: FrameRequestCallback[] = [];
   win.requestAnimationFrame = (callback) => callbacks.push(callback);
   let time = 0;
-  const nextFrame = (): void => {
-    time += 1000 / 60;
+  const nextFrame = (after = 1000 / 60): void => {
+    time += after;
     for (const callback of callbacks.splice(0)) callback(time);
   };
   const scroll = (to: number, sideways = scrollX): void => {
@@ -1185,6 +1185,29 @@ describe("what a page shows when Obsidian shows its tab again at another width (
     page.show();
     assert.deepEqual(page.scrolledTo, [900, 1800, 2700]);
     assert.deepEqual(place.place(), { path: [0], into: 0.9, left: 0 });
+  });
+
+  // A page that showed for a moment is measured only once its scrolling has
+  // settled, which can be in the frame that shows its tab again: Chromium lays
+  // the page out from its start, runs the page's animation frame callbacks,
+  // and only then does the frame's window's observer report.
+  it("keeps what it showed where the settling of a show shorter than that ends in the frame that shows it again (#201)", () => {
+    const page = framedPage();
+    const place = kept(page);
+    page.scroll(900);
+    page.settle();
+    page.hide();
+    page.show();
+    page.scroll(900);
+    page.nextFrame();
+    page.hide();
+    page.layout.height = 2000;
+    page.layOut();
+    page.nextFrame(150);
+    assert.deepEqual(place.place(), { path: [0], into: 0.9, left: 0 }, "not its start");
+    page.report();
+    page.reportPage();
+    assert.deepEqual(page.scrolledTo, [900, 1800]);
   });
 
   it("takes a change of layout in the frame after its showing for one", () => {
