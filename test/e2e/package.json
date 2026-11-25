@@ -15,5 +15,14 @@
     "typescript": "5.9.3",
     "wdio-obsidian-reporter": "3.5.0",
     "wdio-obsidian-service": "3.5.0"
+  },
+  "overrides": {
+    "mocha": {
+      "glob": "14.0.2",
+      "minimatch": "11.0.1"
+    },
+    "readdir-glob": {
+      "minimatch": "11.0.1"
+    }
   }
 }
