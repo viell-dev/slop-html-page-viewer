@@ -2417,17 +2417,14 @@ export async function preparePage(
   const madeInert = options.inertUntilWatched === true && !root.hasAttribute("inert");
   if (madeInert) root.setAttribute("inert", "");
 
-  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const policy = doc.createElement("meta");
   policy.setAttribute("http-equiv", "Content-Security-Policy");
   policy.setAttribute("content", pagePolicy(context.vaultUrl));
-  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const copyBase = doc.createElement("base");
   copyBase.setAttribute("href", baseUrl);
   doc.head.prepend(policy, copyBase);
 
   if (!ownStyles && options.readingStyle !== undefined) {
-    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const reading = doc.createElement("style");
     reading.id = READING_STYLE_ID;
     reading.textContent = styleElementText(options.readingStyle);

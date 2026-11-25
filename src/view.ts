@@ -570,7 +570,6 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     const doc = this.iframe?.contentDocument;
     if (!doc || doc.URL !== "about:srcdoc" || doc.readyState === "loading") return null;
     if (!doc.getElementById(FIND_STYLE_ID)) {
-      // eslint-disable-next-line obsidianmd/prefer-create-el -- the page's document, without Obsidian's helpers
       const style = doc.createElement("style");
       style.id = FIND_STYLE_ID;
       style.textContent = FIND_STYLE;

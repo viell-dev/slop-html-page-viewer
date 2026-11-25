@@ -32,18 +32,17 @@
     "@types/node": "^24.10.1",
     "esbuild": "^0.25.12",
     "eslint": "^9.39.5",
-    "eslint-plugin-obsidianmd": "^0.4.2",
+    "eslint-plugin-obsidianmd": "^0.6.0",
     "globals": "^17.13.0",
     "jsdom": "^30.1.2",
     "obsidian": "^1.14.4",
     "prettier": "^3.9.10",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.71.2"
+    "typescript-eslint": "^8.73.0"
   },
   "overrides": {
-    "eslint-plugin-obsidianmd": {
-      "obsidian": "$obsidian",
-      "typescript": "$typescript"
+    "@microsoft/eslint-plugin-sdl": {
+      "eslint-plugin-n": "17.24.0"
     }
   }
 }
