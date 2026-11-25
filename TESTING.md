@@ -585,9 +585,9 @@ its breakages and of the behavior before it.
 
 - Leaving out a canvas's fallback text, or finding the children of a progress bar: `find.e2e.ts`.
 - Closing the find bar without its pending search: the three close tests in `find.test.ts`.
-- Not telling the find bar that Obsidian unloads the file, or keeping its matches when the view shows
-  something else: `find.test.ts`'s tests of a slow next file and of a refresh that finds the file
-  empty.
+- Not telling the find bar that Obsidian unloads the file, keeping its matches when the view shows
+  something else, or leaving it open when the file cannot be read: `find.test.ts`'s tests of a slow
+  next file, of a refresh that finds the file empty, and of a failed read.
 - Matching text at zero opacity, leaving out text inside `display: contents`, and a fixture word
   meant to be hidden but painted: `find.e2e.ts`'s paint test (#160).
 - Decoding a PNG row's average or sub filter wrongly: `pixels.test.ts`.

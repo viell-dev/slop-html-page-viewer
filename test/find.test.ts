@@ -444,6 +444,25 @@ describe("the find bar", () => {
     press(input(view), "Escape");
   });
 
+  it("closes when the file cannot be read, and keeps its text", async () => {
+    const { harness, view } = await sourceView();
+    button(view, "Find in page").click();
+    input(view).value = "page";
+    press(input(view), "Enter");
+
+    harness.app.vault.read = () => Promise.reject(new Error("permission denied"));
+    button(view, "Refresh preview").click();
+    await settle();
+    assert.deepEqual(highlighted(MATCH_HIGHLIGHT), []);
+    assert.deepEqual(highlighted(CURRENT_HIGHLIGHT), []);
+    harness.open(view, "Other.html", "<p>One page.</p>");
+    assert.equal(view.contentEl.querySelector(".html-page-viewer__find"), null);
+    button(view, "Find in page").click();
+    assert.equal(input(view).value, "page");
+    assert.equal(count(view), "1 of 1");
+    press(input(view), "Escape");
+  });
+
   it("closes with Escape, and leaves no highlight behind", async () => {
     const { view } = await sourceView();
     button(view, "Find in page").click();
