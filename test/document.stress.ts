@@ -262,39 +262,35 @@ describe("preparing a page whose stylesheets name many URLs (#177)", () => {
   it("makes resource attributes before a later <base> absolute in time that grows with the page (#187)", async () => {
     // 50,000 images, each with a srcset of another URL, before the page's
     // <base>, in a folder of 1,000 characters: each URL made absolute grows
-    // by the length of the folder's address, which the text limit does not
-    // count (TESTING.md's limits), so the copy grows with the page's markup,
-    // here to about 60 times its length. Each is looked up once. On Windows 11,
-    // in jsdom, this page took 4.3 to 4.9 s, and 3.7 s without the URLs made
-    // absolute.
+    // by the length of the folder's address, as far as the text limit allows
+    // (#184). Without it, the copy was 60 times as long as the page. Each is
+    // looked up once. In jsdom, this page took 4 to 8 s.
     const count = 50_000;
     const folder = `${"a".repeat(1_000)}/`;
     const html = `${'<img src="c.png" srcset="d.png 2x">'.repeat(count)}<base href="sub/">`;
     const { output, looked, ms } = await prepareWith(html, {}, folder);
     const page = `${vault}${folder}`;
-    const image = `<img src="${page}c.png" srcset="${page}d.png 2x">`;
-    assert.equal(output.split(image).length - 1, count, `${ms} ms`);
+    const made = Math.floor(STYLESHEET_TEXT_LIMIT / page.length);
+    assert.equal(output.split(page).length - 1, made + 1, "the copy's <base> names the folder too");
+    assert.ok(output.length <= html.length + STYLESHEET_TEXT_LIMIT + 10_000, `${output.length}`);
     assert.deepEqual([looked("c.png"), looked("d.png")], [count, count]);
     assert.ok(ms < 30_000, `${ms} ms`);
   });
 
   it("keeps what making style attributes before a later <base> absolute adds within the text limit (#185)", async () => {
     // 2,500 style attributes of 100 URLs each, before the page's <base>: made
-    // absolute, each URL adds 78 characters, 19.5 million in all, so the
+    // absolute, each URL adds 88 characters as serialized, 22 million in all, so the
     // attributes take what fits in the limit, and the others stay as written.
     // `document.test.ts` counts a <style> before the <base> to the character.
     const declarations = "b:url(c);".repeat(100);
     const html = `${`<p style="${declarations}">x</p>`.repeat(2_500)}<base href="sub/">`;
     const { output, ms } = await prepareWith(html, {});
-    // The limit counts the text that preparing writes, which serializing the
-    // copy lengthens, as each quote in an attribute becomes `&quot;` (#183).
-    const written = [...output.matchAll(/<p style="([^"]*)">/g)].map(([, style]) =>
-      style.replaceAll("&quot;", '"').replaceAll("&amp;", "&"),
-    );
+    // The limit counts the text as serialized, each quote as `&quot;` (#183).
+    const written = [...output.matchAll(/<p style="([^"]*)">/g)].map(([, style]) => style);
     assert.equal(written.length, 2_500);
     const added = written.join("").length - 2_500 * declarations.length;
     assert.ok(added <= STYLESHEET_TEXT_LIMIT, `${added} characters added in ${ms} ms`);
-    const absolute = `b:url("${vault}Saved/c");`.repeat(100);
+    const absolute = `b:url(&quot;${vault}Saved/c&quot;);`.repeat(100);
     const made = written.filter((style) => style === absolute).length;
     const kept = written.filter((style) => style === declarations).length;
     assert.deepEqual(

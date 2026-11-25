@@ -360,6 +360,21 @@ too. `document.test.ts` checks that only a media query list becomes `@media`, an
 stay imports and read nothing. `resources.e2e.ts` checks in Obsidian that an import into a layer
 with a comment before `layer` stays an import in the copy, which Obsidian does not load (#151).
 
+**Unreleased (#183):** `document.test.ts` checks that a stylesheet copied into an SVG `<style>` counts
+its `&`, `<`, `>`, and U+00A0 as the character references that the copy has, to within 100
+characters of the limit, while the same stylesheet in an HTML `<style>` counts its own length, as the
+page's own text of an SVG `<style>` does not count; that the `media` of a link whose stylesheet
+splits into many `<style>` elements counts its `"` as `&quot;`; and that each `</style` in a
+stylesheet counts the escape that keeps it inside its element, to the character.
+
+**Unreleased (#184):** `document.test.ts` checks, to the character, how many references found by name
+fit in the text limit, in an `<img>`, a `background` attribute, an SVG `<use>`, a `srcset`, a
+`<style>`, one with an import, and a `style` attribute, and that those past it stay as written; how
+many tooltips of links and images fit, whose `&` counts as `&amp;`; and that a stylesheet has exactly
+the room that the page's images leave. `document.stress.ts` checks that a page of 50,000 images
+before a later `<base>`, in a folder of 1,000 characters, makes a copy at most the limit longer than
+the page, which was 60 times as long without it.
+
 **Unreleased (#151):** `css.test.ts` reads an import's layer, its support conditions, and its media
 query list, in that order: the `layer` keyword or `layer()` with identifiers joined by dots, written
 with spaces, comments, and escapes too, also with comments beside a dot. It finds no block form for
@@ -1053,6 +1068,15 @@ both viewer tests of `style` attributes left open in `resources.e2e.ts`:
   `document.test.ts`.
 - Closing an attribute as a stylesheet, with a rule's `{}`: the test of closers in `css.test.ts`.
 
+**Unreleased (#183, #184):** Each of these fails the check named in `document.test.ts`:
+
+- Not counting what attributes, a `srcset`, tooltips, or references found by name in stylesheets add:
+  the test of each.
+- Counting a tooltip, a `style` attribute, or a copied `media` by its plain length: the tests of
+  tooltips, of `style` attributes, or of copied attributes.
+- Not counting the escapes of a linked stylesheet, or of an SVG `<style>`: the test of `</style`, or
+  of an SVG `<style>`'s text. Counting those of the page's own text too: the test of it.
+
 **Unreleased (#158):** Each of these fails the check named; the preparation before #158 also fails
 both host tests of a large stylesheet in `resources.e2e.ts`:
 
@@ -1196,15 +1220,6 @@ them on by that and the `<noscript>` content:
   the `<base>`'s; in 3 of 3 runs with a script before the `<base>` that the parser waits for, an SVG
   script among them, every one came from the page's.
 
-- **Unreleased (#187):** the URLs that the copy makes absolute before a later `<base>` do not count
-  toward the text limit: each grows by about the length of the page folder's address, and more
-  where a URL escapes its characters, so the copy grows with the page's own markup, as with the
-  references found by name (#184). The factor is that length over the length of the markup of
-  each reference. In a folder of 1,000 characters, in jsdom, `document.stress.ts`'s images make
-  the copy about 60 times as long as the page, but one `<img>` whose `srcset` is 100,000 times
-  `a 1x,`, half a million characters, made it 208 times as long, 104 million characters, in 2.1 s,
-  as the review of #197 measured. What the frame does with a copy of that length is not measured
-  (#158).
 - With scripts off, a text track from the vault does not load. Obsidian 1.5.3 and 1.15.1 refuse it
   as an "unsafe attempt to load URL" of another origin than the frame's, unless its video has a
   `crossorigin` attribute, with which it loaded, as Obsidian answers such requests. A copy as a
@@ -1271,16 +1286,14 @@ them on by that and the `<noscript>` content:
   page's scripts find more `<style>` elements and stylesheets, the first of which may hold only
   imported rules. The review of #174 saw `:nth-child` match another element in Obsidian 1.5.3 and
   1.15.1; no test covers what selectors or scripts see.
-- **Unreleased (#177):** the text limit counts the stylesheet text that preparing writes into the
-  page, not the copy that the view serializes from it: character references in an SVG `<style>`
-  and in copied `media` and `title` attributes, and the escaping of `</style`, can make the copy
-  up to six times longer (#183). It does not count the page's own markup: references found by name
-  in `<style>` elements, `style` attributes, and other attributes can make the copy hundreds of
-  times the page's length, and locating them costs time with each reference and the length of the
-  page's URL (#184). An import whose stylesheet the viewer copies counts as long as a kept import,
+- **Unreleased (#177):** an import whose stylesheet the viewer copies counts as long as a kept import,
   so the limit can count up to a URL's length more than the copy holds for each of them. No test
-  opens a page of #177's sizes in Obsidian; the counting happens in preparation, which the unit
-  tests run.
+  opens a page of #177's, #183's, or #184's sizes in Obsidian; the counting happens in preparation,
+  which the unit tests run.
+- **Unreleased (#183, #184):** the text limit does not count what serializing adds to the page's own
+  text and attributes, such as an unescaped `&`, which grows with the page alone. On Obsidian 1.5.3,
+  whose Chromium writes `<` and `>` as they are in an attribute, the limit counts them as escaped.
+  Where preparing makes a later reference shorter, what it counted before is not given back.
 - The bundle check in `policy.test.ts` sees only the plugin's own code. Obsidian's TextFileView,
   which the view extends, saves a view's data to its file from Obsidian's own code. The unit tests
   model that saving as Obsidian 1.5.3 and 1.15.1 implement it, and `read-only.e2e.ts` checks in

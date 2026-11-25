@@ -112,6 +112,11 @@ the newest release are listed under **Unreleased**. Upstream's own releases foll
   that HTML does not split on, which browsers do not load, no longer has its stylesheet read and
   applied. With **Local files with scripts on**, a file whose URL starts or ends with such a space,
   or holds one in a `srcset`, is copied by that name, not by the name without the space (#192).
+- The page's limit of 16 million characters of stylesheets also counts what writing them as HTML
+  adds, such as a `"` in a `media` attribute, which could make the copy six times as long (#183),
+  and what the viewer adds to the page's own markup: the addresses of files found by name, those
+  made absolute before a page's `<base>`, and tooltips. Before, a short page in a folder with a long
+  name could make a copy hundreds of times as long, which took long to show (#184).
 - Obsidian responds while the viewer prepares a page with large stylesheets or many images and
   links, instead of only once it is prepared, such a page opens sooner, and the viewer stops
   preparing a page once its tab closes or shows something else (#158).

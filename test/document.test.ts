@@ -1437,7 +1437,9 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
     );
     const declaration = "b:url(c);";
     const absolute = `b:url("${VAULT}Saved/${folder}/c");`;
-    const most2 = Math.floor(LIMIT / (absolute.length - declaration.length));
+    // Each of its quotes is serialized as `&quot;` in an attribute (#183).
+    const each2 = absolute.length - declaration.length + 2 * ("&quot;".length - 1);
+    const most2 = Math.floor(LIMIT / each2);
     const attribute = async (count: number) =>
       parse(
         await prepare(`<p style='${declaration.repeat(count)}'>x</p>${late}`, context({}, page)),
@@ -1535,28 +1537,164 @@ describe("what rewriting a stylesheet adds to the text limit (#177)", () => {
     ]);
   });
 
-  it("counts nothing for the references found by name in the page's own text", async () => {
+  it("counts what finding the references of the page's own stylesheets by name adds (#184)", async () => {
     // A <style>, with or without imports, and a style attribute change only
-    // their references found by name. A stylesheet of the whole limit still
-    // fits after them.
+    // their references found by name, as many as fit. Past the limit, each
+    // keeps its text.
     const found = `Found/${folder}/c`;
+    const located = `url("${VAULT}${found}")`;
+    const ctx = (): PageContext => ({
+      ...context({ "Saved/e.css": "" }),
+      exists: (path) => path === found || path === "Saved/e.css",
+      locate: (linktext) => (linktext === "c" ? found : null),
+    });
     // What the <style>'s import counts, as the copy writes one that stays an import.
     const importing = `@import url("${VAULT}Saved/e.css");`.length - '@import "e.css";'.length;
-    const ctx: PageContext = {
-      ...context({ "Saved/full.css": comment(LIMIT - importing), "Saved/e.css": "" }),
-      exists: (path) => path === found || path === "Saved/e.css" || path === "Saved/full.css",
-      locate: (linktext) => (linktext === "c" ? found : null),
-    };
-    const html = [
-      `<style>${rule}</style>`,
-      `<style>@import "e.css";${rule}</style>`,
-      `<p style="b:url(c)">x</p>`,
-      link("full.css"),
-    ].join("");
+    const quoted = 2 * ("&quot;".length - 1);
+    for (const [what, page, css, each, taken] of [
+      ["<style>", (css: string) => `<style>${css}</style>`, "a{b:url(c)}", 0, 0],
+      [
+        "<style> with an import",
+        (css: string) => `<style>@import "e.css";${css}</style>`,
+        "a{b:url(c)}",
+        0,
+        importing,
+      ],
+      ["style", (css: string) => `<p style="${css}">x</p>`, "b:url(c);", quoted, 0],
+    ] as const) {
+      const most = Math.floor((LIMIT - taken) / (located.length - "url(c)".length + each));
+      const copy = await prepare(page(css.repeat(most + 1)), ctx());
+      const text = copy.replaceAll("&quot;", '"');
+      assert.equal(text.split(located).length - 1, most, what);
+      assert.equal(text.split("url(c)").length - 1, 1, what);
+    }
+  });
+});
+
+describe("what preparing adds to the page's own markup (#184)", () => {
+  const LIMIT = STYLESHEET_TEXT_LIMIT;
+  // Found by name in a folder of a long name, which needs escaping in an attribute.
+  const found = `Found/${"f".repeat(2_000)}&/c.png`;
+  const url = `${VAULT}Found/${"f".repeat(2_000)}%26/c.png`;
+  const locating = (): PageContext => ({
+    ...context({}),
+    exists: (path) => path === found,
+    locate: (linktext) => (linktext === "c" ? found : null),
+  });
+
+  it("counts references found by name, and leaves those past the text limit as written", async () => {
+    for (const [tag, written, prepared] of [
+      [(url: string) => `<img src="${url}">`, "c", url],
+      [(url: string) => `<table background="${url}"></table>`, "c", url],
+      [(url: string) => `<svg><use href="${url}#s"></use></svg>`, "c", url],
+    ] as const) {
+      const most = Math.floor(LIMIT / (prepared.length - written.length));
+      const copy = await prepare(tag(written).repeat(most + 2), locating());
+      assert.equal(copy.split(tag(prepared)).length - 1, most);
+      assert.equal(copy.split(tag(written)).length - 1, 2);
+    }
+  });
+
+  it("counts each URL of a srcset, and leaves it as written from the first that would not fit", async () => {
+    const most = Math.floor(LIMIT / (url.length - 1));
+    const srcset = (count: number) => Array(count).fill("c 1x").join(", ");
+    const shown = async (count: number) =>
+      parse(await prepare(`<img srcset="${srcset(count)}">`, locating()))
+        .querySelector("img")!
+        .getAttribute("srcset")!;
+    // Compared without a diff of millions of characters, should they differ.
+    assert.ok((await shown(most)) === srcset(most).replaceAll("c 1x", `${url} 1x`));
+    const some = [...Array<string>(most).fill(`${url} 1x`), "c 1x", "c 1x", "c 1x"].join(", ");
+    assert.ok((await shown(most + 3)) === some);
+  });
+
+  it("counts the tooltips of links and images, as serialized", async () => {
+    // Each `&` of a title takes five characters, as `&amp;`, in the copy.
+    const name = `${"&".repeat(500)}.html`;
+    const title = ` title="${"&amp;".repeat(500)}.html"`;
+    const most = Math.floor(LIMIT / title.length);
+    const copy = await prepare(`<a href="${name}">x</a>`.repeat(most + 2), context({}));
+    assert.equal(copy.split(' title="Saved/').length - 1, Math.floor(LIMIT / (title.length + 6)));
+    const alt = "&".repeat(500);
+    const alts = await prepare(`<img alt="${alt}">`.repeat(most + 2), context({}));
+    assert.equal(
+      alts.split(" title=").length - 1,
+      Math.min(most + 2, Math.floor(LIMIT / (title.length - 5))),
+    );
+  });
+
+  it("leaves the next stylesheet what the page's own markup has not taken", async () => {
+    const count = Math.floor(LIMIT / 2 / (url.length - 1));
+    const taken = count * (url.length - 1);
+    for (const [length, fits] of [
+      [LIMIT - taken, true],
+      [LIMIT - taken + 1, false],
+    ] as const) {
+      const ctx = { ...locating(), read: async () => `/*${"x".repeat(length - 4)}*/` };
+      const html = `<link rel="stylesheet" href="s.css">${'<img src="c">'.repeat(count)}`;
+      assert.equal((await prepare(html, ctx)).includes("<style>"), fits);
+    }
+  });
+});
+
+describe("what serializing the copy adds to its stylesheets (#183)", () => {
+  const LIMIT = STYLESHEET_TEXT_LIMIT;
+  const comment = (char: string, count: number) => `/*${char.repeat(count)}*/`;
+
+  it("counts an SVG <style>'s text as serialized, and an HTML one's as it is", async () => {
+    for (const [char, length] of [
+      ["&", 5],
+      ["<", 4],
+      [">", 4],
+      ["\u00a0", 6],
+      ['"', 1],
+    ] as const) {
+      const most = Math.floor((LIMIT - 100) / length);
+      const copied = async (tag: string, count: number) => {
+        const ctx = context({ "Saved/s.css": comment(char, count) });
+        const html = `${tag}@import "s.css";</style>`;
+        const copy = await prepare(html, ctx);
+        assert.ok(copy.length <= html.length + LIMIT + 1_000, `${char}: ${copy.length}`);
+        return !copy.includes("@import");
+      };
+      assert.equal(await copied("<svg><style>", most), true, char);
+      assert.equal(await copied("<style>", most), true, char);
+      assert.equal(await copied("<svg><style>", most + 100), false, char);
+      assert.equal(await copied("<style>", most + 100), length > 1, char);
+    }
+  });
+
+  it("counts nothing for the page's own text of an SVG <style>", async () => {
+    const own = comment("&", Math.floor(LIMIT / 4));
+    const css = ".a { color: red }";
+    const html = `<svg><style>@import "s.css";${own}</style></svg>`;
+    const copy = await prepare(html, context({ "Saved/s.css": css }));
+    assert.ok(copy.includes(`<style>${css}/*&amp;`));
+  });
+
+  it("counts the attributes that the <style> elements of a link copy as serialized", async () => {
+    // An import that stays an import after copied rules starts a <style> of
+    // its own (#152), each with the link's media.
+    const media = `"`.repeat(15_000);
+    const google = `@import url("https://fonts.googleapis.com/css2?family=A");`;
+    const css = `@import "s.css";${google}`.repeat(1_000);
+    const ctx = context({ "Saved/split.css": css, "Saved/s.css": "p {}" });
+    const html = `<link rel="stylesheet" media='${media}' href="split.css">`;
     const copy = await prepare(html, ctx);
-    assert.equal(copy.split(`<style>a{b:url("${VAULT}${found}")}</style>`).length - 1, 2);
-    assert.ok(copy.includes(`style="b:url(&quot;${VAULT}${found}&quot;)"`));
-    assert.ok(!copy.includes("<link"));
+    const styles = copy.split("<style media=").length - 1;
+    assert.ok(styles > 100 && styles <= LIMIT / (15_000 * 6) + 1, `${styles} <style> elements`);
+    assert.ok(copy.length <= html.length + LIMIT + 15_000 * 6 + 1_000, `${copy.length}`);
+  });
+
+  it("counts what keeps </style in a stylesheet's text", async () => {
+    const link = `<link rel="stylesheet" href="s.css">`;
+    const copied = async (count: number) =>
+      (await prepare(link, context({ "Saved/s.css": comment("</style", count) }))).includes(
+        "<style>",
+      );
+    const most = Math.floor((LIMIT - 4) / "<\\/style".length);
+    assert.equal(await copied(most), true);
+    assert.equal(await copied(most + 1), false);
   });
 });
 
