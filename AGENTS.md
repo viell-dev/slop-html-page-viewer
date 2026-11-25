@@ -167,8 +167,8 @@ Record material settings decisions and their rationale in the owning issue or pu
 ## Technical map
 
 - `src/main.ts`: the plugin's entry point: its view, commands, settings, and extensions.
-- `src/view.ts`: the view: its lifecycle, toolbar, find bar, frame and sandbox selection, and the
-  split view's following.
+- `src/view.ts`: the view: its lifecycle, toolbar, frame and sandbox selection, and the split view's
+  following. `src/find-bar.ts` holds its find bar's state, and `src/buttons.ts` the buttons of both.
 - `src/source.ts`: the source's tokenizer, highlighting, and start tags. It shows every file's text
   unchanged.
 - `src/document.ts`: the rendered copy, resource paths, stylesheets, and optional local-file copying.
