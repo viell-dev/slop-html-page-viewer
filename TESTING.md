@@ -371,7 +371,10 @@ stylesheet counts the escape that keeps it inside its element, to the character.
 fit in the text limit, in an `<img>`, a `background` attribute, an SVG `<use>`, a `srcset`, a
 `<style>`, one with an import, and a `style` attribute, and that those past it stay as written; how
 many tooltips of links and images fit, whose `&` counts as `&amp;`; and that a stylesheet has exactly
-the room that the page's images leave. `document.stress.ts` checks that a page of 50,000 images
+the room that the page's images leave. It also checks that the copy stays within the limit where
+made absolute URLs escape `<`, which Chromium 114 and 150 serialize otherwise, and, once the limit
+is reached, that marking shadow roots and closing `<style>` elements adds at most about as much as
+they are long. `document.stress.ts` checks that a page of 50,000 images
 before a later `<base>`, in a folder of 1,000 characters, makes a copy at most the limit longer than
 the page, which was 60 times as long without it.
 
@@ -1072,8 +1075,9 @@ both viewer tests of `style` attributes left open in `resources.e2e.ts`:
 
 - Not counting what attributes, a `srcset`, tooltips, or references found by name in stylesheets add:
   the test of each.
-- Counting a tooltip, a `style` attribute, or a copied `media` by its plain length: the tests of
-  tooltips, of `style` attributes, or of copied attributes.
+- Counting a tooltip, a `style` attribute, or a copied `media` by its plain length, or an attribute's
+  growth only as Chromium 150 serializes it: the tests of tooltips, of `style` attributes, of copied
+  attributes, or of either Chromium.
 - Not counting the escapes of a linked stylesheet, or of an SVG `<style>`: the test of `</style`, or
   of an SVG `<style>`'s text. Counting those of the page's own text too: the test of it.
 
@@ -1291,9 +1295,12 @@ them on by that and the `<noscript>` content:
   opens a page of #177's, #183's, or #184's sizes in Obsidian; the counting happens in preparation,
   which the unit tests run.
 - **Unreleased (#183, #184):** the text limit does not count what serializing adds to the page's own
-  text and attributes, such as an unescaped `&`, which grows with the page alone. On Obsidian 1.5.3,
-  whose Chromium writes `<` and `>` as they are in an attribute, the limit counts them as escaped.
-  Where preparing makes a later reference shorter, what it counted before is not given back.
+  text and attributes, such as an unescaped `&`, nor what closes a page's own stylesheets, the marks
+  of declared shadow roots, or the tags of `<style>` elements in place of links: each is at most about
+  as long as the markup that it is for, so it grows with the page alone. An attribute counts as it
+  grows in whichever of Chromium 114 and 150 it grows more, as only 150 writes `<` and `>` in one as
+  references. Where preparing makes a later reference shorter, what it counted before is not given
+  back.
 - The bundle check in `policy.test.ts` sees only the plugin's own code. Obsidian's TextFileView,
   which the view extends, saves a view's data to its file from Obsidian's own code. The unit tests
   model that saving as Obsidian 1.5.3 and 1.15.1 implement it, and `read-only.e2e.ts` checks in

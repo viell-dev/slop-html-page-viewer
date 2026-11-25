@@ -81,10 +81,12 @@ const MAX_IMPORT_DEPTH = 8;
  * in UTF-16 code units, the copy takes in: a stylesheet's file text when it
  * is followed, with what preparing adds to it (`StylesheetBudget.add`), and
  * its prepared text, as copied, for each repeat of the page's own link or
- * import of it that gets that text again. What preparing adds to the page's
- * own markup counts too, so that the copy never grows past the page by more
- * than that and the files copied into it (#184). The depth limit bounds an
- * import chain, not how many imports each stylesheet has, so without these
+ * import of it that gets that text again. The addresses and tooltips that
+ * preparing adds to the page's own markup count too (#184). What else it adds
+ * there is not counted, as it is at most about as long as the markup that it
+ * is for: what closes a page's own stylesheets, the marks of declared shadow
+ * roots, and the tags of `<style>` elements in place of links. The depth limit
+ * bounds an import chain, not how many imports each stylesheet has, so without these
  * the work and the copy would grow with that number raised to the depth
  * (#154). Web pages load a median of 7 stylesheets with 68 KB of CSS, and 22
  * with 256 KB at the 90th percentile (HTTP Archive's Web Almanac, 2022).
@@ -746,45 +748,62 @@ function locatedToken(
   return located === null ? written : referenceText(token, located);
 }
 
-/** How long text of the copy is in its serialization. */
-type Measure = (text: string) => number;
+/** How much longer the serialized copy is with `to` in place of `from`, or shorter, below zero. */
+type Growth = (from: string, to: string) => number;
 
-/** The length of text that serializing writes as it is, as an HTML `<style>`'s. */
-const plainLength: Measure = (text) => text.length;
+/** The growth of text that serializing writes as it is, as an HTML `<style>`'s. */
+const plainGrowth: Growth = (from, to) => to.length - from.length;
 
 /**
  * How long serializing writes text, with the characters that it writes as
- * references: `&`, `<`, `>`, and U+00A0, and in an attribute's value `"`. Older
- * Chromium, in Obsidian 1.5.3, leaves `<` and `>` as they are in an attribute.
+ * references: always `&` and U+00A0, and, as asked for, `<` and `>`, and `"`.
  */
-function escapedLength(text: string, quote: boolean): number {
+function escapedLength(text: string, { angles, quotes }: Record<"angles" | "quotes", boolean>) {
   let length = text.length;
   for (let i = 0; i < text.length; i++) {
     switch (text.charCodeAt(i)) {
       case 0x26:
         length += "&amp;".length - 1;
         break;
-      case 0x3c:
-      case 0x3e:
-        length += "&lt;".length - 1;
-        break;
       case 0xa0:
         length += "&nbsp;".length - 1;
         break;
+      case 0x3c:
+      case 0x3e:
+        if (angles) length += "&lt;".length - 1;
+        break;
       case 0x22:
-        if (quote) length += "&quot;".length - 1;
+        if (quotes) length += "&quot;".length - 1;
         break;
     }
   }
   return length;
 }
 
-/** The length of an attribute's value in the serialized copy. */
-const attributeLength: Measure = (value) => escapedLength(value, true);
+/**
+ * The most that serializing writes for an attribute's value: Chromium 150
+ * writes `<` and `>` as references there, and Chromium 114, in Obsidian 1.5.3,
+ * as they are.
+ */
+function attributeLength(value: string): number {
+  return escapedLength(value, { angles: true, quotes: true });
+}
+
+/**
+ * The growth of an attribute's value, in whichever Chromium it grows more: a
+ * `<` that a URL made absolute turns into `%3C` takes less room in one of
+ * them and more in the other.
+ */
+const attributeGrowth: Growth = (from, to) =>
+  Math.max(
+    attributeLength(to) - attributeLength(from),
+    escapedLength(to, { angles: false, quotes: true }) -
+      escapedLength(from, { angles: false, quotes: true }),
+  );
 
 /**
  * Replaces only the references in CSS (`cssReferences`) that `locatedUrl`
- * locates by name. What each adds, as `measure` finds it, counts toward the
+ * locates by name. What each adds, as `growth` finds it, counts toward the
  * text limit; one past it keeps its text, and shows nothing, as one that
  * names no file (#184).
  */
@@ -794,15 +813,13 @@ function locateCssUrls(
   context: PageContext,
   tokens: readonly CssToken[],
   budget: StylesheetBudget,
-  measure: Measure,
+  growth: Growth,
 ): Steps<string> {
   return rewriteCssUrls(
     css,
     (written, token) => {
       const located = locatedToken(written, token, baseUrl, context);
-      return located === written || budget.add(measure(located) - measure(written))
-        ? located
-        : written;
+      return located === written || budget.add(growth(written, located)) ? located : written;
     },
     tokens,
   );
@@ -959,7 +976,7 @@ function* preparedSrcset(
     const [whole, comma, space, url] = match;
     const prepared = preparedReference(url, base, baseUrl, context);
     if (prepared === url) continue;
-    added += Math.max(0, attributeLength(prepared) - attributeLength(url));
+    added += Math.max(0, attributeGrowth(url, prepared));
     if (added > room) break;
     result += `${srcset.slice(cursor, match.index)}${comma}${space}${prepared}`;
     cursor = match.index + whole.length;
@@ -1111,7 +1128,7 @@ function* prepareReferences(
         name === "srcset"
           ? yield* preparedSrcset(value, base, baseUrl, context, budget.room)
           : preparedReference(value, base, baseUrl, context);
-      if (prepared !== value && budget.add(attributeLength(prepared) - attributeLength(value)))
+      if (prepared !== value && budget.add(attributeGrowth(value, prepared)))
         element.setAttribute(name, prepared);
     }
   }
@@ -1229,7 +1246,7 @@ function* absoluteDeclarations(
     yield RESOLVING;
     const written = css.slice(token.start, token.end);
     const rewrite = absoluteUrl(written, token, base, context);
-    added += Math.max(0, attributeLength(rewrite) - attributeLength(written));
+    added += Math.max(0, attributeGrowth(written, rewrite));
     if (added > room) return null;
     text += css.slice(cursor, token.start) + rewrite;
     cursor = token.end;
@@ -1263,7 +1280,7 @@ function* prepareStyleAttributes(
       if (absolute !== null && budget.add(absolute.added)) replaced = absolute.text;
     }
     if (replaced === null && context.exists && context.locate)
-      replaced = yield* locateCssUrls(style, base, context, tokens, budget, attributeLength);
+      replaced = yield* locateCssUrls(style, base, context, tokens, budget, attributeGrowth);
     if (replaced !== null && replaced !== style) element.setAttribute("style", replaced);
   }
 }
@@ -1325,7 +1342,7 @@ export async function inlineStylesheet(
     own: { length: 0, absolute: true },
   });
   if (sheet === null)
-    return [await turns.run(locateCssUrls(text, sheetUrl, context, tokens, budget, plainLength))];
+    return [await turns.run(locateCssUrls(text, sheetUrl, context, tokens, budget, plainGrowth))];
   return stylesheetTexts(sheet.parts, () => budget.addStyle(0));
 }
 
@@ -1629,7 +1646,10 @@ function escapes(texts: readonly string[], namespace: string | null): number {
   let added = 0;
   for (const text of texts) {
     const written = styleElementText(text);
-    added += namespace === HTML_NAMESPACE ? written.length : escapedLength(written, false);
+    added +=
+      namespace === HTML_NAMESPACE
+        ? written.length
+        : escapedLength(written, { angles: true, quotes: false });
     added -= text.length;
   }
   return added;
@@ -1950,7 +1970,7 @@ async function inlineStylesheets(
         : null;
     const texts =
       inlined === null
-        ? [await turns.run(locateCssUrls(css, base, context, tokens, budget, plainLength))]
+        ? [await turns.run(locateCssUrls(css, base, context, tokens, budget, plainGrowth))]
         : stylesheetTexts(inlined.parts, () =>
             budget.addStyle(copiedLength(style, STYLE_ATTRIBUTES)),
           );

@@ -1608,6 +1608,39 @@ describe("what preparing adds to the page's own markup (#184)", () => {
     assert.ok((await shown(most + 3)) === some);
   });
 
+  it("counts an attribute as it grows in either Chromium, also where its URL had characters that only one escapes", async () => {
+    // Made absolute before a later <base>, each `<` becomes `%3C`: two
+    // characters more in Chromium 114 and jsdom, which write it as it is in an
+    // attribute, and one less in Chromium 150, which wrote it as `&lt;`.
+    const name = "<".repeat(1_000);
+    for (const [tag, count] of [
+      [`<img src="${name}">`, 9_000],
+      [`<img srcset="${name} 1x">`, 9_000],
+      [`<p style="b:url(${name})"></p>`, 9_000],
+    ] as const) {
+      const html = `${tag.repeat(count)}<base href="sub/">`;
+      const copy = await prepare(html, context({}));
+      const made = copy.split("%3C%3C").length - 1;
+      assert.ok(made > 0, tag.slice(0, 12));
+      assert.ok(copy.length <= html.length + LIMIT + 1_000, `${tag.slice(0, 12)}: ${copy.length}`);
+    }
+  });
+
+  it("adds at most about as much again to the markup that it closes or marks, once the limit is reached", async () => {
+    const full = { "Saved/full.css": `/*${"x".repeat(LIMIT - 4)}*/` };
+    const link = `<link rel="stylesheet" href="full.css">`;
+    for (const markup of [
+      `<div><template shadowrootmode="open"></template></div>`,
+      "<style>/*</style>",
+      "<style>{([</style>",
+    ]) {
+      const html = link + markup.repeat(1_000);
+      const { html: copy } = await preparePage(html, context(full), { openShadowRoots: true });
+      assert.ok(copy.includes("x".repeat(100)));
+      assert.ok(copy.length <= html.length + LIMIT + markup.length * 1_000 + 1_000, markup);
+    }
+  });
+
   it("counts the tooltips of links and images, as serialized", async () => {
     // Each `&` of a title takes five characters, as `&amp;`, in the copy.
     const name = `${"&".repeat(500)}.html`;
