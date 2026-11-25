@@ -1120,12 +1120,8 @@ describe("A page's local files in Obsidian", function () {
     const rule = `.card:hover > .label { color: red; background: url(img.png); content: "text" }\n`;
     const rules = rule.repeat(Math.ceil(8_000_000 / rule.length));
     const files = {
-      "Large stylesheet.html": [
-        `<link rel="stylesheet" href="Large stylesheet.css">`,
-        `<link rel="stylesheet" href="Large stylesheet next.css"><p id="styled">Styled</p>`,
-      ].join(""),
-      "Large stylesheet.css": rules,
-      "Large stylesheet next.css": `#styled { color: ${GREEN_TEXT} }`,
+      "Large stylesheet.html": `<link rel="stylesheet" href="Large stylesheet.css"><p id="styled">Styled</p>`,
+      "Large stylesheet.css": `${rules}#styled { color: ${GREEN_TEXT} }`,
     };
 
     before(async function () {
@@ -1202,25 +1198,52 @@ describe("A page's local files in Obsidian", function () {
           await copyLocalFiles(false);
         }
       });
+  });
 
-    it("stops preparing it once its tab closes", async function () {
-      await recordReads("Large stylesheet");
-      try {
-        const preparing = await browser.executeObsidian(async ({ app }) => {
+  it("stops preparing a page once its tab closes (#158)", async function () {
+    const files = {
+      "Closed page.html": [
+        `<link rel="stylesheet" href="Closed page one.css">`,
+        `<link rel="stylesheet" href="Closed page two.css"><p>Closed</p>`,
+      ].join(""),
+      "Closed page one.css": "p { color: green }",
+      "Closed page two.css": "p { color: green }",
+    };
+    await createVaultFiles(files);
+    await recordReads("Closed page");
+    const readsAfter = async (close: boolean) =>
+      browser.executeObsidian(async ({ app }, close) => {
+        const vault = app.vault as unknown as {
+          cachedRead(file: { path: string }): Promise<string>;
+        };
+        const reads = (window as unknown as { e2eReads: string[] }).e2eReads;
+        reads.length = 0;
+        const read = vault.cachedRead;
+        let release = () => undefined as void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        vault.cachedRead = async (file) => {
+          if (file.path === "Closed page one.css") await held;
+          return read.call(vault, file);
+        };
+        try {
           const leaf = app.workspace.getLeaf("tab");
-          await leaf.openFile(app.vault.getAbstractFileByPath("Large stylesheet.html") as never);
-          const { srcdoc } = leaf.view.containerEl.querySelector("iframe")!;
-          leaf.detach();
-          return srcdoc === "";
-        });
-        expect(preparing).toBe(true);
-        // Longer than the next stylesheet takes to come, when nothing stops.
-        await browser.pause(6_000);
-        expect(await recordedReads()).not.toContain("Large stylesheet next.css");
-      } finally {
-        await restoreHost();
-      }
-    });
+          await leaf.openFile(app.vault.getAbstractFileByPath("Closed page.html") as never);
+          if (close) leaf.detach();
+          release();
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          if (!close) leaf.detach();
+        } finally {
+          vault.cachedRead = read;
+        }
+        return [...reads];
+      }, close);
+    try {
+      expect(await readsAfter(false)).toContain("Closed page two.css");
+      expect(await readsAfter(true)).toEqual(["Closed page one.css"]);
+    } finally {
+      await restoreHost();
+      await deleteVaultPaths(Object.keys(files));
+    }
   });
 
   before(async function () {

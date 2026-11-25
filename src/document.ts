@@ -1271,6 +1271,7 @@ async function fileSheet(
   budget: StylesheetBudget,
   turns: Turns,
 ): Promise<PreparedSheet | null> {
+  await turns.step(RESOLVING);
   const read = await budget.take(path, sheetUrl);
   if (read === null) return null;
   const sheet = await turns.run(closedSheet(read));
@@ -2118,7 +2119,7 @@ async function visitCssUrls(
   let result = "";
   let cursor = 0;
   for (const match of references) {
-    if (turns.due(RESOLVING)) await turns.give();
+    await turns.step(RESOLVING);
     const written = css.slice(match.start, match.end);
     const reference = match.value;
     const absolute =
@@ -2142,7 +2143,7 @@ async function visitSrcset(
   let result = "";
   let cursor = 0;
   for (const match of srcset.matchAll(SRCSET_URL)) {
-    if (turns.due(RESOLVING)) await turns.give();
+    await turns.step(RESOLVING);
     const [whole, comma, space, url] = match;
     const absolute = resolve(url, baseUrl);
     const replaced = absolute === null ? null : await visit(absolute);
@@ -2193,7 +2194,7 @@ async function visitFileReferences(
     return found;
   };
   for (const [element, names] of COPIED_ATTRIBUTES.elements(root)) {
-    if (turns.due(RESOLVING)) await turns.give();
+    await turns.step(RESOLVING);
     for (const name of names) {
       const value = element.getAttribute(name);
       if (value === null) continue;
@@ -2216,7 +2217,7 @@ async function visitFileReferences(
     if (replaced !== css) setStyleText(style, replaced);
   }
   for (const element of root.querySelectorAll("[style]")) {
-    if (turns.due(RESOLVING)) await turns.give();
+    await turns.step(RESOLVING);
     const css = element.getAttribute("style") ?? "";
     const references = await urls(css, true);
     const replaced = await visitCssUrls(css, parsedBase(element), visit, turns, references);
@@ -2279,7 +2280,8 @@ export interface PageOptions {
   readonly inertUntilWatched?: boolean;
   /**
    * Whether the copy is no longer wanted, as when its view has closed:
-   * preparing it then ends with a `StoppedError` at its next turn.
+   * preparing it then ends with a `StoppedError`, at its next turn or before
+   * it reads another file.
    */
   readonly stopped?: () => boolean;
 }
@@ -2509,7 +2511,6 @@ export async function preparePage(
   // that nothing shows, Chromium parses the stylesheet of a <style> that is
   // put there, at once: over a second for 15 million characters, for nothing,
   // as the frame parses the copy again (#158).
-  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const tree = doc.createDocumentFragment();
   tree.append(root);
 
@@ -2568,17 +2569,14 @@ export async function preparePage(
   const madeInert = options.inertUntilWatched === true && !root.hasAttribute("inert");
   if (madeInert) root.setAttribute("inert", "");
 
-  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const policy = doc.createElement("meta");
   policy.setAttribute("http-equiv", "Content-Security-Policy");
   policy.setAttribute("content", pagePolicy(context.vaultUrl));
-  // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
   const copyBase = doc.createElement("base");
   copyBase.setAttribute("href", baseUrl);
   head.prepend(policy, copyBase);
 
   if (!ownStyles && options.readingStyle !== undefined) {
-    // eslint-disable-next-line obsidianmd/prefer-create-el -- a parsed document, without Obsidian's helpers
     const reading = doc.createElement("style");
     reading.id = READING_STYLE_ID;
     reading.textContent = styleElementText(options.readingStyle);

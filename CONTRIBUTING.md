@@ -199,6 +199,13 @@ a known risk and takes precedence over that wait, but only for the versions the 
    the review decision with its reason in the pull request. Unrelated updates, and later releases of
    the same package, keep the wait.
 
+For [#85](https://github.com/viell-dev/slop-html-page-viewer/issues/85), remove the root
+`eslint-plugin-n` override once the Obsidian linter's SDL dependency resolves without an affected
+`minimatch`. In `test/e2e`, remove Mocha's `glob` and `minimatch` overrides individually once its
+ranges resolve `glob` 14.0.2 and `minimatch` 11.0.1 or later, respectively. Remove the
+`readdir-glob` override once WebdriverIO's archive tools resolve `minimatch` 11.0.1 or later on
+that path. Rerun the corresponding audit and consumer checks when removing each override.
+
 ## Branches
 
 The fork keeps every change that could serve upstream separate, so that it can be offered upstream

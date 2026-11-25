@@ -327,9 +327,13 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     // Nothing to save: see `save`.
   };
 
-  /** Closes the view, as when its tab closes or shows another view, so that it prepares no page. */
+  /**
+   * Closes the view, as when its tab closes or shows another view: what it
+   * still prepares or reads is not wanted anymore.
+   */
   override async onClose(): Promise<void> {
     this.iframe = null;
+    this.contentsVersion += 1;
     await super.onClose();
   }
 
@@ -586,7 +590,6 @@ export class HtmlPageViewerView extends TextFileView implements FindHost {
     const doc = this.iframe?.contentDocument;
     if (!doc || doc.URL !== "about:srcdoc" || doc.readyState === "loading") return null;
     if (!doc.getElementById(FIND_STYLE_ID)) {
-      // eslint-disable-next-line obsidianmd/prefer-create-el -- the page's document, without Obsidian's helpers
       const style = doc.createElement("style");
       style.id = FIND_STYLE_ID;
       style.textContent = FIND_STYLE;

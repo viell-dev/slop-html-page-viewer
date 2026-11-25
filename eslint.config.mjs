@@ -20,6 +20,14 @@ export default defineConfig(
   // The rules of Obsidian's review of community plugins.
   obsidianmd.configs.recommended,
   {
+    files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}"],
+    rules: {
+      // Keep the fork's existing unused-variable and sentence-case checks.
+      "@typescript-eslint/no-unused-vars": ["warn", { args: "none", ignoreRestSiblings: true }],
+      "obsidianmd/ui/sentence-case": ["warn", { enforceCamelCaseLower: true }],
+    },
+  },
+  {
     rules: {
       // That review forbids disabling its rules in place; the fork is not in
       // Obsidian's directory, and each disable here states its reason.
