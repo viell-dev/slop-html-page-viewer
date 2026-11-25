@@ -163,9 +163,7 @@ file. Keep scripts off for ordinary saved pages; see [Limits](#limits) before en
   sources, text tracks, and SVG `<image>` a moment after it reads them, so in a browser they come
   from the page's folder in a longer page or one with a script before the `<base>`, but from the
   `<base>`'s folder in a short page; see [Limits](#limits). What making these URLs absolute adds
-  to the copy does not count toward the page's limits on stylesheets: each grows by about the
-  length of the page folder's address, so the copy grows with the page's own markup, as with
-  references found by name ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
+  to the copy counts toward the page's text limit (#184).
 
   **Unreleased (#198):** so do the `background` attributes of the `<body>` and of tables, their
   columns, row groups, rows, and cells, and SVG `<feImage>` and `<script>`, which version 0.6.0
@@ -366,17 +364,13 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   **Unreleased (#177):** a stylesheet's text counts as preparing writes it into the page: closed
   where CSS ends it, with its URLs made absolute against its own address or pointed at the file
   found by name, and with each of its imports as long as the copy writes one that stays an import,
-  also when the viewer copies the imported stylesheet in its place. The limit counts that text, not
-  the copy that the view then serializes from it, which character references and escapes can make
-  several times longer ([#183](https://github.com/viell-dev/slop-html-page-viewer/issues/183)). A
+  also when the viewer copies the imported stylesheet in its place. A
   page's own `<style>` keeps its URLs as written, which the copy's `<base>` resolves as the page
   does, apart from those found by name, and only what its imports that stay imports add counts; one
   before the page's `<base>`, and a `style` attribute there, get their URLs made absolute instead,
   and what that adds counts too
   ([#185](https://github.com/viell-dev/slop-html-page-viewer/issues/185)).
-  Its own text, its other `style` attributes, and the page's other references count nothing, and the
-  references found by name there can make the copy far longer than the page
-  ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)). A stylesheet whose text,
+  Its own text counts nothing. A stylesheet whose text,
   so rewritten, would not fit stays a link or import, as one too large does, takes nothing from the
   limit, and its imports are not followed: with its URLs as written, they would resolve against the
   page, and its images and fonts would not load. A repeat of its link or import stays a link or
@@ -389,6 +383,19 @@ Planned changes are tracked as [issues](https://github.com/viell-dev/slop-html-p
   stays within that limit, apart from the text that closes the last of them, which counts at once
   and can be as long as that stylesheet
   ([#177](https://github.com/viell-dev/slop-html-page-viewer/issues/177)).
+
+  **Unreleased (#183):** a stylesheet counts as long as the copy writes it as HTML, with the
+  characters that take more room there: a `"` in a `media` that a new `<style>` takes over from its
+  link, and `&`, `<`, and `>` in an SVG `<style>`
+  ([#183](https://github.com/viell-dev/slop-html-page-viewer/issues/183)).
+
+  **Unreleased (#184):** what the viewer adds to the page's own markup counts toward the same 16
+  million characters: the addresses of files that it finds by name, those that it makes absolute
+  before a page's `<base>`, and the tooltips of links and images. Past the limit, a reference stays
+  as the page has it, so that one found only by name shows nothing, and no tooltip is added. Without
+  it, a short page could make a copy hundreds of times as long, as in version 0.6.0. An ordinary
+  page stays far below it: 500 images found by name add about 50,000 characters
+  ([#184](https://github.com/viell-dev/slop-html-page-viewer/issues/184)).
 
 - **Unreleased (#185):** an element after a page's late `<base>` that repeats one before it can
   show its `style` attribute's images from the `<base>`'s folder, where Chromium shows them from

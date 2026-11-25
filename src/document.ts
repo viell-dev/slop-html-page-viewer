@@ -17,7 +17,6 @@ import {
   cssDeclarationsEnd,
   cssEnd,
   cssImports,
-  cssReferences,
   cssTokens,
   importStop,
   scanReferences,
@@ -82,8 +81,12 @@ const MAX_IMPORT_DEPTH = 8;
  * in UTF-16 code units, the copy takes in: a stylesheet's file text when it
  * is followed, with what preparing adds to it (`StylesheetBudget.add`), and
  * its prepared text, as copied, for each repeat of the page's own link or
- * import of it that gets that text again. The depth limit bounds an
- * import chain, not how many imports each stylesheet has, so without these
+ * import of it that gets that text again. The addresses and tooltips that
+ * preparing adds to the page's own markup count too (#184). What else it adds
+ * there is not counted, as it is at most about as long as the markup that it
+ * is for: what closes a page's own stylesheets, the marks of declared shadow
+ * roots, and the tags of `<style>` elements in place of links. The depth limit
+ * bounds an import chain, not how many imports each stylesheet has, so without these
  * the work and the copy would grow with that number raised to the depth
  * (#154). Web pages load a median of 7 stylesheets with 68 KB of CSS, and 22
  * with 256 KB at the 90th percentile (HTTP Archive's Web Almanac, 2022).
@@ -396,10 +399,10 @@ function stylesheetTexts(parts: readonly SheetPart[], split: () => boolean): str
 export const STYLE_ELEMENT_LIMIT = 1_000;
 
 /**
- * The vault stylesheets that a page's copy takes in, within the page's
- * limits, which the document and the content of its templates share, in the
- * order they are prepared. Each file is read once, however often the page
- * links or imports it.
+ * The vault stylesheets that a page's copy takes in, and what preparing adds
+ * to the page's own markup, within the page's limits, which the document and
+ * the content of its templates share, in the order they are prepared. Each
+ * file is read once, however often the page links or imports it.
  */
 class StylesheetBudget {
   private taken = 0;
@@ -441,10 +444,14 @@ class StylesheetBudget {
    * imports, and what that writing adds to a page's `<style>` whose imports
    * the copy takes in (`ownRewrites`); the blocks of an import's conditions
    * and the conditions that it adds to kept imports (`placedParts`); a
-   * repeat's prepared text (`sheet`); and the copied attributes of added
-   * `<style>` elements (`addStyle`). Callers that build text check `room` as
-   * they go, so as to stop early. It only ever adds: what the copy leaves out
-   * of a stylesheet's text stays counted, so that the room never grows back.
+   * repeat's prepared text (`sheet`); the copied attributes of added `<style>`
+   * elements (`addStyle`); what serializing the copy adds to stylesheets
+   * (`escapes`); and what the page's references made absolute or found by
+   * name (`prepareReferences`, `locateCssUrls`, `prepareStyleAttributes`) and
+   * its tooltips (`addTooltips`) add to its own markup, as serialized.
+   * Callers that build text check `room` as they go, so as to stop early. It
+   * only ever adds: what the copy leaves out of a stylesheet's text stays
+   * counted, so that the room never grows back.
    */
   add(length: number): boolean {
     if (length > this.room) {
@@ -741,16 +748,81 @@ function locatedToken(
   return located === null ? written : referenceText(token, located);
 }
 
-/** Replaces only the references in CSS (`cssReferences`) that `locatedUrl` locates by name. */
+/** How much longer the serialized copy is with `to` in place of `from`, or shorter, below zero. */
+type Growth = (from: string, to: string) => number;
+
+/** The growth of text that serializing writes as it is, as an HTML `<style>`'s. */
+const plainGrowth: Growth = (from, to) => to.length - from.length;
+
+/**
+ * How long serializing writes text, with the characters that it writes as
+ * references: always `&` and U+00A0, and, as asked for, `<` and `>`, and `"`.
+ */
+function escapedLength(text: string, { angles, quotes }: Record<"angles" | "quotes", boolean>) {
+  let length = text.length;
+  for (let i = 0; i < text.length; i++) {
+    switch (text.charCodeAt(i)) {
+      case 0x26:
+        length += "&amp;".length - 1;
+        break;
+      case 0xa0:
+        length += "&nbsp;".length - 1;
+        break;
+      case 0x3c:
+      case 0x3e:
+        if (angles) length += "&lt;".length - 1;
+        break;
+      case 0x22:
+        if (quotes) length += "&quot;".length - 1;
+        break;
+    }
+  }
+  return length;
+}
+
+/**
+ * The most that serializing writes for an attribute's value: Chromium 150
+ * writes `<` and `>` as references there, and Chromium 114, in Obsidian 1.5.3,
+ * as they are.
+ */
+function attributeLength(value: string): number {
+  return escapedLength(value, { angles: true, quotes: true });
+}
+
+/**
+ * The growth of an attribute's value whose references are rewritten, in
+ * whichever Chromium it grows more: a URL made absolute has `%3C` where it had
+ * `<`, which grows more where `<` was written as it is, and a CSS escape of
+ * `<` in a `data:` URL or a fragment becomes `<`, which grows more where that
+ * is written as a reference.
+ */
+const attributeGrowth: Growth = (from, to) =>
+  Math.max(
+    attributeLength(to) - attributeLength(from),
+    escapedLength(to, { angles: false, quotes: true }) -
+      escapedLength(from, { angles: false, quotes: true }),
+  );
+
+/**
+ * Replaces only the references in CSS (`cssReferences`) that `locatedUrl`
+ * locates by name. What each adds, as `growth` finds it, counts toward the
+ * text limit; one past it keeps its text, and shows nothing, as one that
+ * names no file (#184).
+ */
 function locateCssUrls(
   css: string,
   baseUrl: string,
   context: PageContext,
   tokens: readonly CssToken[],
+  budget: StylesheetBudget,
+  growth: Growth,
 ): Steps<string> {
   return rewriteCssUrls(
     css,
-    (written, token) => locatedToken(written, token, baseUrl, context),
+    (written, token) => {
+      const located = locatedToken(written, token, baseUrl, context);
+      return located === written || budget.add(growth(written, located)) ? located : written;
+    },
     tokens,
   );
 }
@@ -887,17 +959,31 @@ function preparedReference(
   return base !== baseUrl && absolute !== resolve(reference, baseUrl) ? absolute : written;
 }
 
-/** Applies `preparedReference` to each URL of a `srcset`, keeping its descriptors. */
-function preparedSrcset(
+/**
+ * Applies `preparedReference` to each URL of a `srcset`, keeping its
+ * descriptors, and the rest as written once that would add more than `room`.
+ */
+function* preparedSrcset(
   srcset: string,
   base: string,
   baseUrl: string,
   context: PageContext,
-): string {
-  return srcset.replace(SRCSET_URL, (whole, comma: string, space: string, url: string) => {
+  room: number,
+): Steps<string> {
+  let result = "";
+  let cursor = 0;
+  let added = 0;
+  for (const match of srcset.matchAll(SRCSET_URL)) {
+    yield RESOLVING;
+    const [whole, comma, space, url] = match;
     const prepared = preparedReference(url, base, baseUrl, context);
-    return prepared === url ? whole : `${comma}${space}${prepared}`;
-  });
+    if (prepared === url) continue;
+    added += Math.max(0, attributeGrowth(url, prepared));
+    if (added > room) break;
+    result += `${srcset.slice(cursor, match.index)}${comma}${space}${prepared}`;
+    cursor = match.index + whole.length;
+  }
+  return result + srcset.slice(cursor);
 }
 
 /**
@@ -967,9 +1053,17 @@ function keepsSvgLink(link: Element): boolean {
  * address in its status bar, which the viewer's frame does not have, and an
  * image's alt text only when the image does not load. A page's own titles
  * stay. An SVG link gets the tooltip as its `xlink:title`, which Chromium
- * shows, only when nothing inside it may name it (`keepsSvgLink`).
+ * shows, only when nothing inside it may name it (`keepsSvgLink`). What the
+ * titles add counts toward the text limit; past it, none is added (#184).
  */
-function* addTooltips(root: ParentNode, baseUrl: string, context: PageContext): Steps<void> {
+function* addTooltips(
+  root: ParentNode,
+  baseUrl: string,
+  context: PageContext,
+  budget: StylesheetBudget,
+): Steps<void> {
+  const fits = (name: string, title: string) =>
+    budget.add(` ${name}=""`.length + attributeLength(title));
   for (const link of root.querySelectorAll("a, area")) {
     yield RESOLVING;
     const svg = link.namespaceURI === SVG_NAMESPACE;
@@ -978,13 +1072,14 @@ function* addTooltips(root: ParentNode, baseUrl: string, context: PageContext): 
     if (reference === null) continue;
     const absolute = resolve(reference, baseUrl);
     const tooltip = absolute === null ? null : linkTooltip(reference, absolute, context);
-    if (tooltip === null) continue;
+    if (tooltip === null || !fits(svg ? "xlink:title" : "title", tooltip)) continue;
     if (svg) link.setAttributeNS(XLINK_NAMESPACE, "xlink:title", tooltip);
     else link.setAttribute("title", tooltip);
   }
   for (const image of root.querySelectorAll("img[alt]")) {
     const alt = image.getAttribute("alt")?.trim() ?? "";
-    if (alt !== "" && !image.hasAttribute("title")) image.setAttribute("title", alt);
+    if (alt !== "" && !image.hasAttribute("title") && fits("title", alt))
+      image.setAttribute("title", alt);
   }
 }
 
@@ -1009,12 +1104,19 @@ function* addTooltips(root: ParentNode, baseUrl: string, context: PageContext): 
  * `<base>`'s, as the copy's `<base>` alone did. Its policy refuses `<embed>`
  * and `<object>` anyway (`pagePolicy`). The `style` attributes are prepared
  * with the stylesheets (`prepareStyleAttributes`).
+ *
+ * What this adds to the attributes counts toward the text limit (#184). One
+ * that would pass it stays as written, so that the copy's `<base>` resolves
+ * it: a reference found only by name shows nothing, and one before a later
+ * `<base>` shows what the `<base>` makes of it. So do the URLs of a `srcset`
+ * from the first that would pass it.
  */
 function* prepareReferences(
   root: ParentNode,
   parsedBase: (element: Element) => string,
   baseUrl: string,
   context: PageContext,
+  budget: StylesheetBudget,
 ): Steps<void> {
   for (const [element, names] of RESOURCE_ATTRIBUTES.elements(root)) {
     yield RESOLVING;
@@ -1026,9 +1128,10 @@ function* prepareReferences(
       base ??= parsedBase(element);
       const prepared =
         name === "srcset"
-          ? preparedSrcset(value, base, baseUrl, context)
+          ? yield* preparedSrcset(value, base, baseUrl, context, budget.room)
           : preparedReference(value, base, baseUrl, context);
-      if (prepared !== value) element.setAttribute(name, prepared);
+      if (prepared !== value && budget.add(attributeGrowth(value, prepared)))
+        element.setAttribute(name, prepared);
     }
   }
 }
@@ -1128,23 +1231,24 @@ function declarationTokens(css: string): CssToken[] {
 /**
  * A `style` attribute's declarations, with their tokens
  * (`declarationTokens`), with their references made absolute against `base`,
- * or found by name (`absoluteUrl`), and the length that this adds, or null
- * once that passes `room`, where the work stops.
+ * or found by name (`absoluteUrl`), and the length that this adds to the
+ * serialized copy, or null once that passes `room`, where the work stops.
  */
-function absoluteDeclarations(
+function* absoluteDeclarations(
   css: string,
   tokens: readonly CssToken[],
   base: string,
   context: PageContext,
   room: number,
-): { text: string; added: number } | null {
+): Steps<{ text: string; added: number } | null> {
   let text = "";
   let cursor = 0;
   let added = 0;
-  for (const token of cssReferences(tokens)) {
+  for (const token of yield* scanReferences(tokens)) {
+    yield RESOLVING;
     const written = css.slice(token.start, token.end);
     const rewrite = absoluteUrl(written, token, base, context);
-    added += Math.max(0, rewrite.length - written.length);
+    added += Math.max(0, attributeGrowth(written, rewrite));
     if (added > room) return null;
     text += css.slice(cursor, token.start) + rewrite;
     cursor = token.end;
@@ -1156,10 +1260,9 @@ function absoluteDeclarations(
  * Prepares the `style` attributes of a document or a template's content. One
  * that resolves against the copy's `<base>` (`parsedBases`) keeps its
  * references as written, apart from those found by name. Any other gets them
- * absolute against its own base, and what that adds counts toward the text
- * limit, as for a `<style>`; when it would not fit, it keeps its references as
- * written, apart from those found by name, which the copy's `<base>` then
- * resolves.
+ * absolute against its own base; when that would not fit in the text limit,
+ * it keeps its references as written, apart from those found by name, which
+ * the copy's `<base>` then resolves. What either adds counts toward the limit.
  */
 function* prepareStyleAttributes(
   root: ParentNode,
@@ -1175,11 +1278,11 @@ function* prepareStyleAttributes(
     const tokens = declarationTokens(style);
     let replaced: string | null = null;
     if (base !== baseUrl) {
-      const absolute = absoluteDeclarations(style, tokens, base, context, budget.room);
+      const absolute = yield* absoluteDeclarations(style, tokens, base, context, budget.room);
       if (absolute !== null && budget.add(absolute.added)) replaced = absolute.text;
     }
     if (replaced === null && context.exists && context.locate)
-      replaced = yield* locateCssUrls(style, base, context, tokens);
+      replaced = yield* locateCssUrls(style, base, context, tokens, budget, attributeGrowth);
     if (replaced !== null && replaced !== style) element.setAttribute("style", replaced);
   }
 }
@@ -1240,7 +1343,8 @@ export async function inlineStylesheet(
     tokens,
     own: { length: 0, absolute: true },
   });
-  if (sheet === null) return [await turns.run(locateCssUrls(text, sheetUrl, context, tokens))];
+  if (sheet === null)
+    return [await turns.run(locateCssUrls(text, sheetUrl, context, tokens, budget, plainGrowth))];
   return stylesheetTexts(sheet.parts, () => budget.addStyle(0));
 }
 
@@ -1361,9 +1465,10 @@ interface OwnText {
  * as the copy keeps it if it stays an import (`importEntry`), and each of its
  * other URLs made absolute against its URL (`absoluteUrl`), or, without
  * `own.absolute`, pointed at a file found by name (`locatedToken`). Its own
- * text, with what making URLs and imports absolute adds to it, takes from the
- * text limit (`StylesheetBudget.add`); what finding a file by name adds to a
- * page's `<style>` takes nothing, as in the rest of the page's own text.
+ * text, with what this adds to it, takes from the text limit
+ * (`StylesheetBudget.add`). A reference found by name in a page's `<style>`
+ * that would not fit keeps its text, as it does without imports
+ * (`locateCssUrls`).
  *
  * Null when that would not fit, once it passes `StylesheetBudget.rewriteRoom`,
  * where the work stops. The refusal counts, with the length that the text had
@@ -1408,7 +1513,10 @@ function* ownRewrites(
     const written = css.slice(token.start, token.end);
     if (!own.absolute) {
       const text = locatedToken(written, token, sheetUrl, context);
-      if (text !== written) rewrites.push({ start: token.start, end: token.end, text });
+      const grown = Math.max(0, text.length - written.length);
+      if (text === written || added + grown > room) continue;
+      added += grown;
+      rewrites.push({ start: token.start, end: token.end, text });
       continue;
     }
     const text = absoluteUrl(written, token, sheetUrl, context);
@@ -1529,6 +1637,25 @@ async function inlineImports(
  */
 export function styleElementText(css: string): string {
   return css.replace(/<\/(style)/gi, "<\\/$1");
+}
+
+/**
+ * How much longer than these stylesheets the serialized copy of them is, each
+ * in a `<style>` of this namespace: what keeps `</style` in one's text there
+ * (`styleElementText`), and, in an SVG one, which is serialized as any other
+ * element, its character references (#183).
+ */
+function escapes(texts: readonly string[], namespace: string | null): number {
+  let added = 0;
+  for (const text of texts) {
+    const written = styleElementText(text);
+    added +=
+      namespace === HTML_NAMESPACE
+        ? written.length
+        : escapedLength(written, { angles: true, quotes: false });
+    added -= text.length;
+  }
+  return added;
 }
 
 /** Text with its ASCII capitals in lowercase, for ASCII case-insensitive comparison. */
@@ -1815,6 +1942,7 @@ async function inlineStylesheets(
     const texts = stylesheetTexts(sheet.parts, () =>
       budget.addStyle(copiedLength(link, LINK_ATTRIBUTES)),
     );
+    if (!budget.add(escapes(texts, HTML_NAMESPACE))) continue;
     // One at a time: a call takes only so many arguments.
     for (const text of texts) link.before(styleFor(link, HTML_NAMESPACE, LINK_ATTRIBUTES, text));
     link.remove();
@@ -1845,10 +1973,14 @@ async function inlineStylesheets(
         : null;
     const texts =
       inlined === null
-        ? [await turns.run(locateCssUrls(css, base, context, tokens))]
+        ? [await turns.run(locateCssUrls(css, base, context, tokens, budget, plainGrowth))]
         : stylesheetTexts(inlined.parts, () =>
             budget.addStyle(copiedLength(style, STYLE_ATTRIBUTES)),
           );
+    // What serializing the page's own text adds is not preparing's. A <style>
+    // whose prepared text would not fit, serialized, keeps its own.
+    const written = escapes([own], style.namespaceURI);
+    if (!budget.add(escapes(texts, style.namespaceURI) - written)) continue;
     // The element keeps the last stylesheet, which holds its own rules, and
     // the others go before it, in its namespace (`styleFor`).
     const text = styleElementText(texts.pop() ?? "");
@@ -1875,10 +2007,13 @@ const LINK_ATTRIBUTES = ["media", "title"];
  */
 const STYLE_ATTRIBUTES = ["media", "title", "type"];
 
-/** The length of an element's attributes of these names, which a `<style>` copies (`styleFor`). */
+/**
+ * The length, in the serialized copy, of an element's attributes of these
+ * names, which a `<style>` copies (`styleFor`).
+ */
 function copiedLength(element: Element, names: readonly string[]): number {
   let length = 0;
-  for (const name of names) length += element.getAttribute(name)?.length ?? 0;
+  for (const name of names) length += attributeLength(element.getAttribute(name) ?? "");
   return length;
 }
 
@@ -2543,8 +2678,8 @@ export async function preparePage(
   // share its copy limits.
   const budget = new StylesheetBudget(context);
   for (const part of roots) {
-    await turns.run(prepareReferences(part.node, part.parsedBase, baseUrl, context));
-    await turns.run(addTooltips(part.node, baseUrl, context));
+    await turns.run(prepareReferences(part.node, part.parsedBase, baseUrl, context, budget));
+    await turns.run(addTooltips(part.node, baseUrl, context, budget));
     await inlineStylesheets(part, baseUrl, context, budget, turns);
   }
 
