@@ -33,10 +33,16 @@ silence, downloads, and a partial test are not blanket acceptance.
 1. Prepare a brief practical test of the main user journey, including
    installation, discoverability, ordinary tasks, feedback, and recovery.
    Complete agent verification first. Supply a directly downloadable installable
-   build, installation instructions, synthetic inputs, numbered tasks and
-   expected outcomes. Ask what felt unclear or awkward as well as what failed,
-   and request the build, environment, tested tasks, and remaining untested areas.
-   Do not ask a person to build from source or reconstruct a development thread.
+   build and installation instructions, including how to update an existing
+   installation without losing its settings and how to go back to the previous
+   version. First explain what changed and how to use it, without questions;
+   then list every question together in a separate final section, asking what
+   felt unclear or awkward as well as what failed, and requesting the build,
+   environment, what was tried, and remaining untested areas. Keep the request
+   generic: the person tests in their own vault with their own pages, so do not
+   script steps an agent can perform, list expected results to compare against,
+   or supply a synthetic vault or inputs for them to follow. Do not ask a person
+   to build from source or reconstruct a development thread.
 2. Create or reuse a dedicated issue before requesting the test. Use
    `Type: Maintenance` and `Needs: Human`, or `Needs: Owner` when only the owner
    can supply the answer; never both Needs labels. Assign the person being asked,
@@ -72,9 +78,11 @@ Agents continue to own implementation, verification, review, packaging,
 publication, and follow-up. This gate requires a proportionate human usability
 pass, not human code review or repeated approval for every routine release.
 
-For this Linux desktop fork, cover installing in a synthetic Obsidian vault,
-opening an HTML page and its local assets, understanding the view controls, and
-following links. Keep the owner's real vault outside agent-controlled tests.
+For this Linux desktop fork, the request covers installing or updating the
+plugin, opening HTML pages and their local assets, understanding the view
+controls, and following links, in the tester's own vault. Synthetic vaults
+belong to the automated tests; keep the owner's real vault outside
+agent-controlled tests.
 
 ## Prepare the release
 
