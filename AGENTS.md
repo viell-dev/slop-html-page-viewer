@@ -118,8 +118,10 @@ Labels follow [`.github/labels.json`](./.github/labels.json); keep GitHub in syn
   `Needs: Human` instead. Assign the person being asked under either label, including the owner
   when asking them to test. State exactly what is needed and why human input is required, the
   recommendation, the result to expect, and what waits for it. A request to try something names
-  the build, gives synthetic inputs, numbered steps, and the expected results, and says what to
-  report. Label the work that waits for the answer `Status: Blocked`, and link the two. Run the
+  the build and how to install or update it, explains what changed and how to use it, and only
+  then lists every question together at the end, including what to report. Keep it generic: the
+  person tests in their own vault and setup, so do not script steps an agent can perform or supply
+  a synthetic vault or inputs for them to follow. Label the work that waits for the answer `Status: Blocked`, and link the two. Run the
   mechanical checks as an agent, while retaining required human usability testing. Verify the live
   assignee and labels and link the request before ending the thread; candidate publication and
   preparation merges do not complete it. Keep it open until the answer and resulting work are
